@@ -204,3 +204,24 @@ test('waitForElement times out with BROWSER_WAIT_TIMEOUT', async () => {
     (error) => error.code === 'BROWSER_WAIT_TIMEOUT',
   )
 })
+
+test('setSpace labels the window and records it', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const handle = host.views[0]
+  let labeled = null
+  handle.label = async (label) => { labeled = label }
+  await provider.setSpace(session, 'rewards')
+  assert.equal(labeled, 'rewards')
+  const history = await provider.history(session)
+  assert.equal(history[0].action, 'setSpace')
+})
+
+test('listSpaces forwards to the host', async () => {
+  const host = new FakeHost()
+  host.listWindows = async () => [{ key: 'task-1', label: 'rewards' }]
+  const provider = new ElectronBrowserProvider(host)
+  const spaces = await provider.listSpaces()
+  assert.deepEqual(spaces, [{ key: 'task-1', label: 'rewards' }])
+})

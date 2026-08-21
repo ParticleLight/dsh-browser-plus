@@ -297,6 +297,13 @@ export interface BrowserOpenOptions {
     /** Label (space name) shown in the window title. */
     readonly label?: string;
 }
+/** One open browser window (space). */
+export interface BrowserSpaceInfo {
+    /** Window group key. */
+    readonly key: string;
+    /** Display label, or '' for unlabeled. */
+    readonly label: string;
+}
 /**
  * A browser-capable backend. Registered with `ctx.browser.registerBrowserProvider`.
  * `id` is a stable string, unique across the seam.
@@ -361,6 +368,10 @@ export interface BrowserProvider {
     history(session: BrowserSessionId): Promise<readonly BrowserHistoryEntry[]>;
     /** Replay one recorded operation by sequence number. */
     replay(session: BrowserSessionId, seq: number): Promise<void>;
+    /** Set the space (window title) for a session. */
+    setSpace(session: BrowserSessionId, label: string): Promise<void>;
+    /** List every open window (space) with its label. */
+    listSpaces(): Promise<readonly BrowserSpaceInfo[]>;
     /** Close the session and destroy its backing surface. Idempotent. */
     close(session: BrowserSessionId): Promise<void>;
 }

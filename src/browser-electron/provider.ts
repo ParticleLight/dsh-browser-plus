@@ -26,6 +26,7 @@ import type {
   BrowserProvider,
   BrowserSessionId,
   BrowserSnapshotResult,
+  BrowserSpaceInfo,
   BrowserTab,
   BrowserUploadFileRequest,
   BrowserUploadFileResult,
@@ -100,6 +101,8 @@ export interface ElectronBrowserViewHost {
    * @param entry - the trail entry ({ action, params, ok, at }).
    */
   trace?(viewId: string, entry: unknown): void
+  /** List open windows with their labels. Optional (self-hosted only). */
+  listWindows?(): Promise<Array<{ key: string; label: string }>>
 }
 
 /**
@@ -124,6 +127,8 @@ export interface ElectronViewHandle {
    * @returns the dialog detail ({ type, message, prompt? }) or null.
    */
   clearDialog?(): Promise<unknown>
+  /** Set the window title (space name) for this view's window. Optional. */
+  label?(label: string): Promise<void>
 }
 
 /** One tab inside a session: its view plus a stable id. */
@@ -1064,6 +1069,26 @@ export class ElectronBrowserProvider implements BrowserProvider {
     } catch {
       // Dialog supervision is cosmetic; never fail a page operation for it.
     }
+  }
+
+  /** Name this session's window (space). */
+  async setSpace(session: BrowserSessionId, label: string): Promise<void> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    const labelable = handle as { label?(label: string): Promise<void> }
+    if (typeof labelable.label === 'function') {
+      await labelable.label(label)
+    } else {
+      throw new BrowserError('browser: space naming is only available on the self-hosted browser', 'BROWSER_SPACE_UNSUPPORTED')
+    }
+    this.record(s, 'setSpace', { label }, true)
+  }
+
+  /** List every open window (space) with its label. */
+  async listSpaces(): Promise<readonly BrowserSpaceInfo[]> {
+    const host = this.host as { listWindows?(): Promise<Array<{ key: string; label: string }>> }
+    if (typeof host.listWindows !== 'function') return []
+    return host.listWindows()
   }
 
   /** Append one operation to the session's history. */

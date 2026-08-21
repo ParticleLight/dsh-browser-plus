@@ -30,6 +30,7 @@ import type {
   BrowserScreenshotResult,
   BrowserSessionId,
   BrowserSnapshotResult,
+  BrowserSpaceInfo,
   BrowserTab,
   BrowserTypeRequest,
   BrowserUploadFileRequest,
@@ -69,6 +70,7 @@ export type {
   BrowserSessionId,
   BrowserSnapshotElement,
   BrowserSnapshotResult,
+  BrowserSpaceInfo,
   BrowserTab,
   BrowserTypeRequest,
   BrowserUploadFileRequest,
@@ -289,6 +291,16 @@ export class BrowserRuntime extends Service {
   /** Import cookies into the session through the provider. */
   async restoreAuth(session: BrowserSessionId, cookies: readonly ExportedCookie[]): Promise<number> {
     return this.resolveProvider().restoreAuth(session, cookies)
+  }
+
+  /** Set the session's window title (space name) through the selected provider. */
+  async setSpace(session: BrowserSessionId, label: string): Promise<void> {
+    return this.resolveProvider().setSpace(session, label)
+  }
+
+  /** List every open window (space) with its label through the selected provider. */
+  async listSpaces(): Promise<readonly BrowserSpaceInfo[]> {
+    return this.resolveProvider().listSpaces()
   }
 
   /** Close the session through the selected provider. Idempotent; a missing

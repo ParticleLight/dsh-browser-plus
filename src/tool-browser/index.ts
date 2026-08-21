@@ -73,12 +73,15 @@ function taskKey(exec: { agent?: { id?: string } } | undefined): string {
  * @param key - the task key (see {@link taskKey}).
  * @returns the task's session id.
  */
-async function ensureSession(browser: NonNullable<Context['browser']>, key: string): Promise<BrowserSessionId> {
+async function ensureSession(browser: NonNullable<Context['browser']>, key: string, label?: string): Promise<BrowserSessionId> {
   const existing = sessionsByTask.get(key)
   if (existing !== undefined) return existing
   const pending = pendingOpens.get(key)
   if (pending !== undefined) return pending
-  const opening = browser.open().then(
+  const opening = browser.open({
+    key,
+    ...label !== undefined && label !== '' ? { label } : {},
+  }).then(
     session => { sessionsByTask.set(key, session); pendingOpens.delete(key); return session },
     error => { pendingOpens.delete(key); throw error },
   )
@@ -136,6 +139,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     parameters: {
       url: { type: 'string', required: true, description: 'The URL to open (HTTP/HTTPS).' },
       newTab: { type: 'boolean', description: 'Open in a new tab instead of the active one.' },
+      space: { type: 'string', description: 'Optional space name shown in the window title (per-task windows are created automatically).' },
     },
     output: {
       schema: {
@@ -181,7 +185,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       assertAllowed('browser_open')
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
-      const session = await ensureSession(browser, taskKey(exec))
+      const session = await ensureSession(browser, taskKey(exec), args.space)
       await browser.openUrl(session, {
         url: args.url,
         ...args.newTab === true ? { newTab: true } : {},
@@ -195,6 +199,53 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...snapshot.challenge !== undefined ? { challenge: snapshot.challenge } : {},
         ...snapshot.userControlling !== undefined ? { userControlling: snapshot.userControlling } : {},
       }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'browser_space',
+    description: 'Name this task\'s browser window (space) or list every open window. Pass label="rewards task" to rename the current task\'s window title; pass no label to list spaces. Each task gets its own window, so naming tells the human which agent owns which window.',
+    parameters: {
+      label: { type: 'string', description: 'New space name for this task\'s window. Omit to list.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          label: { type: 'string' },
+          spaces: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                key: { type: 'string', required: true },
+                label: { type: 'string', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => {
+        if (value.label !== undefined) return [{ type: 'text', text: `Space named "${value.label}".` }]
+        const spaces = value.spaces as Array<{ key: string; label: string }>
+        const lines = spaces.length === 0 ? '(no windows open)' : spaces.map(s => `${s.key}${s.label !== '' ? ` — ${s.label}` : ''}`).join('\n')
+        return [{ type: 'text', text: `Open spaces:\n${lines}` }]
+      },
+    },
+    timeoutMs,
+    isConcurrencySafe: () => true,
+    async execute(args, exec) {
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const session = await ensureSession(browser, taskKey(exec))
+      if (args.label !== undefined) {
+        await browser.setSpace(session, args.label)
+        return { label: args.label }
+      }
+      const spaces = await browser.listSpaces()
+      return { spaces: spaces.map(s => ({ key: s.key, label: s.label ?? '' })) }
     },
   }))
 

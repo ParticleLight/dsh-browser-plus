@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser/browser-electron
  */
-import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserTab, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -42,6 +42,11 @@ export interface ElectronBrowserViewHost {
      * @param entry - the trail entry ({ action, params, ok, at }).
      */
     trace?(viewId: string, entry: unknown): void;
+    /** List open windows with their labels. Optional (self-hosted only). */
+    listWindows?(): Promise<Array<{
+        key: string;
+        label: string;
+    }>>;
 }
 /**
  * A CDP-capable view handle. This is the subset of Electron's
@@ -65,6 +70,8 @@ export interface ElectronViewHandle {
      * @returns the dialog detail ({ type, message, prompt? }) or null.
      */
     clearDialog?(): Promise<unknown>;
+    /** Set the window title (space name) for this view's window. Optional. */
+    label?(label: string): Promise<void>;
 }
 /** Provider config: navigation admission defaults and snapshot caps. */
 export interface ElectronBrowserProviderConfig {
@@ -225,6 +232,10 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
      * operation trail shows the human/agent what the page asked. Best-effort.
      */
     private drainDialog;
+    /** Name this session's window (space). */
+    setSpace(session: BrowserSessionId, label: string): Promise<void>;
+    /** List every open window (space) with its label. */
+    listSpaces(): Promise<readonly BrowserSpaceInfo[]>;
     /** Append one operation to the session's history. */
     private record;
     /** Return the session's chronological operation log (newest last). */
