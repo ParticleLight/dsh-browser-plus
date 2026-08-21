@@ -18,7 +18,7 @@
 | --- | --- |
 | Why a shared real browser, and how it differs from headless approaches | [Why a shared real browser](docs/why-browser.md) |
 | Installation, configuration, day-to-day use | [User guide](docs/user-guide.md) |
-| All 20 tools: parameters, output, examples | [Tool reference](docs/tool-reference.md) |
+| All 26 tools: parameters, output, examples | [Tool reference](docs/tool-reference.md) |
 | How the seam / provider / tools layers and self-hosting work | [Architecture](docs/architecture.md) |
 | Documentation index and README split | [Docs index](docs/README.md) |
 
@@ -28,7 +28,7 @@
 
 - **A real view, not a relay**: the browser is a native `WebContentsView`; the human sees every step the agent takes and can grab control at any time;
 - **Install-and-use**: with a desktop shell the shell's embedded view is used; on plain `dsh web` the plugin **self-hosts** — it spawns its own Electron window with zero extra configuration;
-- **One plugin, one toolset**: after install the agent automatically gets 20 `browser_*` tools (open, inspect, interact, fill forms, screenshot, download, auth management…).
+- **One plugin, one toolset**: after install the agent automatically gets 26 `browser_*` tools (open, inspect, interact, fill forms, screenshot, download, auth management…).
 
 In one sentence: **installing the plugin gives you a real browser that is shared with the user and drivable by the agent.**
 
@@ -196,7 +196,7 @@ agent (browser_* tools)
 
 - **Seam** (`browser` row): provides the `ctx.browser` service — provider registration, session lifecycle, error codes — decoupled from any implementation.
 - **Provider** (`browser-electron` row): operates views through the `ElectronBrowserViewHost` seam (create/destroy/show, `sendCommand`), implemented with real Electron objects by the shell.
-- **Tools** (`tool-browser` row): the 20 model-facing `browser_*` tools, maintaining one browser session per calling task (DSH session).
+- **Tools** (`tool-browser` row): the 26 model-facing `browser_*` tools, maintaining one browser session per calling task (DSH session).
 
 **Self-hosted mode**: without a desktop shell, the plugin spawns its own Electron child process (`host-main.js`) and drives it over loopback TCP JSON-RPC (window title `dsh-browser`). The child auto-restarts after a crash; screenshots prefer Electron's native `capturePage` (CDP capture can hang with multiple views in the window); the plugin automatically picks the **newest** Electron in the environment (33.x has a compositor defect; ≥ 40 recommended).
 

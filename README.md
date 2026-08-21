@@ -18,7 +18,7 @@
 | --- | --- |
 | 了解插件为什么存在、与无头方案的区别 | [为什么做共享真实浏览器](docs/why-browser.md) |
 | 安装、配置与日常使用 | [用户指南](docs/user-guide.md) |
-| 全部 20 个工具的参数、输出与示例 | [工具参考](docs/tool-reference.md) |
+| 全部 26 个工具的参数、输出与示例 | [工具参考](docs/tool-reference.md) |
 | 了解 seam / provider / 工具三层与自托管实现 | [架构说明](docs/architecture.md) |
 | 查看全部文档与 README 分工 | [文档索引](docs/README.md) |
 
@@ -28,7 +28,7 @@
 
 - **真实视图,而非转播**:浏览器是原生 `WebContentsView`,用户直接看到 agent 在做什么,随时可以上手接管;
 - **装好即用**:有桌面外壳时嵌入外壳视图;纯 `dsh web` 也能**自托管**——插件自己拉起一个 Electron 窗口,不需要任何额外配置;
-- **一插件即一套工具**:安装后 agent 自动获得 20 个 `browser_*` 工具(打开、查看、操作、填表、截图、下载、登录态管理……)。
+- **一插件即一套工具**:安装后 agent 自动获得 26 个 `browser_*` 工具(打开、查看、操作、填表、截图、下载、登录态管理……)。
 
 一句话:**安装插件 = 获得一个与用户共享、可被 agent 驱动的真实浏览器。**
 
@@ -196,7 +196,7 @@ agent (browser_* 工具)
 
 - **seam 层**(`browser` 行)提供 `ctx.browser` 服务:provider 注册、会话生命周期、错误码,与具体实现解耦;
 - **provider 层**(`browser-electron` 行)通过 `ElectronBrowserViewHost` 接缝操作视图(创建/销毁/显示/`sendCommand`),由真实外壳用 Electron 对象实现;
-- **工具层**(`tool-browser` 行)提供模型侧的 20 个 `browser_*` 工具,按调用方任务(DSH 会话)维护独立的浏览器会话。
+- **工具层**(`tool-browser` 行)提供模型侧的 26 个 `browser_*` 工具,按调用方任务(DSH 会话)维护独立的浏览器会话。
 
 **自托管模式**:没有桌面外壳时,插件自己拉起一个 Electron 子进程(`host-main.js`),通过本机 TCP JSON-RPC 驱动,窗口标题 `dsh-browser`。子进程崩溃会自动重启;截图优先走 Electron 原生 `capturePage`(CDP 截图在多视图下会挂起),并自动选择环境中**最新版本**的 Electron(33.x 有合成器缺陷,建议 ≥ 40)。
 
