@@ -6,8 +6,10 @@
 | --- | --- |
 | 了解插件为什么存在、与无头方案的区别 | [为什么做共享真实浏览器](why-browser.md) |
 | 安装、配置、日常使用与常见问题 | [用户指南](user-guide.md) |
-| 全部 20 个工具的参数、输出与示例 | [工具参考](tool-reference.md) |
+| 全部 26 个工具的参数、输出与示例 | [工具参考](tool-reference.md) |
 | 了解 seam / provider / 工具三层与自托管实现 | [架构说明](architecture.md) |
+| 重启 DSH 后的运行时验证清单 | [SOAK-CHECKLIST](SOAK-CHECKLIST.md) |
+| 从旧名 dsh-builtin-browser 迁移与登录态搬运 | [UPGRADE-0.3.0](UPGRADE-0.3.0.md) |
 | 回到项目首页 | [README](../README.md) |
 
 ## 各篇概览
@@ -15,4 +17,6 @@
 - **[为什么做共享真实浏览器](why-browser.md)** — 定位、设计理念、与 Playwright 等无头方案的对比、边界与取舍。
 - **[用户指南](user-guide.md)** — 环境要求、安装、配置项、快速上手、操作纪律、FAQ 与故障排查。
 - **[工具参考](tool-reference.md)** — 每个 `browser_*` 工具的参数、输出、守卫与示例。
-- **[架构说明](architecture.md)** — 三层结构、`ElectronBrowserViewHost` 接缝、自托管 RPC 子进程、截图通道、Electron 版本选择。
+- **[架构说明](architecture.md)** — 三层结构、`ElectronBrowserViewHost` 接缝、自托管 RPC 子进程、截图通道、Electron 版本选择、每任务窗口与页面 chrome。
+- **[SOAK-CHECKLIST](SOAK-CHECKLIST.md)** — 重启 DSH 后逐项验证对话框/输入工具/等待定位/多窗口/稳定性(一次性通过后可放心发布)。
+- **[UPGRADE-0.3.0](UPGRADE-0.3.0.md)** — 从 `dsh-builtin-browser` 迁移到 `dsh-browser-plus` 的步骤与 cookie 搬运。
