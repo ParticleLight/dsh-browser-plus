@@ -35,8 +35,8 @@
 ## 快速开始
 
 ```sh
-# 方式一:从 npm 安装(已发布)
-dsh plugin --profile web add dsh-browser-plus
+# 方式一:从 GitHub 安装(推荐)
+dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 
 # 方式二:从源码目录安装(独立仓库,一插件一仓库)
 dsh plugin --profile web add <本仓库路径>
