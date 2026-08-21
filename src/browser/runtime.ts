@@ -13,6 +13,7 @@ import type {
   BrowserClickRequest,
   BrowserContentRequest,
   BrowserContentResult,
+  BrowserDoubleClickRequest,
   BrowserDownloadRequest,
   BrowserExecuteRequest,
   BrowserExecuteResult,
@@ -43,6 +44,7 @@ export type {
   BrowserContentFormat,
   BrowserContentRequest,
   BrowserContentResult,
+  BrowserDoubleClickRequest,
   BrowserDownloadRequest,
   BrowserExecuteRequest,
   BrowserExecuteResult,
@@ -205,6 +207,11 @@ export class BrowserRuntime extends Service {
   /** Click at viewport coordinates through the selected provider. */
   async click(session: BrowserSessionId, request: BrowserClickRequest, signal?: AbortSignal): Promise<void> {
     return this.resolveProvider().click(session, request, signal)
+  }
+
+  /** Double-click at viewport coordinates through the selected provider. */
+  async doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void> {
+    return this.resolveProvider().doubleClick(session, request, signal)
   }
 
   /** Type into the focused element through the selected provider. */

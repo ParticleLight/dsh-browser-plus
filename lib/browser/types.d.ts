@@ -48,6 +48,13 @@ export interface BrowserPressKeyRequest {
     /** Modifier keys held during the press. */
     readonly modifiers?: readonly ('alt' | 'ctrl' | 'meta' | 'shift')[];
 }
+/** Double-click at viewport coordinates (one press/release pair, clickCount 2). */
+export interface BrowserDoubleClickRequest {
+    /** Viewport-relative x in CSS pixels. */
+    readonly x: number;
+    /** Viewport-relative y in CSS pixels. */
+    readonly y: number;
+}
 /** One field of a batch form fill. Match by selector, or by name/label/placeholder. */
 export interface BrowserFillField {
     /** CSS selector; when present, candidates are scoped to it. */
@@ -284,6 +291,8 @@ export interface BrowserProvider {
     type(session: BrowserSessionId, request: BrowserTypeRequest, signal?: AbortSignal): Promise<void>;
     /** Press a key (keyDown + keyUp) into the active tab. Honor `signal` for cancellation. */
     pressKey(session: BrowserSessionId, request: BrowserPressKeyRequest, signal?: AbortSignal): Promise<void>;
+    /** Double-click at viewport coordinates. Honor `signal` for cancellation. */
+    doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void>;
     /** Fill a form's fields in one batch. Honor `signal` for cancellation. */
     fillForm(session: BrowserSessionId, request: BrowserFillRequest, signal?: AbortSignal): Promise<BrowserFillResult>;
     /** Capture the current page. Honor `signal` for cancellation. */

@@ -395,6 +395,29 @@ export function apply(ctx: Context, config: Config = {}): void {
   }))
 
   ctx.tools.register(defineTool({
+    name: 'browser_double_click',
+    description: 'Double-click at viewport coordinates (CSS pixels) in the shared browser. Use for opening links, selecting text, or expanding UI that ignores single clicks.',
+    parameters: {
+      x: { type: 'number', required: true, description: 'Viewport x coordinate (CSS px).' },
+      y: { type: 'number', required: true, description: 'Viewport y coordinate (CSS px).' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: false, properties: { clicked: { type: 'boolean', required: true } } },
+      render: (_args, value) => [{ type: 'text', text: value.clicked ? 'Double-clicked.' : 'Double-click failed.' }],
+    },
+    timeoutMs,
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      assertAllowed('browser_double_click')
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const session = await ensureSession(browser, taskKey(exec))
+      await browser.doubleClick(session, { x: args.x, y: args.y }, exec.signal)
+      return { clicked: true }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
     name: 'browser_type',
     description: 'Type text into the focused element of the shared browser. Use after browser_execute focuses an input (e.g. el.focus()), or after a click lands in a field. Text is inserted at the current focus via CDP Input.insertText.',
     parameters: {

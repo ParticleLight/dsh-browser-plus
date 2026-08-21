@@ -99,3 +99,18 @@ test('pressKey rejects unknown keys', async () => {
   const session = await provider.open()
   await assert.rejects(() => provider.pressKey(session, { key: 'Giggles' }), /unsupported key/)
 })
+
+test('doubleClick dispatches a clickCount 2 press/release pair', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  await provider.doubleClick(session, { x: 10, y: 20 })
+  assert.equal(host.log.length, 2)
+  assert.equal(host.log[0].params.type, 'mousePressed')
+  assert.equal(host.log[0].params.clickCount, 2)
+  assert.equal(host.log[1].params.type, 'mouseReleased')
+  assert.equal(host.log[1].params.clickCount, 2)
+  assert.equal(host.log[0].params.x, 10)
+  const history = await provider.history(session)
+  assert.equal(history[0].action, 'doubleClick')
+})

@@ -13,6 +13,7 @@ import type {
   BrowserChallenge,
   BrowserContentRequest,
   BrowserContentResult,
+  BrowserDoubleClickRequest,
   BrowserExecuteRequest,
   BrowserExecuteResult,
   BrowserFillRequest,
@@ -627,6 +628,17 @@ export class ElectronBrowserProvider implements BrowserProvider {
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
     this.record(s, 'click', { x: request.x, y: request.y }, true)
+  }
+
+  /** Double-click at viewport coordinates (physical input; clickCount 2). */
+  async doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
+    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 2 })
+    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 2 })
+    this.record(s, 'doubleClick', { x: request.x, y: request.y }, true)
   }
 
   /** Type into the focused element. */
