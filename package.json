@@ -1,6 +1,6 @@
 {
   "name": "dsh-browser-plus",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Enhanced shared browser for DeepSeek Harness: visible browser both human and AI operate, with ego-style toolbar, operation trail, user-control detection, and stable single-view compositing (Electron 42.x). Fork of dsh-browser-plus (MIT).",
   "type": "module",
   "main": "lib/index.js",
@@ -50,11 +50,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/dsh-browser-plus.git"
+    "url": "https://github.com/ParticleLight/dsh-browser-plus.git"
   },
-  "homepage": "https://github.com/wqty123/dsh-browser",
+  "homepage": "https://github.com/ParticleLight/dsh-browser-plus",
   "bugs": {
-    "url": "https://github.com/wqty123/dsh-browser/issues"
+    "url": "https://github.com/ParticleLight/dsh-browser-plus/issues"
   },
   "engines": {
     "node": ">=22.19"

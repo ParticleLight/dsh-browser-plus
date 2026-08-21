@@ -45,6 +45,66 @@ export interface BrowserTypeRequest {
   readonly text: string
 }
 
+/** Key press into the page, as one keyDown+keyUp pair. */
+export interface BrowserPressKeyRequest {
+  /** The key to press: a single character ('a', '1'), an Enter/Tab/Escape,
+   * navigation key (ArrowUp/ArrowDown/…), Home/End/PageUp/PageDown,
+   * Backspace/Delete, or F1..F12. */
+  readonly key: string
+  /** Modifier keys held during the press. */
+  readonly modifiers?: readonly ('alt' | 'ctrl' | 'meta' | 'shift')[]
+}
+
+/** Double-click at viewport coordinates (one press/release pair, clickCount 2). */
+export interface BrowserDoubleClickRequest {
+  /** Viewport-relative x in CSS pixels. */
+  readonly x: number
+  /** Viewport-relative y in CSS pixels. */
+  readonly y: number
+}
+
+/** Move the pointer to viewport coordinates (no button). */
+export interface BrowserHoverRequest {
+  /** Viewport-relative x in CSS pixels. */
+  readonly x: number
+  /** Viewport-relative y in CSS pixels. */
+  readonly y: number
+}
+
+/** Set a file input's value from a local path. */
+export interface BrowserUploadFileRequest {
+  /** Absolute path of the file to attach. */
+  readonly filePath: string
+  /** CSS selector of the file input; defaults to the first input[type="file"]. */
+  readonly selector?: string
+}
+
+/** Outcome of a file upload. */
+export interface BrowserUploadFileResult {
+  /** The path uploaded. */
+  readonly path: string
+}
+
+/** Wait for an element matching a CSS selector to appear (optionally visible). */
+export interface BrowserWaitForRequest {
+  /** CSS selector to wait for. */
+  readonly selector: string
+  /** Total budget in ms. Default 15000. */
+  readonly timeoutMs?: number
+  /** Wait for the element to be visible (at least 4x4 px and not visibility:hidden or display:none). Default true. */
+  readonly visible?: boolean
+}
+
+/** Outcome of a successful wait. */
+export interface BrowserWaitForResult {
+  readonly found: true
+  readonly selector: string
+  /** Matching element's tag name. */
+  readonly tag: string
+  /** Matching element's visible text (first 200 chars). */
+  readonly text: string
+}
+
 /** One field of a batch form fill. Match by selector, or by name/label/placeholder. */
 export interface BrowserFillField {
   /** CSS selector; when present, candidates are scoped to it. */
@@ -68,7 +128,7 @@ export interface BrowserFillRequest {
   readonly fields: readonly BrowserFillField[]
   /** Submit the containing form after filling. Default false. */
   readonly submit?: boolean
-  /** Per-field evaluation budget in ms. Default 30000. */
+  /** Total evaluation budget for the whole batch in ms. Default 30000. */
   readonly timeoutMs?: number
 }
 
@@ -97,7 +157,7 @@ export interface BrowserFillResult {
  * (the human watches the real view in the desktop shape).
  */
 export interface BrowserScreenshotResult {
-  /** Base64 data URL of the capture (PNG or JPEG per the request). */
+  /** Base64 PNG data URL of the capture. */
   readonly dataUrl: string
   /** File path the capture was also saved to, when the request asked for it. */
   readonly path?: string
@@ -168,6 +228,8 @@ export interface BrowserSnapshotElement {
   readonly label: string
   /** Best-effort CSS selector; may be empty when none is derivable. */
   readonly selector: string
+  /** Best-effort locator for re-targeting (id/name/aria-label/text). */
+  readonly loc: string
   /** Viewport-relative center, for coordinate fallbacks. */
   readonly x: number
   readonly y: number
@@ -255,6 +317,22 @@ export interface BrowserOpenRequest {
   readonly newTab?: boolean
 }
 
+/** Options for opening a new browser session. */
+export interface BrowserOpenOptions {
+  /** Window group key; each distinct key gets its own window. Default 'default'. */
+  readonly key?: string
+  /** Label (space name) shown in the window title. */
+  readonly label?: string
+}
+
+/** One open browser window (space). */
+export interface BrowserSpaceInfo {
+  /** Window group key. */
+  readonly key: string
+  /** Display label, or '' for unlabeled. */
+  readonly label: string
+}
+
 /**
  * A browser-capable backend. Registered with `ctx.browser.registerBrowserProvider`.
  * `id` is a stable string, unique across the seam.
@@ -268,7 +346,7 @@ export interface BrowserProvider {
    * backing surface (a view, a headless page, and so on). Sessions are isolated from
    * each other; a session must not be visible to any other session's caller.
    */
-  open(): Promise<BrowserSessionId>
+  open(options?: BrowserOpenOptions): Promise<BrowserSessionId>
   /** Open a URL, optionally in a new tab. Honor `signal` for cancellation. */
   openUrl(session: BrowserSessionId, request: BrowserOpenRequest, signal?: AbortSignal): Promise<void>
   /** List the session's tabs. */
@@ -293,6 +371,16 @@ export interface BrowserProvider {
   click(session: BrowserSessionId, request: BrowserClickRequest, signal?: AbortSignal): Promise<void>
   /** Type into the focused element (fallback path). Honor `signal` for cancellation. */
   type(session: BrowserSessionId, request: BrowserTypeRequest, signal?: AbortSignal): Promise<void>
+  /** Press a key (keyDown + keyUp) into the active tab. Honor `signal` for cancellation. */
+  pressKey(session: BrowserSessionId, request: BrowserPressKeyRequest, signal?: AbortSignal): Promise<void>
+  /** Double-click at viewport coordinates. Honor `signal` for cancellation. */
+  doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void>
+  /** Move the pointer to viewport coordinates (hover). Honor `signal` for cancellation. */
+  hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void>
+  /** Attach a local file to a file input. Honor `signal` for cancellation. */
+  uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult>
+  /** Wait until an element matching the selector exists (and optionally is visible). Honor `signal` for cancellation. */
+  waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult>
   /** Fill a form's fields in one batch. Honor `signal` for cancellation. */
   fillForm(session: BrowserSessionId, request: BrowserFillRequest, signal?: AbortSignal): Promise<BrowserFillResult>
   /** Capture the current page. Honor `signal` for cancellation. */
@@ -301,12 +389,16 @@ export interface BrowserProvider {
   download(session: BrowserSessionId, request: BrowserDownloadRequest, signal?: AbortSignal): Promise<{ readonly path: string }>
   /** Export the session's cookies (login state). */
   flushAuth(session: BrowserSessionId): Promise<readonly ExportedCookie[]>
-  /** Import cookies into the session (restore login state). */
+  /** Import cookies into the session (restore login state); returns the number of cookies restored. */
   restoreAuth(session: BrowserSessionId, cookies: readonly ExportedCookie[]): Promise<number>
   /** Return the session's chronological operation log. */
   history(session: BrowserSessionId): Promise<readonly BrowserHistoryEntry[]>
   /** Replay one recorded operation by sequence number. */
   replay(session: BrowserSessionId, seq: number): Promise<void>
+  /** Set the space (window title) for a session. */
+  setSpace(session: BrowserSessionId, label: string): Promise<void>
+  /** List every open window (space) with its label. */
+  listSpaces(): Promise<readonly BrowserSpaceInfo[]>
   /** Close the session and destroy its backing surface. Idempotent. */
   close(session: BrowserSessionId): Promise<void>
 }
@@ -315,8 +407,10 @@ export interface BrowserProvider {
 export interface BrowserHistoryEntry {
   /** Monotonic sequence number within the session. */
   readonly seq: number
-  /** The operation name. Replayable: navigate | execute | click | type.
-   *  Also recorded (non-replayable): fill | download | flushAuth | restoreAuth. */
+  /** The operation name. Replayable: navigate | execute | click | type |
+   *  pressKey. Also recorded but not replayable: fill | download |
+   *  flushAuth | restoreAuth | setSpace | doubleClick | hover | uploadFile |
+   *  waitForElement. */
   readonly action: string
   /** The operation's arguments. */
   readonly params: Record<string, unknown>

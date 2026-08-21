@@ -11,6 +11,7 @@ declare module 'electron' {
     attach(version: string): void
     detach(): void
     sendCommand(method: string, params?: Record<string, unknown>): Promise<unknown>
+    on(event: 'message', listener: (event: unknown, method: string, params: Record<string, unknown>) => void): void
   }
   export interface DownloadItem {
     setSavePath(path: string): void
@@ -78,6 +79,8 @@ declare module 'electron' {
     show(): void
     restore(): void
     focus(): void
+    setTitle(title: string): void
+    isDestroyed(): boolean
     on(event: 'closed', listener: () => void): this
     on(event: 'resize', listener: () => void): this
     off(event: 'closed', listener: () => void): this

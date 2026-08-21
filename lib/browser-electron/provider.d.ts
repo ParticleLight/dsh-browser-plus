@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser/browser-electron
  */
-import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserOpenRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserTab, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -16,10 +16,12 @@ export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 export interface ElectronBrowserViewHost {
     /**
      * Create a new browser view and return a handle to its webContents-like
-     * surface. The host owns windowing (adding the view to the window, sizing,
-     * removal); the provider owns CDP-driven behavior.
+     * surface. `key` (default 'default') picks the window group — each key gets
+     * its own BrowserWindow; `label` names the window (space name). The host
+     * owns windowing (adding the view to the window, sizing, removal); the
+     * provider owns CDP-driven behavior.
      */
-    createView(): ElectronViewHandle;
+    createView(key?: string, label?: string): ElectronViewHandle;
     /**
      * Destroy a view created by this host. Called on session close; idempotent
      * for an already-destroyed view.
@@ -40,6 +42,11 @@ export interface ElectronBrowserViewHost {
      * @param entry - the trail entry ({ action, params, ok, at }).
      */
     trace?(viewId: string, entry: unknown): void;
+    /** List open windows with their labels. Optional (self-hosted only). */
+    listWindows?(): Promise<Array<{
+        key: string;
+        label: string;
+    }>>;
 }
 /**
  * A CDP-capable view handle. This is the subset of Electron's
@@ -57,6 +64,14 @@ export interface ElectronViewHandle {
      * @returns the CDP `result` object.
      */
     sendCommand(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
+    /**
+     * Read the most recent auto-accepted JS dialog for this view (and clear it).
+     * Optional: hosts without JS-dialog supervision omit it.
+     * @returns the dialog detail ({ type, message, prompt? }) or null.
+     */
+    clearDialog?(): Promise<unknown>;
+    /** Set the window title (space name) for this view's window. Optional. */
+    label?(label: string): Promise<void>;
 }
 /** Provider config: navigation admission defaults and snapshot caps. */
 export interface ElectronBrowserProviderConfig {
@@ -98,6 +113,8 @@ export declare const CDP_PAGE_CAPTURE_SCREENSHOT = "Page.captureScreenshot";
 /** CDP method for runtime evaluation (the execute path). */
 export declare const CDP_RUNTIME_EVALUATE = "Runtime.evaluate";
 /** CDP method for navigation. */
+/** CDP method for keyboard input. */
+export declare const CDP_INPUT_DISPATCH_KEY_EVENT = "Input.dispatchKeyEvent";
 export declare const CDP_PAGE_NAVIGATE = "Page.navigate";
 /**
  * Browser provider over Electron views. Sessions hold an ordered list of
@@ -123,7 +140,7 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
      * each other: each keeps its own tabs, active tab, and history, and only
      * the active tab of a session is made visible.
      */
-    open(): Promise<BrowserSessionId>;
+    open(options?: BrowserOpenOptions): Promise<BrowserSessionId>;
     /** Open a URL in the active tab (default) or a new tab. */
     openUrl(session: BrowserSessionId, request: BrowserOpenRequest, signal?: AbortSignal): Promise<void>;
     /** List the session's tabs with their titles. */
@@ -151,10 +168,29 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
         readonly x: number;
         readonly y: number;
     }, signal?: AbortSignal): Promise<void>;
+    /** Double-click at viewport coordinates (physical input; clickCount 2). */
+    doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void>;
+    /** Move the pointer to viewport coordinates (hover; no click). */
+    hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void>;
+    /**
+     * Attach a local file to the first matching file input. Uses the CDP DOM
+     * domain (nodeId path), which — unlike a synthetic change event — makes the
+     * input's files list true (real file selection), so pages that read
+     * input.files or upload on change behave exactly like a real pick.
+     */
+    uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult>;
+    /**
+     * Poll until an element matching the selector exists (and is visible).
+     * Bounds the total wait; a timeout surfaces as BROWSER_WAIT_TIMEOUT.
+     */
+    waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult>;
     /** Type into the focused element. */
     type(session: BrowserSessionId, request: {
         readonly text: string;
     }, signal?: AbortSignal): Promise<void>;
+    /** Press a key into the page (keyDown + keyUp), as a physical-input path
+     * for shortcuts and keyboard-driven UI. */
+    pressKey(session: BrowserSessionId, request: BrowserPressKeyRequest, signal?: AbortSignal): Promise<void>;
     /**
      * Fill a form's fields in one batch. Runs one page-context script that
      * resolves each field (selector, or name/label/placeholder among visible
@@ -191,6 +227,15 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     }>;
     /** Build the data URL and optionally write the PNG to disk. */
     private saveScreenshot;
+    /**
+     * Pick up (and forget) any JS dialog the host auto-accepted, so the
+     * operation trail shows the human/agent what the page asked. Best-effort.
+     */
+    private drainDialog;
+    /** Name this session's window (space). */
+    setSpace(session: BrowserSessionId, label: string): Promise<void>;
+    /** List every open window (space) with its label. */
+    listSpaces(): Promise<readonly BrowserSpaceInfo[]>;
     /** Append one operation to the session's history. */
     private record;
     /** Return the session's chronological operation log (newest last). */

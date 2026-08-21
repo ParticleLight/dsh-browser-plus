@@ -35,12 +35,17 @@ export declare class RemoteElectronViewHost implements ElectronBrowserViewHost {
     private start;
     /** The child died: tear down so the next use starts a fresh child. */
     private onChildExit;
-    createView(): ElectronViewHandle;
+    createView(key?: string, label?: string): ElectronViewHandle;
     private ensureView;
     showView(handle: ElectronViewHandle): void;
     destroyView(handle: ElectronViewHandle): void;
     /** Append one operation to the child's per-view trail. */
     trace(viewId: string, entry: unknown): void;
+    /** List all open window keys with their labels (host-level). */
+    listWindows(): Promise<Array<{
+        key: string;
+        label: string;
+    }>>;
     /** Shut the child and the RPC server down. */
     dispose(): void;
 }

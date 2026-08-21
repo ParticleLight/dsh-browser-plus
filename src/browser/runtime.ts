@@ -13,21 +13,30 @@ import type {
   BrowserClickRequest,
   BrowserContentRequest,
   BrowserContentResult,
+  BrowserDoubleClickRequest,
   BrowserDownloadRequest,
   BrowserExecuteRequest,
   BrowserExecuteResult,
   BrowserFillRequest,
   BrowserFillResult,
   BrowserHistoryEntry,
+  BrowserHoverRequest,
   BrowserNavigateRequest,
+  BrowserOpenOptions,
   BrowserOpenRequest,
+  BrowserPressKeyRequest,
   BrowserProvider,
   BrowserScreenshotRequest,
   BrowserScreenshotResult,
   BrowserSessionId,
   BrowserSnapshotResult,
+  BrowserSpaceInfo,
   BrowserTab,
   BrowserTypeRequest,
+  BrowserUploadFileRequest,
+  BrowserUploadFileResult,
+  BrowserWaitForRequest,
+  BrowserWaitForResult,
   BrowserChallenge,
   ExportedCookie,
 } from './types.ts'
@@ -42,6 +51,7 @@ export type {
   BrowserContentFormat,
   BrowserContentRequest,
   BrowserContentResult,
+  BrowserDoubleClickRequest,
   BrowserDownloadRequest,
   BrowserExecuteRequest,
   BrowserExecuteResult,
@@ -49,16 +59,24 @@ export type {
   BrowserFillRequest,
   BrowserFillResult,
   BrowserHistoryEntry,
+  BrowserHoverRequest,
   BrowserNavigateRequest,
+  BrowserOpenOptions,
   BrowserOpenRequest,
+  BrowserPressKeyRequest,
   BrowserProvider,
   BrowserScreenshotRequest,
   BrowserScreenshotResult,
   BrowserSessionId,
   BrowserSnapshotElement,
   BrowserSnapshotResult,
+  BrowserSpaceInfo,
   BrowserTab,
   BrowserTypeRequest,
+  BrowserUploadFileRequest,
+  BrowserUploadFileResult,
+  BrowserWaitForRequest,
+  BrowserWaitForResult,
   ExportedCookie,
 } from './types.ts'
 
@@ -151,8 +169,8 @@ export class BrowserRuntime extends Service {
   }
 
   /** Open a new browser session through the selected provider. */
-  async open(): Promise<BrowserSessionId> {
-    return this.resolveProvider().open()
+  async open(options?: BrowserOpenOptions): Promise<BrowserSessionId> {
+    return this.resolveProvider().open(options)
   }
 
   /** Open a URL through the selected provider, optionally in a new tab. */
@@ -205,9 +223,34 @@ export class BrowserRuntime extends Service {
     return this.resolveProvider().click(session, request, signal)
   }
 
+  /** Double-click at viewport coordinates through the selected provider. */
+  async doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void> {
+    return this.resolveProvider().doubleClick(session, request, signal)
+  }
+
+  /** Move the pointer to viewport coordinates through the selected provider. */
+  async hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void> {
+    return this.resolveProvider().hover(session, request, signal)
+  }
+
+  /** Attach a local file to a file input through the selected provider. */
+  async uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult> {
+    return this.resolveProvider().uploadFile(session, request, signal)
+  }
+
+  /** Wait for an element through the selected provider (bounded polling). */
+  async waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult> {
+    return this.resolveProvider().waitForElement(session, request, signal)
+  }
+
   /** Type into the focused element through the selected provider. */
   async type(session: BrowserSessionId, request: BrowserTypeRequest, signal?: AbortSignal): Promise<void> {
     return this.resolveProvider().type(session, request, signal)
+  }
+
+  /** Press a key into the session's page through the selected provider. */
+  async pressKey(session: BrowserSessionId, request: BrowserPressKeyRequest, signal?: AbortSignal): Promise<void> {
+    return this.resolveProvider().pressKey(session, request, signal)
   }
 
   /** Fill a form's fields in one batch through the selected provider. */
@@ -248,6 +291,16 @@ export class BrowserRuntime extends Service {
   /** Import cookies into the session through the provider. */
   async restoreAuth(session: BrowserSessionId, cookies: readonly ExportedCookie[]): Promise<number> {
     return this.resolveProvider().restoreAuth(session, cookies)
+  }
+
+  /** Set the session's window title (space name) through the selected provider. */
+  async setSpace(session: BrowserSessionId, label: string): Promise<void> {
+    return this.resolveProvider().setSpace(session, label)
+  }
+
+  /** List every open window (space) with its label through the selected provider. */
+  async listSpaces(): Promise<readonly BrowserSpaceInfo[]> {
+    return this.resolveProvider().listSpaces()
   }
 
   /** Close the session through the selected provider. Idempotent; a missing

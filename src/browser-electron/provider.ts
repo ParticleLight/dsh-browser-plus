@@ -13,16 +13,25 @@ import type {
   BrowserChallenge,
   BrowserContentRequest,
   BrowserContentResult,
+  BrowserDoubleClickRequest,
   BrowserExecuteRequest,
   BrowserExecuteResult,
   BrowserFillRequest,
   BrowserFillResult,
   BrowserHistoryEntry,
+  BrowserHoverRequest,
+  BrowserOpenOptions,
   BrowserOpenRequest,
+  BrowserPressKeyRequest,
   BrowserProvider,
   BrowserSessionId,
   BrowserSnapshotResult,
+  BrowserSpaceInfo,
   BrowserTab,
+  BrowserUploadFileRequest,
+  BrowserUploadFileResult,
+  BrowserWaitForRequest,
+  BrowserWaitForResult,
   ExportedCookie,
 } from '../browser/types.ts'
 import { BrowserError } from '../browser/types.ts'
@@ -66,10 +75,12 @@ export const ELECTRON_BROWSER_PROVIDER_ID = 'electron'
 export interface ElectronBrowserViewHost {
   /**
    * Create a new browser view and return a handle to its webContents-like
-   * surface. The host owns windowing (adding the view to the window, sizing,
-   * removal); the provider owns CDP-driven behavior.
+   * surface. `key` (default 'default') picks the window group — each key gets
+   * its own BrowserWindow; `label` names the window (space name). The host
+   * owns windowing (adding the view to the window, sizing, removal); the
+   * provider owns CDP-driven behavior.
    */
-  createView(): ElectronViewHandle
+  createView(key?: string, label?: string): ElectronViewHandle
   /**
    * Destroy a view created by this host. Called on session close; idempotent
    * for an already-destroyed view.
@@ -90,6 +101,8 @@ export interface ElectronBrowserViewHost {
    * @param entry - the trail entry ({ action, params, ok, at }).
    */
   trace?(viewId: string, entry: unknown): void
+  /** List open windows with their labels. Optional (self-hosted only). */
+  listWindows?(): Promise<Array<{ key: string; label: string }>>
 }
 
 /**
@@ -108,6 +121,14 @@ export interface ElectronViewHandle {
    * @returns the CDP `result` object.
    */
   sendCommand(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>
+  /**
+   * Read the most recent auto-accepted JS dialog for this view (and clear it).
+   * Optional: hosts without JS-dialog supervision omit it.
+   * @returns the dialog detail ({ type, message, prompt? }) or null.
+   */
+  clearDialog?(): Promise<unknown>
+  /** Set the window title (space name) for this view's window. Optional. */
+  label?(label: string): Promise<void>
 }
 
 /** One tab inside a session: its view plus a stable id. */
@@ -172,6 +193,82 @@ export const CDP_PAGE_CAPTURE_SCREENSHOT = 'Page.captureScreenshot'
 /** CDP method for runtime evaluation (the execute path). */
 export const CDP_RUNTIME_EVALUATE = 'Runtime.evaluate'
 /** CDP method for navigation. */
+/** CDP method for keyboard input. */
+export const CDP_INPUT_DISPATCH_KEY_EVENT = 'Input.dispatchKeyEvent'
+
+const KEY_VK: Record<string, number> = {
+  Backspace: 8,
+  Tab: 9,
+  Enter: 13,
+  Shift: 16,
+  Control: 17,
+  Alt: 18,
+  CapsLock: 20,
+  Escape: 27,
+  Space: 32,
+  PageUp: 33,
+  PageDown: 34,
+  End: 35,
+  Home: 36,
+  ArrowLeft: 37,
+  ArrowUp: 38,
+  ArrowRight: 39,
+  ArrowDown: 40,
+  Insert: 45,
+  Delete: 46,
+  Meta: 91,
+  F1: 112,
+  F2: 113,
+  F3: 114,
+  F4: 115,
+  F5: 116,
+  F6: 117,
+  F7: 118,
+  F8: 119,
+  F9: 120,
+  F10: 121,
+  F11: 122,
+  F12: 123,
+}
+
+function keyText(key: string): string | null {
+  switch (key) {
+    case 'Enter': return '\r'
+    case 'Tab': return '\t'
+    case 'Space': return ' '
+    default: return /^[a-z0-9]$/i.test(key) ? key : null
+  }
+}
+
+function keyDescriptor(key: string): { key: string; code: string; vk: number } {
+  const upper = key.toUpperCase()
+  // A physical Space produces e.key === ' ' with code 'Space'.
+  if (key === 'Space') {
+    return { key: ' ', code: 'Space', vk: KEY_VK.Space }
+  }
+  if (KEY_VK[key] !== undefined) {
+    return { key, code: key, vk: KEY_VK[key] }
+  }
+  if (/^[a-z]$/i.test(key)) {
+    // Unshifted letters deliver e.key lowercase; the code keeps the physical form.
+    return { key, code: `Key${upper}`, vk: upper.charCodeAt(0) }
+  }
+  if (/^[0-9]$/.test(key)) {
+    return { key, code: `Digit${key}`, vk: key.charCodeAt(0) }
+  }
+  throw new BrowserError(`browser: unsupported key "${key}"`, 'BROWSER_KEY_UNKNOWN')
+}
+
+function modifierMask(modifiers: readonly ('alt' | 'ctrl' | 'meta' | 'shift')[] | undefined): number {
+  let mask = 0
+  for (const mod of modifiers ?? []) {
+    if (mod === 'alt') mask |= 1
+    else if (mod === 'ctrl') mask |= 2
+    else if (mod === 'meta') mask |= 4
+    else if (mod === 'shift') mask |= 8
+  }
+  return mask
+}
 export const CDP_PAGE_NAVIGATE = 'Page.navigate'
 
 /** Cap on content returned by a snapshot fetch to keep the wire bounded. */
@@ -213,8 +310,8 @@ export class ElectronBrowserProvider implements BrowserProvider {
    * each other: each keeps its own tabs, active tab, and history, and only
    * the active tab of a session is made visible.
    */
-  open(): Promise<BrowserSessionId> {
-    const handle = this.host.createView()
+  open(options?: BrowserOpenOptions): Promise<BrowserSessionId> {
+    const handle = this.host.createView(options?.key ?? 'default', options?.label)
     const id = `browser:${randomUUID()}`
     this.sessions.set(id, { id, tabs: [{ id: `tab:${randomUUID()}`, handle }], activeIndex: 0, history: [], nextSeq: 1 })
     return Promise.resolve(id)
@@ -348,6 +445,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const s = this.session(session)
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
     try {
       // Wrap the script in a Function so `return` statements are legal and
       // request.args arrive as `arguments[0..n]`. A bare script handed to CDP
@@ -404,8 +502,19 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const s = this.session(session)
     const tab = this.activeTab(s)
     signal?.throwIfAborted()
+    await this.drainDialog(s, tab.handle)
     const script = `(() => {
       const cap = ${String(this.snapshotMaxElements)}
+      const locatorOf = (el) => {
+        if (el.id) return '#' + CSS.escape(el.id)
+        if (el.name) return '[name=' + JSON.stringify(el.name) + ']'
+        const aria = el.getAttribute('aria-label')
+        if (aria) return '[aria-label=' + JSON.stringify(aria) + ']'
+        const tag = el.tagName.toLowerCase()
+        const text = (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 30)
+        if (text) return tag + ':has-text("' + text.replace(/"/g, '\\\\"') + '")'
+        return tag
+      }
       const url = location.href
       const title = document.title || undefined
       const els = [...document.querySelectorAll('input, textarea, select, button, a[href], [role="button"], [role="searchbox"], [contenteditable="true"]')]
@@ -428,6 +537,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
           kind,
           label,
           selector: el.id ? '#' + el.id : (el.name ? '[name=' + JSON.stringify(el.name) + ']' : ''),
+          loc: locatorOf(el),
           x: Math.round(r.x + r.width / 2),
           y: Math.round(r.y + r.height / 2),
         })
@@ -484,8 +594,10 @@ export class ElectronBrowserProvider implements BrowserProvider {
 
   /** Fetch page content in a requested format. */
   async content(session: BrowserSessionId, request: BrowserContentRequest, signal?: AbortSignal): Promise<BrowserContentResult> {
-    const tab = this.activeTab(this.session(session))
+    const s = this.session(session)
+    const tab = this.activeTab(s)
     signal?.throwIfAborted()
+    await this.drainDialog(s, tab.handle)
     const maxChars = request.maxChars ?? this.contentMaxChars
     const selector = request.selector ?? ''
     const format = request.format
@@ -541,9 +653,106 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const s = this.session(session)
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
     this.record(s, 'click', { x: request.x, y: request.y }, true)
+  }
+
+  /** Double-click at viewport coordinates (physical input; clickCount 2). */
+  async doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
+    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 2 })
+    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 2 })
+    this.record(s, 'doubleClick', { x: request.x, y: request.y }, true)
+  }
+
+  /** Move the pointer to viewport coordinates (hover; no click). */
+  async hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
+    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: request.x, y: request.y, button: 'none' })
+    this.record(s, 'hover', { x: request.x, y: request.y }, true)
+  }
+
+  /**
+   * Attach a local file to the first matching file input. Uses the CDP DOM
+   * domain (nodeId path), which — unlike a synthetic change event — makes the
+   * input's files list true (real file selection), so pages that read
+   * input.files or upload on change behave exactly like a real pick.
+   */
+  async uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
+    const selector = request.selector ?? 'input[type="file"]'
+    const doc = await handle.sendCommand('DOM.getDocument', {})
+    const root = (doc as { root?: { nodeId?: number } }).root
+    const rootId = root?.nodeId
+    if (rootId === undefined) {
+      throw new BrowserError('browser: could not resolve the document node', 'BROWSER_UPLOAD_FAILED')
+    }
+    const query = await handle.sendCommand('DOM.querySelector', { nodeId: rootId, selector })
+    const nodeId = (query as { nodeId?: number }).nodeId
+    if (nodeId === undefined || nodeId === 0) {
+      throw new BrowserError(`browser: no file input matches "${selector}"`, 'BROWSER_UPLOAD_NO_INPUT')
+    }
+    await handle.sendCommand('DOM.setFileInputFiles', { files: [request.filePath], nodeId })
+    this.record(s, 'uploadFile', { filePath: request.filePath, selector }, true, { result: '1 file attached' })
+    return { path: request.filePath }
+  }
+
+  /**
+   * Poll until an element matching the selector exists (and is visible).
+   * Bounds the total wait; a timeout surfaces as BROWSER_WAIT_TIMEOUT.
+   */
+  async waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    const timeoutMs = request.timeoutMs ?? 15_000
+    const visible = request.visible !== false
+    const selector = request.selector
+    const script = `(() => {
+      let el = null
+      try { el = document.querySelector(${JSON.stringify(selector)}) } catch (e) { return { error: String(e) } }
+      if (!el) return null
+      if (${visible}) {
+        const r = el.getBoundingClientRect()
+        const cs = getComputedStyle(el)
+        if (r.width < 4 || r.height < 4 || cs.visibility === 'hidden' || cs.display === 'none') return null
+      }
+      return {
+        found: true,
+        selector: ${JSON.stringify(selector)},
+        tag: el.tagName.toLowerCase(),
+        text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200),
+      }
+    })()`
+    const deadline = Date.now() + timeoutMs
+    let lastError: string | undefined
+    while (Date.now() <= deadline) {
+      signal?.throwIfAborted()
+      const result = await withTimeout(handleSendEvaluate(handle, script, signal), Math.max(deadline - Date.now(), 250), signal, 'browser: wait poll timed out').catch((error: unknown): BrowserExecuteResult => ({ ok: false, exception: String(error) }))
+      if (!result.ok) {
+        lastError = result.exception
+      } else {
+        const value = result.value as { found?: boolean; tag?: string; text?: string; error?: string } | null
+        if (value?.found === true && typeof value.tag === 'string') {
+          this.record(s, 'waitForElement', { selector, timeoutMs, visible }, true, { result: value.tag })
+          return { found: true, selector, tag: value.tag, text: value.text ?? '' }
+        }
+        if (value?.error !== undefined) lastError = value.error
+      }
+      await new Promise(resolve => setTimeout(resolve, 250))
+    }
+    throw new BrowserError(`browser: element "${selector}" did not appear within ${timeoutMs}ms${lastError !== undefined ? ` (${lastError})` : ''}`, 'BROWSER_WAIT_TIMEOUT')
   }
 
   /** Type into the focused element. */
@@ -551,10 +760,28 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const s = this.session(session)
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
     await handle.sendCommand('Input.insertText', { text: request.text } satisfies CdpInsertTextParams)
     // Store the full text so replay re-issues the same input; the history
     // tool truncates long values when rendering.
     this.record(s, 'type', { text: request.text }, true)
+  }
+
+  /** Press a key into the page (keyDown + keyUp), as a physical-input path
+   * for shortcuts and keyboard-driven UI. */
+  async pressKey(session: BrowserSessionId, request: BrowserPressKeyRequest, signal?: AbortSignal): Promise<void> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
+    const { key, code, vk } = keyDescriptor(request.key)
+    const modifiers = modifierMask(request.modifiers)
+    const text = keyText(request.key)
+    const down: Record<string, unknown> = { type: text === null ? 'rawKeyDown' : 'keyDown', key, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers }
+    if (text !== null) { down.text = text; down.unmodifiedText = text }
+    await handle.sendCommand(CDP_INPUT_DISPATCH_KEY_EVENT, down)
+    await handle.sendCommand(CDP_INPUT_DISPATCH_KEY_EVENT, { type: 'keyUp', key, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers })
+    this.record(s, 'pressKey', { key: request.key, ...(request.modifiers !== undefined && request.modifiers.length > 0 ? { modifiers: request.modifiers } : {}) }, true)
   }
 
   /**
@@ -568,6 +795,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const s = this.session(session)
     const tab = this.activeTab(s)
     signal?.throwIfAborted()
+    await this.drainDialog(s, tab.handle)
     const specs = JSON.stringify(request.fields.map(f => ({
       selector: f.selector ?? null,
       name: f.name ?? null,
@@ -829,6 +1057,43 @@ export class ElectronBrowserProvider implements BrowserProvider {
       }
     }
     return { dataUrl: `data:image/png;base64,${base64}` }
+  }
+
+  /**
+   * Pick up (and forget) any JS dialog the host auto-accepted, so the
+   * operation trail shows the human/agent what the page asked. Best-effort.
+   */
+  private async drainDialog(s: Session, handle: ElectronViewHandle): Promise<void> {
+    const drainable = handle as { clearDialog?(): Promise<unknown> }
+    if (typeof drainable.clearDialog !== 'function') return
+    try {
+      const dialog = await drainable.clearDialog()
+      if (dialog !== null && dialog !== undefined) {
+        this.record(s, 'dialog', dialog as Record<string, unknown>, true)
+      }
+    } catch {
+      // Dialog supervision is cosmetic; never fail a page operation for it.
+    }
+  }
+
+  /** Name this session's window (space). */
+  async setSpace(session: BrowserSessionId, label: string): Promise<void> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    const labelable = handle as { label?(label: string): Promise<void> }
+    if (typeof labelable.label === 'function') {
+      await labelable.label(label)
+    } else {
+      throw new BrowserError('browser: space naming is only available on the self-hosted browser', 'BROWSER_SPACE_UNSUPPORTED')
+    }
+    this.record(s, 'setSpace', { label }, true)
+  }
+
+  /** List every open window (space) with its label. */
+  async listSpaces(): Promise<readonly BrowserSpaceInfo[]> {
+    const host = this.host as { listWindows?(): Promise<Array<{ key: string; label: string }>> }
+    if (typeof host.listWindows !== 'function') return []
+    return host.listWindows()
   }
 
   /** Append one operation to the session's history. */

@@ -337,6 +337,16 @@ class RemoteView implements ElectronViewHandle {
   restoreAuth(cookies: ExportedCookie[]): Promise<number> {
     return this.client.call<{ restored: number }>('restoreAuth', { viewId: this.id, cookies }).then(r => r.restored)
   }
+
+  /** Read (and clear) the most recent auto-accepted JS dialog for the view. */
+  async clearDialog(): Promise<unknown> {
+    return this.client.call<{ result: unknown } | null>('drainDialog', { viewId: this.id }).then(r => r?.result ?? null)
+  }
+
+  /** Set the window title (space name) for this view's window. */
+  async label(label: string): Promise<void> {
+    await this.client.call('label', { viewId: this.id, label })
+  }
 }
 
 /**
@@ -414,20 +424,24 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
     // has no such views yet, and reset_session reopens clean sessions.
   }
 
-  createView(): ElectronViewHandle {
+  createView(key?: string, label?: string): ElectronViewHandle {
     // The seam is synchronous; the provider uses the handle immediately, so
     // commands are deferred until the child is up and the view materialized.
     const id = `view:${Math.random().toString(36).slice(2, 10)}`
-    const view = new DeferredRemoteView(id, () => this.ensureView(id))
+    const view = new DeferredRemoteView(id, () => this.ensureView(id, key, label))
     this.views.set(id, view)
     return view
   }
 
-  private async ensureView(id: string): Promise<RemoteView> {
+  private async ensureView(id: string, key?: string, label?: string): Promise<RemoteView> {
     await this.ready()
     const client = this.client
     if (client === undefined) throw new Error('browser host unavailable')
-    await client.call('createView', { viewId: id })
+    await client.call('createView', {
+      viewId: id,
+      ...key !== undefined ? { key } : {},
+      ...label !== undefined ? { label } : {},
+    })
     // If the view was destroyed while the createView RPC was in flight, do
     // not re-insert a stale entry that would resurrect a dead child view.
     if (this.views.get(id) === undefined) {
@@ -459,6 +473,15 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
     void this.ready()
       .then(() => this.client?.call('trace', { viewId, entry }))
       .catch(() => { /* child gone */ })
+  }
+
+  /** List all open window keys with their labels (host-level). */
+  async listWindows(): Promise<Array<{ key: string; label: string }>> {
+    await this.ready()
+    const client = this.client
+    if (client === undefined) throw new Error('browser host unavailable')
+    const r = await client.call<{ windows: Array<{ key: string; label: string }> }>('listWindows')
+    return r.windows
   }
 
   /** Shut the child and the RPC server down. */
@@ -522,6 +545,16 @@ class DeferredRemoteView implements ElectronViewHandle {
   async restoreAuth(cookies: ExportedCookie[]): Promise<number> {
     const view = await this.materializeOnce()
     return view.restoreAuth(cookies)
+  }
+
+  async clearDialog(): Promise<unknown> {
+    const view = await this.materializeOnce()
+    return view.clearDialog()
+  }
+
+  async label(label: string): Promise<void> {
+    const view = await this.materializeOnce()
+    return view.label(label)
   }
 }
 

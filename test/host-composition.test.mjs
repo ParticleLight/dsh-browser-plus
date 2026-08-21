@@ -72,3 +72,68 @@ test('provider retains document-ready waiting and SPA empty-snapshot retry', asy
   assert.match(source, /attempt < 5/)
   assert.match(source, /readiness wait exceeded/)
 })
+test('host auto-accepts JS dialogs and exposes drainDialog', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.ok(source.includes("'Page.enable'"), 'enables Page domain')
+  assert.ok(source.includes("'DOM.enable'"), 'enables DOM domain')
+  assert.match(source, /Page\.javascriptDialogOpening/)
+  assert.match(source, /Page\.handleJavaScriptDialog/)
+  assert.match(source, /dialogLogs/)
+  assert.match(source, /case 'drainDialog'/)
+})
+
+test('provider drains auto-accepted dialogs into history', async () => {
+  const source = await readFile(providerPath, 'utf8')
+  assert.match(source, /clearDialog/)
+  assert.match(source, /this\.record\(s, 'dialog'/)
+})
+
+test('snapshots emit a targeted locator per element', async () => {
+  const source = await readFile(providerPath, 'utf8')
+  assert.match(source, /const locatorOf = /)
+  assert.match(source, /CSS\.escape/)
+  assert.match(source, /loc: locatorOf\(el\)/)
+})
+
+test('host keeps one window per session key and labels them', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.match(source, /windowsByKey/)
+  assert.match(source, /windowFor\(/)
+  assert.match(source, /case 'label'/)
+  assert.match(source, /case 'listWindows'/)
+  assert.match(source, /dsh-browser — /)
+  assert.match(source, /v\.window !== entry\.window/)
+  assert.ok(!source.includes('layoutPageViews()'), 'window-scoped layout only')
+})
+
+test('provider opens with a window key and label through the host seam', async () => {
+  const source = await readFile(providerPath, 'utf8')
+  assert.match(source, /createView\(options\?\.key/)
+})
+
+test('capture CDP fallback detaches only same-window siblings', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  const start = source.indexOf("case 'capture'")
+  const end = source.indexOf("case 'download'", start)
+  assert.ok(start >= 0 && end > start, 'capture block exists')
+  const captureBlock = source.slice(start, end)
+  assert.match(captureBlock, /v !== entry && v\.window === entry\.window/)
+})
+
+test('default window resets on close and first visibility is per window', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.match(source, /defaultWindow\.on\('closed'/)
+  assert.match(source, /windowLabels\.delete\('default'\)/)
+  assert.match(source, /!defaultWindow\.isDestroyed\(\)/)
+  assert.ok(!source.includes('views.size === 0'), 'process-global first-view check removed')
+  assert.match(source, /some\(v => v\.window === win\)/)
+})
+
+test('remote host forwards createView key/label and window ops', async () => {
+  const source = await readFile(remotePath, 'utf8')
+  assert.ok(source.includes("call('createView'"), 'creates views')
+  assert.match(source, /\.\.\.key !== undefined/)
+  assert.ok(source.includes("call('label'"), 'labels windows')
+  assert.ok(source.includes("call('listWindows'"), 'lists windows')
+})
+

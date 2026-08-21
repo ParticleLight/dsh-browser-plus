@@ -1,6 +1,6 @@
 # 工具参考
 
-全部 20 个 `browser_*` 工具。守卫列:✅ 表示该动作受 `browser_restrict` 白名单约束;只读工具永不拦截。
+全部 26 个 `browser_*` 工具。守卫列:✅ 表示该动作受 `browser_restrict` 白名单约束;只读工具永不拦截。
 
 ## 页面与导航
 
@@ -8,6 +8,7 @@
 | --- | --- | --- | --- | --- |
 | `browser_open` | `url`(必填), `newTab?` | 快照(url/title/elements/truncated/challenge) | ✅ | 打开 URL,返回带编号元素的快照;`newTab: true` 在新标签打开 |
 | `browser_snapshot` | – | 快照 | – | 交互元素(输入框/按钮/链接)编号清单,供定位与点击 |
+| `browser_wait_for` | `selector`(必填), `timeoutMs?`, `visible?` | `{ found, selector, tag, text? }` | ✅ | 等待 CSS 选择器匹配的元素出现且可见(250ms 轮询,默认 15s 超时);SPA 动态内容交互前使用 |
 | `browser_content` | `format`(html/markdown/txt/json,必填), `selector?`, `maxChars?`, `timeoutMs?` | `{ content, truncated }` | – | 抓取页面内容;`selector` 限定区域 |
 | `browser_challenge` | – | `{ blocked, kind?, reason?, hint? }` | – | 检测人机验证(CAPTCHA/Cloudflare/reCAPTCHA/hCaptcha/Turnstile);阻塞时请用户处理 |
 
@@ -17,8 +18,12 @@
 | --- | --- | --- | --- | --- |
 | `browser_execute` | `script`(必填), `args?` | `{ ok, value? / exception? }` | ✅ | 在页面执行 JS;脚本以 `return` 开头或作为表达式;`args` 以 `arguments[0..n]` 传入 |
 | `browser_click` | `x`, `y`(必填) | `{ clicked }` | ✅ | 视口坐标点击(配合截图做视觉定位) |
+| `browser_double_click` | `x`, `y`(必填) | `{ clicked }` | ✅ | 视口坐标双击(选中文本、展开忽略单击的 UI) |
+| `browser_hover` | `x`, `y`(必填) | `{ hovered }` | ✅ | 视口坐标悬停不点击(触发 hover 态、tooltip、下拉菜单) |
 | `browser_type` | `text`(必填) | `{ typed }` | ✅ | 向聚焦元素输入文本(CDP `Input.insertText`) |
+| `browser_press_key` | `key`(必填), `modifiers?` | `{ pressed }` | ✅ | 向聚焦元素物理按键(keyDown+keyUp;Enter/Tab/F1-F12/方向键及 Ctrl+A 等修饰组合) |
 | `browser_fill` | `fields`(必填,数组), `submit?` | `{ fields[], submitted }` | ✅ | 批量填表;字段按 `selector`/`name`/`label`/`placeholder` 匹配,值支持字符串/数字/布尔;单个字段失败不影响其余;`submit: true` 提交表单 |
+| `browser_upload_file` | `filePath`(必填), `selector?` | `{ path }` | ✅ | 给文件输入附加本地文件(CDP `DOM.setFileInputFiles`,页面视为真实选择);缺省页面第一个 `input[type="file"]` |
 
 ## 标签与会话
 
@@ -29,6 +34,7 @@
 | `browser_close_tab` | `tabId`(必填) | `{ closed }` | – | 关闭标签;关闭活动标签后激活下一个 |
 | `browser_reset` | – | `{ reset }` | ✅ | 关闭本任务所有标签,回到一个空白标签 |
 | `browser_session` | – | `{ session, tabs[] }` | – | 查看本任务的浏览器会话与标签 |
+| `browser_space` | `label?` | `{ label? / spaces[] }` | – | 命名本任务浏览器窗口(space)或列出全部窗口;每任务一窗,便于用户分辨归属 |
 | `browser_reset_session` | – | `{ reset }` | ✅ | 关闭并重建本任务的浏览器会话(崩溃/卡死后恢复) |
 
 ## 历史与下载

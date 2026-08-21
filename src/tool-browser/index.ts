@@ -71,14 +71,18 @@ function taskKey(exec: { agent?: { id?: string } } | undefined): string {
  * Concurrent first calls for the same key share a single open.
  * @param browser - the seam service.
  * @param key - the task key (see {@link taskKey}).
+ * @param label - optional space name applied when the session is first opened.
  * @returns the task's session id.
  */
-async function ensureSession(browser: NonNullable<Context['browser']>, key: string): Promise<BrowserSessionId> {
+async function ensureSession(browser: NonNullable<Context['browser']>, key: string, label?: string): Promise<BrowserSessionId> {
   const existing = sessionsByTask.get(key)
   if (existing !== undefined) return existing
   const pending = pendingOpens.get(key)
   if (pending !== undefined) return pending
-  const opening = browser.open().then(
+  const opening = browser.open({
+    key,
+    ...label !== undefined && label !== '' ? { label } : {},
+  }).then(
     session => { sessionsByTask.set(key, session); pendingOpens.delete(key); return session },
     error => { pendingOpens.delete(key); throw error },
   )
@@ -98,12 +102,12 @@ function parseFillValue(v: string | undefined): string | number | boolean {
 function formatSnapshot(snapshot: {
   url: string
   title?: string
-  elements: readonly { ref: number; kind: string; label: string; x: number; y: number }[]
+  elements: readonly { ref: number; kind: string; label: string; x: number; y: number; loc: string }[]
   truncated?: boolean
   challenge?: { blocked: boolean; kind?: string; reason?: string }
   userControlling?: boolean
 }): string {
-  const lines = snapshot.elements.map(el => `[${el.ref}] ${el.kind}: ${el.label} (${el.x},${el.y})`)
+  const lines = snapshot.elements.map(el => `[${el.ref}] ${el.kind}: ${el.label} (${el.x},${el.y}) loc=${el.loc}`)
   const header = `URL: ${snapshot.url}${snapshot.title !== undefined ? `\nTitle: ${snapshot.title}` : ''}`
   const body = lines.length > 0 ? lines.join('\n') : '(no interactive elements found)'
   const tail = snapshot.truncated === true ? '\n(snapshot truncated)' : ''
@@ -136,6 +140,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     parameters: {
       url: { type: 'string', required: true, description: 'The URL to open (HTTP/HTTPS).' },
       newTab: { type: 'boolean', description: 'Open in a new tab instead of the active one.' },
+      space: { type: 'string', description: 'Optional space name shown in the window title (per-task windows are created automatically).' },
     },
     output: {
       schema: {
@@ -157,6 +162,7 @@ export function apply(ctx: Context, config: Config = {}): void {
                 label: { type: 'string', required: true },
                 x: { type: 'number', required: true },
                 y: { type: 'number', required: true },
+                loc: { type: 'string', required: true },
               },
             },
           },
@@ -180,7 +186,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       assertAllowed('browser_open')
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
-      const session = await ensureSession(browser, taskKey(exec))
+      const session = await ensureSession(browser, taskKey(exec), args.space)
       await browser.openUrl(session, {
         url: args.url,
         ...args.newTab === true ? { newTab: true } : {},
@@ -189,11 +195,68 @@ export function apply(ctx: Context, config: Config = {}): void {
       return {
         url: snapshot.url,
         ...snapshot.title !== undefined ? { title: snapshot.title } : {},
-        elements: snapshot.elements.map(el => ({ ref: el.ref, kind: el.kind, label: el.label, x: el.x, y: el.y })),
+        elements: snapshot.elements.map(el => ({ ref: el.ref, kind: el.kind, label: el.label, x: el.x, y: el.y, loc: el.loc })),
         truncated: snapshot.truncated,
         ...snapshot.challenge !== undefined ? { challenge: snapshot.challenge } : {},
         ...snapshot.userControlling !== undefined ? { userControlling: snapshot.userControlling } : {},
       }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'browser_space',
+    description: 'Name this task\'s browser window (space) or list every open window. Pass label="rewards task" to rename the current task\'s window title; pass no label to list spaces. Each task gets its own window, so naming tells the human which agent owns which window.',
+    parameters: {
+      label: { type: 'string', description: 'New space name for this task\'s window. Omit to list.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          label: { type: 'string' },
+          spaces: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                key: { type: 'string', required: true },
+                label: { type: 'string', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => {
+        if (value.label !== undefined) return [{ type: 'text', text: `Space named "${value.label}".` }]
+        const spaces = value.spaces as Array<{ key: string; label: string }>
+        const lines = spaces.length === 0 ? '(no windows open)' : spaces.map(s => `${s.key}${s.label !== '' ? ` — ${s.label}` : ''}`).join('\n')
+        return [{ type: 'text', text: `Open spaces:\n${lines}` }]
+      },
+    },
+    timeoutMs,
+    isConcurrencySafe: () => true,
+    async execute(args, exec) {
+      assertAllowed('browser_space')
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      if (args.label === undefined) {
+        // LIST mode must not force-open a visible window just to enumerate
+        // spaces: consult this task's session map before opening anything.
+        const existing = sessionsByTask.get(taskKey(exec))
+        if (existing === undefined) {
+          const spaces = await browser.listSpaces()
+          return { spaces: spaces.map(s => ({ key: s.key, label: s.label ?? '' })) }
+        }
+      }
+      const session = await ensureSession(browser, taskKey(exec))
+      if (args.label !== undefined) {
+        await browser.setSpace(session, args.label)
+        return { label: args.label }
+      }
+      const spaces = await browser.listSpaces()
+      return { spaces: spaces.map(s => ({ key: s.key, label: s.label ?? '' })) }
     },
   }))
 
@@ -221,6 +284,7 @@ export function apply(ctx: Context, config: Config = {}): void {
                 label: { type: 'string', required: true },
                 x: { type: 'number', required: true },
                 y: { type: 'number', required: true },
+                loc: { type: 'string', required: true },
               },
             },
           },
@@ -248,7 +312,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       return {
         url: snapshot.url,
         ...snapshot.title !== undefined ? { title: snapshot.title } : {},
-        elements: snapshot.elements.map(el => ({ ref: el.ref, kind: el.kind, label: el.label, x: el.x, y: el.y })),
+        elements: snapshot.elements.map(el => ({ ref: el.ref, kind: el.kind, label: el.label, x: el.x, y: el.y, loc: el.loc })),
         truncated: snapshot.truncated,
         ...snapshot.challenge !== undefined ? { challenge: snapshot.challenge } : {},
         ...snapshot.userControlling !== undefined ? { userControlling: snapshot.userControlling } : {},
@@ -395,7 +459,117 @@ export function apply(ctx: Context, config: Config = {}): void {
   }))
 
   ctx.tools.register(defineTool({
+    name: 'browser_double_click',
+    description: 'Double-click at viewport coordinates (CSS pixels) in the shared browser. Use for opening links, selecting text, or expanding UI that ignores single clicks.',
+    parameters: {
+      x: { type: 'number', required: true, description: 'Viewport x coordinate (CSS px).' },
+      y: { type: 'number', required: true, description: 'Viewport y coordinate (CSS px).' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: false, properties: { clicked: { type: 'boolean', required: true } } },
+      render: (_args, value) => [{ type: 'text', text: value.clicked ? 'Double-clicked.' : 'Double-click failed.' }],
+    },
+    timeoutMs,
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      assertAllowed('browser_double_click')
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const session = await ensureSession(browser, taskKey(exec))
+      await browser.doubleClick(session, { x: args.x, y: args.y }, exec.signal)
+      return { clicked: true }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'browser_hover',
+    description: 'Move the pointer to viewport coordinates (CSS pixels) without clicking. Triggers hover states, tooltips, and dropdown menus',
+    parameters: {
+      x: { type: 'number', required: true, description: 'Viewport x coordinate (CSS px).' },
+      y: { type: 'number', required: true, description: 'Viewport y coordinate (CSS px).' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: false, properties: { hovered: { type: 'boolean', required: true } } },
+      render: (_args, value) => [{ type: 'text', text: value.hovered ? 'Hovered.' : 'Hover failed.' }],
+    },
+    timeoutMs,
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      assertAllowed('browser_hover')
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const session = await ensureSession(browser, taskKey(exec))
+      await browser.hover(session, { x: args.x, y: args.y }, exec.signal)
+      return { hovered: true }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'browser_upload_file',
+    description: 'Attach a local file to a file input in the shared browser (CDP DOM.setFileInputFiles, so the page sees a real file selection). Use for avatar uploads, attachments, and import dialogs.',
+    parameters: {
+      filePath: { type: 'string', required: true, description: 'Absolute path of the file to attach.' },
+      selector: { type: 'string', description: 'CSS selector of the file input; defaults to the first input[type="file"] on the page.' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: false, properties: { path: { type: 'string', required: true } } },
+      render: (_args, value) => [{ type: 'text', text: `Attached ${value.path}.` }],
+    },
+    timeoutMs,
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      assertAllowed('browser_upload_file')
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const session = await ensureSession(browser, taskKey(exec))
+      const result = await browser.uploadFile(session, {
+        filePath: args.filePath,
+        ...args.selector !== undefined ? { selector: args.selector } : {},
+      }, exec.signal)
+      return { path: result.path }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'browser_wait_for',
+    description: 'Wait until an element matching a CSS selector appears (and is visible), polling every 250ms. Use before interacting with dynamically-loaded content (SPA views, toasts, menus).',
+    parameters: {
+      selector: { type: 'string', required: true, description: 'CSS selector to wait for.' },
+      timeoutMs: { type: 'number', description: 'Total budget in ms (default 15000).' },
+      visible: { type: 'boolean', description: 'Require visibility (>4x4 px, not display:none). Default true.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          found: { type: 'boolean', required: true },
+          selector: { type: 'string', required: true },
+          tag: { type: 'string', required: true },
+          text: { type: 'string' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `Found <${value.tag}> ${value.selector}${value.text !== undefined ? ` — "${value.text.slice(0, 80)}"` : ''}.` }],
+    },
+    timeoutMs,
+    isConcurrencySafe: () => true,
+    async execute(args, exec) {
+      assertAllowed('browser_wait_for')
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const session = await ensureSession(browser, taskKey(exec))
+      const result = await browser.waitForElement(session, {
+        selector: args.selector,
+        ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
+        ...args.visible !== undefined ? { visible: args.visible } : {},
+      }, exec.signal)
+      return { found: true, selector: result.selector, tag: result.tag, text: result.text }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
     name: 'browser_type',
+
     description: 'Type text into the focused element of the shared browser. Use after browser_execute focuses an input (e.g. el.focus()), or after a click lands in a field. Text is inserted at the current focus via CDP Input.insertText.',
     parameters: {
       text: { type: 'string', required: true, description: 'The text to insert.' },
@@ -413,6 +587,32 @@ export function apply(ctx: Context, config: Config = {}): void {
       const session = await ensureSession(browser, taskKey(exec))
       await browser.type(session, { text: args.text }, exec.signal)
       return { typed: true }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'browser_press_key',
+    description: 'Press a key into the focused element of the shared browser (keyDown + keyUp, physical input). Supports single characters, Enter/Tab/Escape/Backspace/Delete, arrow keys, Home/End/PageUp/PageDown, F1-F12, and modifier combos (e.g. key="a" modifiers=["ctrl"] for Ctrl+A). Use after focusing an input or for keyboard navigation.',
+    parameters: {
+      key: { type: 'string', required: true, description: 'The key to press: a character, Enter, Tab, Escape, ArrowDown, Home, F5, etc.' },
+      modifiers: { type: 'array', items: { type: 'string', enum: ['alt', 'ctrl', 'meta', 'shift'] }, description: 'Modifier keys held during the press.' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: false, properties: { pressed: { type: 'boolean', required: true } } },
+      render: (_args, value) => [{ type: 'text', text: value.pressed ? `Pressed ${String(_args.key)}.` : 'Press failed.' }],
+    },
+    timeoutMs,
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      assertAllowed('browser_press_key')
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const session = await ensureSession(browser, taskKey(exec))
+      await browser.pressKey(session, {
+        key: args.key,
+        ...args.modifiers !== undefined ? { modifiers: args.modifiers } : {},
+      }, exec.signal)
+      return { pressed: true }
     },
   }))
 
@@ -611,6 +811,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       timeoutMs,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
+        assertAllowed('browser_close_tab')
         const browser = ctx.get('browser')
         if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
         const session = await ensureSession(browser, taskKey(exec))
@@ -642,7 +843,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'browser_history',
-    description: 'List the shared browser session\'s recorded operation history (navigate/execute/click/type), newest last, with per-step success/error. Use to understand what the agent did and to pick a step to replay.',
+    description: 'List the shared browser session\'s recorded operation history (navigate/execute/click/type/pressKey), newest last, with per-step success/error. Use to understand what the agent did and to pick a step to replay.',
     parameters: {},
     output: {
       schema: {
@@ -704,7 +905,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'browser_replay',
-    description: 'Replay one recorded browser operation by its history sequence number (from browser_history). Navigate/click/type are re-issued against the current page; execute re-runs its script. The replayed step is appended to history as a new entry.',
+    description: 'Replay one recorded browser operation by its history sequence number (from browser_history). Navigate/click/type/pressKey are re-issued against the current page; execute re-runs its script. The replayed step is appended to history as a new entry.',
     parameters: {
       seq: { type: 'number', required: true, description: 'The history entry sequence number to replay.' },
     },
