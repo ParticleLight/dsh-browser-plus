@@ -111,6 +111,24 @@ test('provider opens with a window key and label through the host seam', async (
   assert.match(source, /createView\(options\?\.key/)
 })
 
+test('capture CDP fallback detaches only same-window siblings', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  const start = source.indexOf("case 'capture'")
+  const end = source.indexOf("case 'download'", start)
+  assert.ok(start >= 0 && end > start, 'capture block exists')
+  const captureBlock = source.slice(start, end)
+  assert.match(captureBlock, /v !== entry && v\.window === entry\.window/)
+})
+
+test('default window resets on close and first visibility is per window', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.match(source, /defaultWindow\.on\('closed'/)
+  assert.match(source, /windowLabels\.delete\('default'\)/)
+  assert.match(source, /!defaultWindow\.isDestroyed\(\)/)
+  assert.ok(!source.includes('views.size === 0'), 'process-global first-view check removed')
+  assert.match(source, /some\(v => v\.window === win\)/)
+})
+
 test('remote host forwards createView key/label and window ops', async () => {
   const source = await readFile(remotePath, 'utf8')
   assert.ok(source.includes("call('createView'"), 'creates views')

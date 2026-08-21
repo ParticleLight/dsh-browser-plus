@@ -74,7 +74,12 @@ function makeWindow(title: string): BrowserWindow {
 
 function windowFor(key: string, label?: string): BrowserWindow {
   if (key === 'default') {
-    if (defaultWindow === undefined) defaultWindow = makeWindow(label !== undefined ? `dsh-browser — ${label}` : 'dsh-browser')
+    if (defaultWindow === undefined) {
+      defaultWindow = makeWindow(label !== undefined ? `dsh-browser — ${label}` : 'dsh-browser')
+      // Mirror the keyed branch: a human-closed default window must drop out
+      // of the cache/label map or createView would attach into a dead window.
+      defaultWindow.on('closed', () => { defaultWindow = undefined; windowLabels.delete('default') })
+    }
     return defaultWindow
   }
   let win = windowsByKey.get(key)
@@ -205,11 +210,15 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // New views start hidden: with several sessions/tabs only the shown
         // one may be visible (they stack in contentView child order).
         view.setVisible(false)
-        const firstView = views.size === 0
+        // Per-window first-view visibility: show this view only when its OWN
+        // window had no other views yet; otherwise it stays hidden until an
+        // explicit showView (a process-global check leaves every later
+        // session's window visibly blank).
+        const firstInWindow = ![...views.values()].some(v => v.window === win)
         win.contentView.addChildView(view)
         views.set(viewId, { webContentsView: view, window: win, windowKey })
         layoutWindow(win)
-        if (firstView) view.setVisible(true)
+        if (firstInWindow) view.setVisible(true)
         // Fire-and-forget chrome registration: CDP calls on a view that is not
         // yet inside the window can hang, and chrome must never block first paint.
         void installPageChrome(view, viewId)
@@ -258,7 +267,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
       }
       case 'listWindows': {
         const windows: Array<{ key: string; label: string }> = []
-        if (defaultWindow !== undefined) windows.push({ key: 'default', label: windowLabels.get('default') ?? '' })
+        if (defaultWindow !== undefined && !defaultWindow.isDestroyed()) windows.push({ key: 'default', label: windowLabels.get('default') ?? '' })
         for (const [key, win] of windowsByKey) {
           if (!win.isDestroyed()) windows.push({ key, label: windowLabels.get(key) ?? '' })
         }
@@ -315,7 +324,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           // (especially hidden attach-first ones) are in the window, so
           // temporarily detach the siblings, capture in single-view state,
           // then restore them (target stays on top).
-          const siblings = [...views.values()].filter(v => v !== entry)
+          const siblings = [...views.values()].filter(v => v !== entry && v.window === entry.window)
           for (const v of siblings) {
             try { entry.window.contentView.removeChildView(v.webContentsView) } catch { /* already gone */ }
           }
