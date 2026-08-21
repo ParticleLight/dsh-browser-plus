@@ -1,12 +1,14 @@
 /**
  * Self-hosted Electron browser host (child side): the Electron main process
- * spawned by {@link RemoteElectronViewHost}. Owns one `BrowserWindow` plus
+ * spawned by {@link RemoteElectronViewHost}. Owns one `BrowserWindow` per
+ * session key plus
  * `WebContentsView`s and their `webContents.debugger` (CDP), and answers
  * line-delimited JSON-RPC on stdio.
  *
  * Protocol (one JSON object per line, both directions):
- *   <- { id, op: 'ping' } | { id, op: 'createView', viewId } |
+ *   <- { id, op: 'ping' } | { id, op: 'createView', viewId, key?, label? } |
  *      { id, op: 'destroyView', viewId } | { id, op: 'showView', viewId } |
+ *      { id, op: 'label', viewId, label } | { id, op: 'listWindows' } |
  *      { id, op: 'command', viewId, method, params }
  *   -> { id, ok: true, result? } | { id, ok: false, err }
  *
@@ -41,6 +43,10 @@ const MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024
 /** One view: the Electron object plus its CDP-backed surface. */
 interface HostView {
   readonly webContentsView: WebContentsView
+  /** The window this view lives in (one per session key). */
+  readonly window: BrowserWindow
+  /** The window group key the view belongs to. */
+  readonly windowKey: string
 }
 
 /** Views by the id the parent assigned at createView time. */
@@ -52,17 +58,42 @@ const traces = new Map<string, unknown[]>()
 /** Latest unread JS dialog per view (auto-accepted; read by drainDialog). */
 const dialogLogs = new Map<string, unknown>()
 
-/** The single browser window; created lazily on first createView. */
-let window: BrowserWindow | undefined
+/** Default window (key 'default'), created lazily. */
+let defaultWindow: BrowserWindow | undefined
+/** Per-session windows by their key. */
+const windowsByKey = new Map<string, BrowserWindow>()
+/** Most recent label per window key (for listWindows). */
+const windowLabels = new Map<string, string>()
+
+function makeWindow(title: string): BrowserWindow {
+  const win = new BrowserWindow({ width: 1400, height: 900, show: true, title })
+  win.setMenu(null)
+  win.on('resize', () => layoutWindow(win))
+  return win
+}
+
+function windowFor(key: string, label?: string): BrowserWindow {
+  if (key === 'default') {
+    if (defaultWindow === undefined) defaultWindow = makeWindow(label !== undefined ? `dsh-browser — ${label}` : 'dsh-browser')
+    return defaultWindow
+  }
+  let win = windowsByKey.get(key)
+  if (win === undefined) {
+    win = makeWindow(label !== undefined ? `dsh-browser — ${label}` : 'dsh-browser')
+    windowsByKey.set(key, win)
+    win.on('closed', () => { windowsByKey.delete(key); windowLabels.delete(key) })
+  }
+  return win
+}
 
 /** The RPC socket to the parent; set when the connection is established. */
 let rpcSocket: import('node:net').Socket | undefined
 
-/** Keep all existing page views aligned with the stable window surface. */
-function layoutPageViews(): void {
-  if (window === undefined) return
-  const [width, height] = window.getContentSize()
+/** Keep all views of one window aligned with its content surface. */
+function layoutWindow(win: BrowserWindow): void {
+  const [width, height] = win.getContentSize()
   for (const entry of views.values()) {
+    if (entry.window !== win) continue
     try {
       entry.webContentsView.setBounds({ x: 0, y: 0, width: width ?? 0, height: height ?? 0 })
     } catch { /* destroyed */ }
@@ -98,7 +129,7 @@ function reply(id: number, payload: Record<string, unknown>): void {
 }
 
 /** Handle one command. */
-async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown }): Promise<void> {
+async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string }): Promise<void> {
   try {
     switch (op) {
       case 'ping':
@@ -135,12 +166,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
       case 'createView': {
         const viewId = msg.viewId
         if (viewId === undefined) throw new Error('createView missing viewId')
-        if (window === undefined) {
-          window = new BrowserWindow({ width: 1400, height: 900, show: true, title: 'dsh-browser' })
-          window.setMenu(null)
-          window.on('resize', () => layoutPageViews())
-          window.on('closed', () => { window = undefined })
-        }
+        const windowKey = typeof msg.key === 'string' ? msg.key : 'default'
+        const label = typeof msg.label === 'string' ? msg.label : undefined
+        const win = windowFor(windowKey, label)
         const view = new WebContentsView()
         // Attach the debugger BEFORE the view can be seen: an attach failure
         // then leaves nothing in the window (no visible ghost view).
@@ -178,9 +206,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // one may be visible (they stack in contentView child order).
         view.setVisible(false)
         const firstView = views.size === 0
-        window.contentView.addChildView(view)
-        views.set(viewId, { webContentsView: view })
-        layoutPageViews()
+        win.contentView.addChildView(view)
+        views.set(viewId, { webContentsView: view, window: win, windowKey })
+        layoutWindow(win)
         if (firstView) view.setVisible(true)
         // Fire-and-forget chrome registration: CDP calls on a view that is not
         // yet inside the window can hang, and chrome must never block first paint.
@@ -196,7 +224,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           views.delete(viewId)
           try { entry.webContentsView.webContents.debugger.detach() } catch { /* already detached */ }
           entry.webContentsView.webContents.close()
-          window?.contentView.removeChildView(entry.webContentsView)
+          entry.window.contentView.removeChildView(entry.webContentsView)
         }
         reply(msg.id, { ok: true })
         return
@@ -209,12 +237,32 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           // Hide every other view, then show and RAISE the target so the
           // human actually sees the active tab/session (topmost child wins).
           for (const v of views.values()) {
-            if (v === entry) continue
+            if (v === entry || v.window !== entry.window) continue
             try { v.webContentsView.setVisible(false) } catch { /* destroyed */ }
           }
           entry.webContentsView.setVisible(true)
         }
         reply(msg.id, { ok: true })
+        return
+      }
+      case 'label': {
+        const viewId = msg.viewId
+        const label = msg.label
+        if (viewId === undefined || typeof label !== 'string') throw new Error('label missing viewId/label')
+        const entry = views.get(viewId)
+        if (entry === undefined) throw new Error(`label: unknown view ${viewId}`)
+        try { entry.window.setTitle(`dsh-browser — ${label}`) } catch { /* closing */ }
+        windowLabels.set(entry.windowKey, label)
+        reply(msg.id, { ok: true })
+        return
+      }
+      case 'listWindows': {
+        const windows: Array<{ key: string; label: string }> = []
+        if (defaultWindow !== undefined) windows.push({ key: 'default', label: windowLabels.get('default') ?? '' })
+        for (const [key, win] of windowsByKey) {
+          if (!win.isDestroyed()) windows.push({ key, label: windowLabels.get(key) ?? '' })
+        }
+        reply(msg.id, { ok: true, result: { windows } })
         return
       }
       case 'command': {
@@ -240,11 +288,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         //  - CDP Page.captureScreenshot: works without a display surface, but
         //    can hang when another hidden WebContentsView exists in the window.
         // Try capturePage first (show/focus/restore + one retry), then CDP.
-        if (window !== undefined) {
-          try { if (!window.isVisible()) window.show() } catch { /* closing */ }
-          try { window.restore() } catch { /* not minimized */ }
-          window.focus()
-        }
+        try { if (!entry.window.isVisible()) entry.window.show() } catch { /* closing */ }
+        try { entry.window.restore() } catch { /* not minimized */ }
+        entry.window.focus()
         let base64 = ''
         try {
           let image
@@ -258,11 +304,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           const png = image.toPNG()
           if (png.length > 0) base64 = png.toString('base64')
         } catch (error) {
-          const state = window !== undefined
-            ? JSON.stringify({
-              win: { visible: window.isVisible(), minimized: window.isMinimized(), focused: window.isFocused() },
-            })
-            : 'no-window'
+          const state = JSON.stringify({
+            win: { visible: entry.window.isVisible(), minimized: entry.window.isMinimized(), focused: entry.window.isFocused() },
+          })
           process.stderr.write(`[dsh-browser host] capturePage retry failed: ${String(error)} state=${state}\n`)
           base64 = ''
         }
@@ -273,7 +317,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           // then restore them (target stays on top).
           const siblings = [...views.values()].filter(v => v !== entry)
           for (const v of siblings) {
-            try { window?.contentView.removeChildView(v.webContentsView) } catch { /* already gone */ }
+            try { entry.window.contentView.removeChildView(v.webContentsView) } catch { /* already gone */ }
           }
           try {
             const shot = await entry.webContentsView.webContents.debugger.sendCommand('Page.captureScreenshot', {})
@@ -281,11 +325,11 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             if (typeof data === 'string' && data.length > 0) base64 = data
           } finally {
             for (const v of siblings) {
-              try { window?.contentView.addChildView(v.webContentsView) } catch { /* destroyed */ }
+              try { entry.window.contentView.addChildView(v.webContentsView) } catch { /* destroyed */ }
             }
             try {
-              window?.contentView.removeChildView(entry.webContentsView)
-              window?.contentView.addChildView(entry.webContentsView)
+              entry.window.contentView.removeChildView(entry.webContentsView)
+              entry.window.contentView.addChildView(entry.webContentsView)
             } catch { /* closing */ }
           }
         }
@@ -410,7 +454,7 @@ void app.whenReady().then(() => {
   rl.on('line', line => {
     const text = line.trim()
     if (text === '') return
-    let msg: { id: number; op?: string; viewId?: string; method?: string; params?: Record<string, unknown>; url?: string; savePath?: string; cookies?: unknown[] }
+    let msg: { id: number; op?: string; viewId?: string; method?: string; params?: Record<string, unknown>; url?: string; savePath?: string; cookies?: unknown[]; key?: string; label?: string }
     try {
       msg = JSON.parse(text) as typeof msg
     } catch {

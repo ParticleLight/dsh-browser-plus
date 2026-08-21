@@ -79,6 +79,8 @@ declare module 'electron' {
     show(): void
     restore(): void
     focus(): void
+    setTitle(title: string): void
+    isDestroyed(): boolean
     on(event: 'closed', listener: () => void): this
     on(event: 'resize', listener: () => void): this
     off(event: 'closed', listener: () => void): this

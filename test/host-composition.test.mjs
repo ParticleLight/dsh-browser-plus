@@ -95,3 +95,14 @@ test('snapshots emit a targeted locator per element', async () => {
   assert.match(source, /loc: locatorOf\(el\)/)
 })
 
+test('host keeps one window per session key and labels them', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.match(source, /windowsByKey/)
+  assert.match(source, /windowFor\(/)
+  assert.match(source, /case 'label'/)
+  assert.match(source, /case 'listWindows'/)
+  assert.match(source, /dsh-browser — /)
+  assert.match(source, /v\.window !== entry\.window/)
+  assert.ok(!source.includes('layoutPageViews()'), 'window-scoped layout only')
+})
+
