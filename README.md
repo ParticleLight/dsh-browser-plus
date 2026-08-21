@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/github/stars/wqty123/dsh-browser?style=flat&amp;label=%E2%98%85&amp;color=08C" alt="GitHub stars">
+  <img src="https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?style=flat&amp;label=%E2%98%85&amp;color=08C" alt="GitHub stars">
   <img src="https://img.shields.io/npm/v/dsh-browser-plus?style=flat&amp;label=npm&amp;color=CB3837" alt="npm version">
   <img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat" alt="MIT License">
   <img src="https://img.shields.io/badge/DSH-Plugin-47848F?style=flat" alt="DeepSeek Harness plugin">
