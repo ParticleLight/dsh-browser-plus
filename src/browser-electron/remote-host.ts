@@ -347,12 +347,6 @@ class RemoteView implements ElectronViewHandle {
   async label(label: string): Promise<void> {
     await this.client.call('label', { viewId: this.id, label })
   }
-
-  /** List all open window keys with their labels (host-level). */
-  async listWindows(): Promise<Array<{ key: string; label: string }>> {
-    const r = await this.client.call<{ windows: Array<{ key: string; label: string }> }>('listWindows')
-    return r.windows
-  }
 }
 
 /**

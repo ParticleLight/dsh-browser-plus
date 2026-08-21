@@ -71,6 +71,7 @@ function taskKey(exec: { agent?: { id?: string } } | undefined): string {
  * Concurrent first calls for the same key share a single open.
  * @param browser - the seam service.
  * @param key - the task key (see {@link taskKey}).
+ * @param label - optional space name applied when the session is first opened.
  * @returns the task's session id.
  */
 async function ensureSession(browser: NonNullable<Context['browser']>, key: string, label?: string): Promise<BrowserSessionId> {
@@ -237,8 +238,18 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => true,
     async execute(args, exec) {
+      assertAllowed('browser_space')
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      if (args.label === undefined) {
+        // LIST mode must not force-open a visible window just to enumerate
+        // spaces: consult this task's session map before opening anything.
+        const existing = sessionsByTask.get(taskKey(exec))
+        if (existing === undefined) {
+          const spaces = await browser.listSpaces()
+          return { spaces: spaces.map(s => ({ key: s.key, label: s.label ?? '' })) }
+        }
+      }
       const session = await ensureSession(browser, taskKey(exec))
       if (args.label !== undefined) {
         await browser.setSpace(session, args.label)
@@ -800,6 +811,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       timeoutMs,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
+        assertAllowed('browser_close_tab')
         const browser = ctx.get('browser')
         if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
         const session = await ensureSession(browser, taskKey(exec))
@@ -831,7 +843,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'browser_history',
-    description: 'List the shared browser session\'s recorded operation history (navigate/execute/click/type), newest last, with per-step success/error. Use to understand what the agent did and to pick a step to replay.',
+    description: 'List the shared browser session\'s recorded operation history (navigate/execute/click/type/pressKey), newest last, with per-step success/error. Use to understand what the agent did and to pick a step to replay.',
     parameters: {},
     output: {
       schema: {

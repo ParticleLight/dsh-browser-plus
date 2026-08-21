@@ -91,7 +91,7 @@ export interface BrowserWaitForRequest {
   readonly selector: string
   /** Total budget in ms. Default 15000. */
   readonly timeoutMs?: number
-  /** Wait for the element to be visible (>4x4 px, not display:none). Default true. */
+  /** Wait for the element to be visible (at least 4x4 px and not visibility:hidden or display:none). Default true. */
   readonly visible?: boolean
 }
 
@@ -128,7 +128,7 @@ export interface BrowserFillRequest {
   readonly fields: readonly BrowserFillField[]
   /** Submit the containing form after filling. Default false. */
   readonly submit?: boolean
-  /** Per-field evaluation budget in ms. Default 30000. */
+  /** Total evaluation budget for the whole batch in ms. Default 30000. */
   readonly timeoutMs?: number
 }
 
@@ -157,7 +157,7 @@ export interface BrowserFillResult {
  * (the human watches the real view in the desktop shape).
  */
 export interface BrowserScreenshotResult {
-  /** Base64 data URL of the capture (PNG or JPEG per the request). */
+  /** Base64 PNG data URL of the capture. */
   readonly dataUrl: string
   /** File path the capture was also saved to, when the request asked for it. */
   readonly path?: string
@@ -389,7 +389,7 @@ export interface BrowserProvider {
   download(session: BrowserSessionId, request: BrowserDownloadRequest, signal?: AbortSignal): Promise<{ readonly path: string }>
   /** Export the session's cookies (login state). */
   flushAuth(session: BrowserSessionId): Promise<readonly ExportedCookie[]>
-  /** Import cookies into the session (restore login state). */
+  /** Import cookies into the session (restore login state); returns the number of cookies restored. */
   restoreAuth(session: BrowserSessionId, cookies: readonly ExportedCookie[]): Promise<number>
   /** Return the session's chronological operation log. */
   history(session: BrowserSessionId): Promise<readonly BrowserHistoryEntry[]>
@@ -407,8 +407,10 @@ export interface BrowserProvider {
 export interface BrowserHistoryEntry {
   /** Monotonic sequence number within the session. */
   readonly seq: number
-  /** The operation name. Replayable: navigate | execute | click | type.
-   *  Also recorded (non-replayable): fill | download | flushAuth | restoreAuth. */
+  /** The operation name. Replayable: navigate | execute | click | type |
+   *  pressKey. Also recorded but not replayable: fill | download |
+   *  flushAuth | restoreAuth | setSpace | doubleClick | hover | uploadFile |
+   *  waitForElement. */
   readonly action: string
   /** The operation's arguments. */
   readonly params: Record<string, unknown>

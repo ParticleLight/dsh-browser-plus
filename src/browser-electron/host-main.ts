@@ -76,6 +76,7 @@ function windowFor(key: string, label?: string): BrowserWindow {
   if (key === 'default') {
     if (defaultWindow === undefined) {
       defaultWindow = makeWindow(label !== undefined ? `dsh-browser — ${label}` : 'dsh-browser')
+      if (label !== undefined) windowLabels.set('default', label)
       // Mirror the keyed branch: a human-closed default window must drop out
       // of the cache/label map or createView would attach into a dead window.
       defaultWindow.on('closed', () => { defaultWindow = undefined; windowLabels.delete('default') })
@@ -85,6 +86,7 @@ function windowFor(key: string, label?: string): BrowserWindow {
   let win = windowsByKey.get(key)
   if (win === undefined) {
     win = makeWindow(label !== undefined ? `dsh-browser — ${label}` : 'dsh-browser')
+    if (label !== undefined) windowLabels.set(key, label)
     windowsByKey.set(key, win)
     win.on('closed', () => { windowsByKey.delete(key); windowLabels.delete(key) })
   }
@@ -231,6 +233,8 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         const entry = views.get(viewId)
         if (entry !== undefined) {
           views.delete(viewId)
+          dialogLogs.delete(viewId)
+          traces.delete(viewId)
           try { entry.webContentsView.webContents.debugger.detach() } catch { /* already detached */ }
           entry.webContentsView.webContents.close()
           entry.window.contentView.removeChildView(entry.webContentsView)
@@ -242,15 +246,14 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         const viewId = msg.viewId
         if (viewId === undefined) throw new Error('showView missing viewId')
         const entry = views.get(viewId)
-        if (entry !== undefined) {
-          // Hide every other view, then show and RAISE the target so the
-          // human actually sees the active tab/session (topmost child wins).
-          for (const v of views.values()) {
-            if (v === entry || v.window !== entry.window) continue
-            try { v.webContentsView.setVisible(false) } catch { /* destroyed */ }
-          }
-          entry.webContentsView.setVisible(true)
+        if (entry === undefined) throw new Error(`showView: unknown view ${viewId}`)
+        // Hide every other view, then show and RAISE the target so the
+        // human actually sees the active tab/session (topmost child wins).
+        for (const v of views.values()) {
+          if (v === entry || v.window !== entry.window) continue
+          try { v.webContentsView.setVisible(false) } catch { /* destroyed */ }
         }
+        entry.webContentsView.setVisible(true)
         reply(msg.id, { ok: true })
         return
       }
@@ -299,7 +302,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // Try capturePage first (show/focus/restore + one retry), then CDP.
         try { if (!entry.window.isVisible()) entry.window.show() } catch { /* closing */ }
         try { entry.window.restore() } catch { /* not minimized */ }
-        entry.window.focus()
+        try { entry.window.focus() } catch { /* closing */ }
         let base64 = ''
         try {
           let image
