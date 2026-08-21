@@ -340,7 +340,9 @@ class RemoteView implements ElectronViewHandle {
 
   /** Read (and clear) the most recent auto-accepted JS dialog for the view. */
   async clearDialog(): Promise<unknown> {
-    return this.client.call<{ result: unknown } | null>('drainDialog', { viewId: this.id }).then(r => r?.result ?? null)
+    // client.call resolves the host's reply result directly (no wrapper), so
+    // the dialog object arrives as-is; a null reply means nothing was raised.
+    return this.client.call<unknown>('drainDialog', { viewId: this.id })
   }
 
   /** Set the window title (space name) for this view's window. */
