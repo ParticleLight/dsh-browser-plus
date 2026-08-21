@@ -216,9 +216,9 @@ agent (browser_* 工具)
 | 组件 | 版本 |
 | --- | --- |
 | DeepSeek Harness(dsh) | `0.1.0-rc.5` |
-| Electron | `43.4.0`(推荐 ≥ 40;33.x 存在合成器缺陷) |
+| Electron | `42.9.3`(42.x 锁定;43.4.1 存在合成器故障) |
 | Node.js | `22.20.0` |
-| dsh-browser-plus | `0.1.11` |
+| dsh-browser-plus | `0.3.0`(ego 特性:对话框/pressKey/doubleClick/hover/uploadFile/waitFor/locator/每任务窗口/space) |
 | 操作系统 | Windows 10 (10.0.26200) |
 
 > 插件声明 `electron >= 30`;**当前仅在 Windows 环境实测**(macOS/Linux 未验证,暂不承诺)。

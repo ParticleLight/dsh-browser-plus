@@ -218,7 +218,7 @@ The browser's **visible view**, the **browser column layout**, and the **column-
 | DeepSeek Harness (dsh) | `0.1.0-rc.5` |
 | Electron | `43.4.0` (≥ 40 recommended; 33.x has a compositor defect) |
 | Node.js | `22.20.0` |
-| dsh-browser-plus | `0.1.11` |
+| dsh-browser-plus | `0.3.0` (ego tier: dialogs/pressKey/doubleClick/hover/uploadFile/waitFor/locator/per-task windows/spaces) |
 | OS | Windows 10 (10.0.26200) |
 
 > The plugin declares `electron >= 30`; it has **only been verified on Windows** (macOS/Linux untested, not yet promised).

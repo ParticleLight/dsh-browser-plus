@@ -50,11 +50,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/dsh-browser-plus.git"
+    "url": "https://github.com/ParticleLight/dsh-browser-plus.git"
   },
-  "homepage": "https://github.com/wqty123/dsh-browser",
+  "homepage": "https://github.com/ParticleLight/dsh-browser-plus",
   "bugs": {
-    "url": "https://github.com/wqty123/dsh-browser/issues"
+    "url": "https://github.com/ParticleLight/dsh-browser-plus/issues"
   },
   "engines": {
     "node": ">=22.19"
