@@ -112,9 +112,9 @@ export interface CdpEvaluateParams {
 export declare const CDP_PAGE_CAPTURE_SCREENSHOT = "Page.captureScreenshot";
 /** CDP method for runtime evaluation (the execute path). */
 export declare const CDP_RUNTIME_EVALUATE = "Runtime.evaluate";
-/** CDP method for navigation. */
 /** CDP method for keyboard input. */
 export declare const CDP_INPUT_DISPATCH_KEY_EVENT = "Input.dispatchKeyEvent";
+/** CDP method for navigation. */
 export declare const CDP_PAGE_NAVIGATE = "Page.navigate";
 /**
  * Browser provider over Electron views. Sessions hold an ordered list of

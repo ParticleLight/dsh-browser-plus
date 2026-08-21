@@ -92,6 +92,7 @@ test('snapshots emit a targeted locator per element', async () => {
   const source = await readFile(providerPath, 'utf8')
   assert.match(source, /const locatorOf = /)
   assert.match(source, /CSS\.escape/)
+  assert.match(source, /\[aria-label=|\(aria-label\)/)
   assert.match(source, /loc: locatorOf\(el\)/)
 })
 

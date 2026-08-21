@@ -263,7 +263,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (viewId === undefined || typeof label !== 'string') throw new Error('label missing viewId/label')
         const entry = views.get(viewId)
         if (entry === undefined) throw new Error(`label: unknown view ${viewId}`)
-        try { entry.window.setTitle(`dsh-browser — ${label}`) } catch { /* closing */ }
+        try { entry.window.setTitle(label === '' ? 'dsh-browser' : `dsh-browser — ${label}`) } catch { /* closing */ }
         windowLabels.set(entry.windowKey, label)
         reply(msg.id, { ok: true })
         return

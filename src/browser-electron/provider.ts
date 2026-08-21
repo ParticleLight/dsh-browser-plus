@@ -192,7 +192,6 @@ export interface CdpEvaluateParams {
 export const CDP_PAGE_CAPTURE_SCREENSHOT = 'Page.captureScreenshot'
 /** CDP method for runtime evaluation (the execute path). */
 export const CDP_RUNTIME_EVALUATE = 'Runtime.evaluate'
-/** CDP method for navigation. */
 /** CDP method for keyboard input. */
 export const CDP_INPUT_DISPATCH_KEY_EVENT = 'Input.dispatchKeyEvent'
 
@@ -269,6 +268,7 @@ function modifierMask(modifiers: readonly ('alt' | 'ctrl' | 'meta' | 'shift')[] 
   }
   return mask
 }
+/** CDP method for navigation. */
 export const CDP_PAGE_NAVIGATE = 'Page.navigate'
 
 /** Cap on content returned by a snapshot fetch to keep the wire bounded. */
@@ -665,8 +665,8 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
     await this.drainDialog(s, handle)
-    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 2 })
-    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 2 })
+    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 2 } satisfies CdpMouseParams)
+    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 2 } satisfies CdpMouseParams)
     this.record(s, 'doubleClick', { x: request.x, y: request.y }, true)
   }
 
@@ -750,7 +750,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
         }
         if (value?.error !== undefined) lastError = value.error
       }
-      await new Promise(resolve => setTimeout(resolve, 250))
+      await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(deadline - Date.now(), 1))))
     }
     throw new BrowserError(`browser: element "${selector}" did not appear within ${timeoutMs}ms${lastError !== undefined ? ` (${lastError})` : ''}`, 'BROWSER_WAIT_TIMEOUT')
   }

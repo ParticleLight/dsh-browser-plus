@@ -113,6 +113,9 @@ test('doubleClick dispatches a clickCount 2 press/release pair', async () => {
   assert.equal(host.log[1].params.type, 'mouseReleased')
   assert.equal(host.log[1].params.clickCount, 2)
   assert.equal(host.log[0].params.x, 10)
+  assert.equal(host.log[0].params.y, 20)
+  assert.equal(host.log[1].params.x, 10)
+  assert.equal(host.log[1].params.y, 20)
   const history = await provider.history(session)
   assert.equal(history[0].action, 'doubleClick')
 })
@@ -133,14 +136,8 @@ test('uploadFile resolves a nodeId through the DOM domain and sets files', async
   const host = new FakeHost()
   const provider = new ElectronBrowserProvider(host)
   const session = await provider.open()
-  // Stub the DOM-domain replies: document node resolves, then a matched input.
-  // Keep the fake's log contract so the CDP call sequence stays assertable.
-  host.views[0].sendCommand = async (method, params) => {
-    host.log.push({ method, params })
-    return method === 'DOM.getDocument' ? { root: { nodeId: 1 } }
-      : method === 'DOM.querySelector' ? { nodeId: 42 }
-        : {}
-  }
+  // Stub the DOM-domain replies: document resolves, then a matched input.
+  host.views[0].sendCommand = domStub(host, 42)
   const result = await provider.uploadFile(session, { filePath: 'C:/tmp/x.txt' })
   assert.equal(result.path, 'C:/tmp/x.txt')
   const getDoc = host.log.find(e => e.method === 'DOM.getDocument')
@@ -150,20 +147,18 @@ test('uploadFile resolves a nodeId through the DOM domain and sets files', async
   const set = host.log.find(e => e.method === 'DOM.setFileInputFiles')
   assert.deepEqual(set.params.files, ['C:/tmp/x.txt'])
   assert.equal(set.params.nodeId, 42)
+  // Command order must be getDocument -> querySelector -> setFileInputFiles.
+  const order = ['DOM.getDocument', 'DOM.querySelector', 'DOM.setFileInputFiles']
+    .map(m => host.log.findIndex(e => e.method === m))
+  assert.ok(order.every(i => i >= 0) && order.every((i, n) => n === 0 || i > order[n - 1]), 'CDP sequence ordered')
 })
 
 test('uploadFile reports a missing file input', async () => {
   const host = new FakeHost()
   const provider = new ElectronBrowserProvider(host)
   const session = await provider.open()
-  // Stub sendCommand for the missing-input scenario: document resolves but
-  // DOM.querySelector answers nodeId 0 (no match).
-  host.views[0].sendCommand = async (method, params) => {
-    host.log.push({ method, params })
-    return method === 'DOM.getDocument' ? { root: { nodeId: 1 } }
-      : method === 'DOM.querySelector' ? { nodeId: 0 }
-        : {}
-  }
+  // Missing-input scenario: document resolves, DOM.querySelector answers nodeId 0.
+  host.views[0].sendCommand = domStub(host, 0)
   await assert.rejects(() => provider.uploadFile(session, { filePath: 'C:/tmp/x.txt' }), /no file input/)
 })
 
@@ -225,3 +220,13 @@ test('listSpaces forwards to the host', async () => {
   const spaces = await provider.listSpaces()
   assert.deepEqual(spaces, [{ key: 'task-1', label: 'rewards' }])
 })
+
+/** DOM-stub for uploadFile tests: document resolves, querySelector answers queryNodeId. */
+function domStub (host, queryNodeId) {
+  return async (method, params) => {
+    host.log.push({ method, params })
+    return method === 'DOM.getDocument' ? { root: { nodeId: 1 } }
+      : method === 'DOM.querySelector' ? { nodeId: queryNodeId }
+        : {}
+  }
+}
