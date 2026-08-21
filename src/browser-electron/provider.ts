@@ -242,11 +242,16 @@ function keyText(key: string): string | null {
 
 function keyDescriptor(key: string): { key: string; code: string; vk: number } {
   const upper = key.toUpperCase()
+  // A physical Space produces e.key === ' ' with code 'Space'.
+  if (key === 'Space') {
+    return { key: ' ', code: 'Space', vk: KEY_VK.Space }
+  }
   if (KEY_VK[key] !== undefined) {
     return { key, code: key, vk: KEY_VK[key] }
   }
   if (/^[a-z]$/i.test(key)) {
-    return { key: upper, code: `Key${upper}`, vk: upper.charCodeAt(0) }
+    // Unshifted letters deliver e.key lowercase; the code keeps the physical form.
+    return { key, code: `Key${upper}`, vk: upper.charCodeAt(0) }
   }
   if (/^[0-9]$/.test(key)) {
     return { key, code: `Digit${key}`, vk: key.charCodeAt(0) }
@@ -734,7 +739,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     let lastError: string | undefined
     while (Date.now() <= deadline) {
       signal?.throwIfAborted()
-      const result = await handleSendEvaluate(handle, script, signal).catch((error: unknown): BrowserExecuteResult => ({ ok: false, exception: String(error) }))
+      const result = await withTimeout(handleSendEvaluate(handle, script, signal), Math.max(deadline - Date.now(), 250), signal, 'browser: wait poll timed out').catch((error: unknown): BrowserExecuteResult => ({ ok: false, exception: String(error) }))
       if (!result.ok) {
         lastError = result.exception
       } else {
