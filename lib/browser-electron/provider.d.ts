@@ -57,6 +57,12 @@ export interface ElectronViewHandle {
      * @returns the CDP `result` object.
      */
     sendCommand(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
+    /**
+     * Read the most recent auto-accepted JS dialog for this view (and clear it).
+     * Optional: hosts without JS-dialog supervision omit it.
+     * @returns the dialog detail ({ type, message, prompt? }) or null.
+     */
+    clearDialog?(): Promise<unknown>;
 }
 /** Provider config: navigation admission defaults and snapshot caps. */
 export interface ElectronBrowserProviderConfig {
@@ -191,6 +197,11 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     }>;
     /** Build the data URL and optionally write the PNG to disk. */
     private saveScreenshot;
+    /**
+     * Pick up (and forget) any JS dialog the host auto-accepted, so the
+     * operation trail shows the human/agent what the page asked. Best-effort.
+     */
+    private drainDialog;
     /** Append one operation to the session's history. */
     private record;
     /** Return the session's chronological operation log (newest last). */

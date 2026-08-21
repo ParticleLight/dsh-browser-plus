@@ -49,6 +49,9 @@ const views = new Map<string, HostView>()
 /** Operation trail per view, newest last, bounded. */
 const traces = new Map<string, unknown[]>()
 
+/** Latest unread JS dialog per view (auto-accepted; read by drainDialog). */
+const dialogLogs = new Map<string, unknown>()
+
 /** The single browser window; created lazily on first createView. */
 let window: BrowserWindow | undefined
 
@@ -119,6 +122,16 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         reply(msg.id, { ok: true })
         return
       }
+      case 'drainDialog': {
+        const viewId = msg.viewId
+        if (viewId === undefined) throw new Error('drainDialog missing viewId')
+        const entry = views.get(viewId)
+        if (entry === undefined) throw new Error(`drainDialog: unknown view ${viewId}`)
+        const latest = dialogLogs.get(viewId)
+        if (latest !== undefined) dialogLogs.delete(viewId)
+        reply(msg.id, { ok: true, result: latest ?? null })
+        return
+      }
       case 'createView': {
         const viewId = msg.viewId
         if (viewId === undefined) throw new Error('createView missing viewId')
@@ -132,6 +145,26 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // Attach the debugger BEFORE the view can be seen: an attach failure
         // then leaves nothing in the window (no visible ghost view).
         view.webContents.debugger.attach(CDP_VERSION)
+        // Enable event domains so JS dialogs are observable; both are
+        // fire-and-forget — a failure must never block first paint.
+        try { void view.webContents.debugger.sendCommand('Page.enable').catch(() => undefined) } catch { /* closed */ }
+        try { void view.webContents.debugger.sendCommand('DOM.enable').catch(() => undefined) } catch { /* closed */ }
+        // JS dialogs (alert/confirm/prompt) would freeze the page until
+        // answered. Auto-accept immediately so automation never stalls, and
+        // stash the detail for the provider to surface via drainDialog.
+        view.webContents.debugger.on('message', (_event, method, params) => {
+          if (method !== 'Page.javascriptDialogOpening') return
+          const p = (params ?? {}) as { type?: unknown; message?: unknown; defaultPrompt?: unknown }
+          const info = {
+            type: String(p.type ?? ''),
+            message: String(p.message ?? ''),
+            ...typeof p.defaultPrompt === 'string' ? { prompt: p.defaultPrompt } : {},
+          }
+          dialogLogs.set(viewId, info)
+          try {
+            void view.webContents.debugger.sendCommand('Page.handleJavaScriptDialog', { accept: true }).catch(() => undefined)
+          } catch { /* closing */ }
+        })
         // Keep window.open / target=_blank navigations inside this shared view
         // instead of spawning separate Electron windows (rewards cards, sign-in
         // flows, and most sites use them). Only HTTP(S) targets are admitted.

@@ -72,3 +72,19 @@ test('provider retains document-ready waiting and SPA empty-snapshot retry', asy
   assert.match(source, /attempt < 5/)
   assert.match(source, /readiness wait exceeded/)
 })
+test('host auto-accepts JS dialogs and exposes drainDialog', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.ok(source.includes("'Page.enable'"), 'enables Page domain')
+  assert.ok(source.includes("'DOM.enable'"), 'enables DOM domain')
+  assert.match(source, /Page\.javascriptDialogOpening/)
+  assert.match(source, /Page\.handleJavaScriptDialog/)
+  assert.match(source, /dialogLogs/)
+  assert.match(source, /case 'drainDialog'/)
+})
+
+test('provider drains auto-accepted dialogs into history', async () => {
+  const source = await readFile(providerPath, 'utf8')
+  assert.match(source, /clearDialog/)
+  assert.match(source, /this\.record\(s, 'dialog'/)
+})
+

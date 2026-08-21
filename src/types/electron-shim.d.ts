@@ -11,6 +11,7 @@ declare module 'electron' {
     attach(version: string): void
     detach(): void
     sendCommand(method: string, params?: Record<string, unknown>): Promise<unknown>
+    on(event: 'message', listener: (event: unknown, method: string, params: Record<string, unknown>) => void): void
   }
   export interface DownloadItem {
     setSavePath(path: string): void

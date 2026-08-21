@@ -337,6 +337,11 @@ class RemoteView implements ElectronViewHandle {
   restoreAuth(cookies: ExportedCookie[]): Promise<number> {
     return this.client.call<{ restored: number }>('restoreAuth', { viewId: this.id, cookies }).then(r => r.restored)
   }
+
+  /** Read (and clear) the most recent auto-accepted JS dialog for the view. */
+  async clearDialog(): Promise<unknown> {
+    return this.client.call<{ result: unknown } | null>('drainDialog', { viewId: this.id }).then(r => r?.result ?? null)
+  }
 }
 
 /**
@@ -522,6 +527,11 @@ class DeferredRemoteView implements ElectronViewHandle {
   async restoreAuth(cookies: ExportedCookie[]): Promise<number> {
     const view = await this.materializeOnce()
     return view.restoreAuth(cookies)
+  }
+
+  async clearDialog(): Promise<unknown> {
+    const view = await this.materializeOnce()
+    return view.clearDialog()
   }
 }
 

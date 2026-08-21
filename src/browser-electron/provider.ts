@@ -108,6 +108,12 @@ export interface ElectronViewHandle {
    * @returns the CDP `result` object.
    */
   sendCommand(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>
+  /**
+   * Read the most recent auto-accepted JS dialog for this view (and clear it).
+   * Optional: hosts without JS-dialog supervision omit it.
+   * @returns the dialog detail ({ type, message, prompt? }) or null.
+   */
+  clearDialog?(): Promise<unknown>
 }
 
 /** One tab inside a session: its view plus a stable id. */
@@ -348,6 +354,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const s = this.session(session)
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
     try {
       // Wrap the script in a Function so `return` statements are legal and
       // request.args arrive as `arguments[0..n]`. A bare script handed to CDP
@@ -404,6 +411,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const s = this.session(session)
     const tab = this.activeTab(s)
     signal?.throwIfAborted()
+    await this.drainDialog(s, tab.handle)
     const script = `(() => {
       const cap = ${String(this.snapshotMaxElements)}
       const url = location.href
@@ -484,8 +492,10 @@ export class ElectronBrowserProvider implements BrowserProvider {
 
   /** Fetch page content in a requested format. */
   async content(session: BrowserSessionId, request: BrowserContentRequest, signal?: AbortSignal): Promise<BrowserContentResult> {
-    const tab = this.activeTab(this.session(session))
+    const s = this.session(session)
+    const tab = this.activeTab(s)
     signal?.throwIfAborted()
+    await this.drainDialog(s, tab.handle)
     const maxChars = request.maxChars ?? this.contentMaxChars
     const selector = request.selector ?? ''
     const format = request.format
@@ -541,6 +551,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const s = this.session(session)
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
     this.record(s, 'click', { x: request.x, y: request.y }, true)
@@ -551,6 +562,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const s = this.session(session)
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
     await handle.sendCommand('Input.insertText', { text: request.text } satisfies CdpInsertTextParams)
     // Store the full text so replay re-issues the same input; the history
     // tool truncates long values when rendering.
@@ -568,6 +580,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const s = this.session(session)
     const tab = this.activeTab(s)
     signal?.throwIfAborted()
+    await this.drainDialog(s, tab.handle)
     const specs = JSON.stringify(request.fields.map(f => ({
       selector: f.selector ?? null,
       name: f.name ?? null,
@@ -829,6 +842,23 @@ export class ElectronBrowserProvider implements BrowserProvider {
       }
     }
     return { dataUrl: `data:image/png;base64,${base64}` }
+  }
+
+  /**
+   * Pick up (and forget) any JS dialog the host auto-accepted, so the
+   * operation trail shows the human/agent what the page asked. Best-effort.
+   */
+  private async drainDialog(s: Session, handle: ElectronViewHandle): Promise<void> {
+    const drainable = handle as { clearDialog?(): Promise<unknown> }
+    if (typeof drainable.clearDialog !== 'function') return
+    try {
+      const dialog = await drainable.clearDialog()
+      if (dialog !== null && dialog !== undefined) {
+        this.record(s, 'dialog', dialog as Record<string, unknown>, true)
+      }
+    } catch {
+      // Dialog supervision is cosmetic; never fail a page operation for it.
+    }
   }
 
   /** Append one operation to the session's history. */
