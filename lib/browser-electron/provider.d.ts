@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser/browser-electron
  */
-import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserTab, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserTab, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -16,10 +16,12 @@ export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 export interface ElectronBrowserViewHost {
     /**
      * Create a new browser view and return a handle to its webContents-like
-     * surface. The host owns windowing (adding the view to the window, sizing,
-     * removal); the provider owns CDP-driven behavior.
+     * surface. `key` (default 'default') picks the window group — each key gets
+     * its own BrowserWindow; `label` names the window (space name). The host
+     * owns windowing (adding the view to the window, sizing, removal); the
+     * provider owns CDP-driven behavior.
      */
-    createView(): ElectronViewHandle;
+    createView(key?: string, label?: string): ElectronViewHandle;
     /**
      * Destroy a view created by this host. Called on session close; idempotent
      * for an already-destroyed view.
@@ -131,7 +133,7 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
      * each other: each keeps its own tabs, active tab, and history, and only
      * the active tab of a session is made visible.
      */
-    open(): Promise<BrowserSessionId>;
+    open(options?: BrowserOpenOptions): Promise<BrowserSessionId>;
     /** Open a URL in the active tab (default) or a new tab. */
     openUrl(session: BrowserSessionId, request: BrowserOpenRequest, signal?: AbortSignal): Promise<void>;
     /** List the session's tabs with their titles. */

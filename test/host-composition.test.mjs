@@ -106,3 +106,16 @@ test('host keeps one window per session key and labels them', async () => {
   assert.ok(!source.includes('layoutPageViews()'), 'window-scoped layout only')
 })
 
+test('provider opens with a window key and label through the host seam', async () => {
+  const source = await readFile(providerPath, 'utf8')
+  assert.match(source, /createView\(options\?\.key/)
+})
+
+test('remote host forwards createView key/label and window ops', async () => {
+  const source = await readFile(remotePath, 'utf8')
+  assert.ok(source.includes("call('createView'"), 'creates views')
+  assert.match(source, /\.\.\.key !== undefined/)
+  assert.ok(source.includes("call('label'"), 'labels windows')
+  assert.ok(source.includes("call('listWindows'"), 'lists windows')
+})
+

@@ -317,6 +317,14 @@ export interface BrowserOpenRequest {
   readonly newTab?: boolean
 }
 
+/** Options for opening a new browser session. */
+export interface BrowserOpenOptions {
+  /** Window group key; each distinct key gets its own window. Default 'default'. */
+  readonly key?: string
+  /** Label (space name) shown in the window title. */
+  readonly label?: string
+}
+
 /**
  * A browser-capable backend. Registered with `ctx.browser.registerBrowserProvider`.
  * `id` is a stable string, unique across the seam.
@@ -330,7 +338,7 @@ export interface BrowserProvider {
    * backing surface (a view, a headless page, and so on). Sessions are isolated from
    * each other; a session must not be visible to any other session's caller.
    */
-  open(): Promise<BrowserSessionId>
+  open(options?: BrowserOpenOptions): Promise<BrowserSessionId>
   /** Open a URL, optionally in a new tab. Honor `signal` for cancellation. */
   openUrl(session: BrowserSessionId, request: BrowserOpenRequest, signal?: AbortSignal): Promise<void>
   /** List the session's tabs. */

@@ -22,6 +22,7 @@ import type {
   BrowserHistoryEntry,
   BrowserHoverRequest,
   BrowserNavigateRequest,
+  BrowserOpenOptions,
   BrowserOpenRequest,
   BrowserPressKeyRequest,
   BrowserProvider,
@@ -59,6 +60,7 @@ export type {
   BrowserHistoryEntry,
   BrowserHoverRequest,
   BrowserNavigateRequest,
+  BrowserOpenOptions,
   BrowserOpenRequest,
   BrowserPressKeyRequest,
   BrowserProvider,
@@ -165,8 +167,8 @@ export class BrowserRuntime extends Service {
   }
 
   /** Open a new browser session through the selected provider. */
-  async open(): Promise<BrowserSessionId> {
-    return this.resolveProvider().open()
+  async open(options?: BrowserOpenOptions): Promise<BrowserSessionId> {
+    return this.resolveProvider().open(options)
   }
 
   /** Open a URL through the selected provider, optionally in a new tab. */

@@ -20,6 +20,7 @@ import type {
   BrowserFillResult,
   BrowserHistoryEntry,
   BrowserHoverRequest,
+  BrowserOpenOptions,
   BrowserOpenRequest,
   BrowserPressKeyRequest,
   BrowserProvider,
@@ -73,10 +74,12 @@ export const ELECTRON_BROWSER_PROVIDER_ID = 'electron'
 export interface ElectronBrowserViewHost {
   /**
    * Create a new browser view and return a handle to its webContents-like
-   * surface. The host owns windowing (adding the view to the window, sizing,
-   * removal); the provider owns CDP-driven behavior.
+   * surface. `key` (default 'default') picks the window group — each key gets
+   * its own BrowserWindow; `label` names the window (space name). The host
+   * owns windowing (adding the view to the window, sizing, removal); the
+   * provider owns CDP-driven behavior.
    */
-  createView(): ElectronViewHandle
+  createView(key?: string, label?: string): ElectronViewHandle
   /**
    * Destroy a view created by this host. Called on session close; idempotent
    * for an already-destroyed view.
@@ -297,8 +300,8 @@ export class ElectronBrowserProvider implements BrowserProvider {
    * each other: each keeps its own tabs, active tab, and history, and only
    * the active tab of a session is made visible.
    */
-  open(): Promise<BrowserSessionId> {
-    const handle = this.host.createView()
+  open(options?: BrowserOpenOptions): Promise<BrowserSessionId> {
+    const handle = this.host.createView(options?.key ?? 'default', options?.label)
     const id = `browser:${randomUUID()}`
     this.sessions.set(id, { id, tabs: [{ id: `tab:${randomUUID()}`, handle }], activeIndex: 0, history: [], nextSeq: 1 })
     return Promise.resolve(id)

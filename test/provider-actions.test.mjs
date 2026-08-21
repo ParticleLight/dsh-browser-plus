@@ -34,9 +34,11 @@ class FakeHost {
     this.evalReplies = []
     this.nextId = 1
     this.log = []
+    this.createViewArgs = []
   }
 
-  createView() {
+  createView(key, label) {
+    this.createViewArgs.push({ key, label })
     const view = new FakeView(`view:${String(this.nextId++)}`, this)
     this.views.push(view)
     return view
@@ -181,6 +183,15 @@ test('waitForElement polls until the element appears', async () => {
   assert.equal(host.log.filter(e => e.method === 'Runtime.evaluate').length, 3)
   const history = await provider.history(session)
   assert.equal(history[0].action, 'waitForElement')
+})
+
+test('open forwards a window key and label to the host', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  await provider.open({ key: 'task-1', label: 'rewards' })
+  assert.deepEqual(host.createViewArgs[0], { key: 'task-1', label: 'rewards' })
+  await provider.open()
+  assert.deepEqual(host.createViewArgs[1], { key: 'default', label: undefined })
 })
 
 test('waitForElement times out with BROWSER_WAIT_TIMEOUT', async () => {
