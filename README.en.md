@@ -132,17 +132,23 @@ See the full list in [Tool reference](#tool-reference).
 | --- | --- | --- |
 | `browser_open` | Open a URL (optionally in a new tab); returns a page snapshot | ✅ |
 | `browser_snapshot` | Numbered inventory of interactive elements (inputs/buttons/links) | – |
+| `browser_wait_for` | Wait until an element matching a CSS selector appears and is visible (250ms poll, 15s default timeout) | ✅ |
 | `browser_execute` | Run JS in the page; args arrive as `arguments[0..n]` | ✅ |
 | `browser_content` | Fetch the page as html / markdown / txt / json (selector, maxChars, timeoutMs) | – |
 | `browser_click` | Click at viewport coordinates (for vision-located targets) | ✅ |
+| `browser_double_click` | Double-click at viewport coordinates (select text, expand UI that ignores single clicks) | ✅ |
+| `browser_hover` | Move the pointer to viewport coordinates without clicking (hover states, tooltips, dropdown menus) | ✅ |
 | `browser_type` | Type text into the focused element (CDP `Input.insertText`) | ✅ |
+| `browser_press_key` | Press a key into the focused element (keyDown+keyUp; Enter/F-keys and modifier combos like Ctrl+A) | ✅ |
 | `browser_fill` | Batch form fill (selector/name/label matching, controlled inputs, selects, checkbox/radio, optional submit) | ✅ |
+| `browser_upload_file` | Attach a local file to a file input (CDP `DOM.setFileInputFiles`; the page sees a real file selection) | ✅ |
 | `browser_screenshot` | PNG capture, optional `fullPage` and `savePath` | – |
 | `browser_list_tabs` | List the session's tabs | – |
 | `browser_switch_tab` | Switch to a tab by id (also switches the visible view when self-hosted) | ✅ |
 | `browser_close_tab` | Close a tab by id; closing the active tab activates the next | – |
 | `browser_reset` | Close all tabs of this task, back to one blank tab | ✅ |
 | `browser_session` | Show this task's browser session and tabs | – |
+| `browser_space` | Name this task's browser window (space) or list every open window | – |
 | `browser_reset_session` | Close and rebuild this task's browser session | ✅ |
 | `browser_history` | Operation log (newest last), with per-step success/error and result summary | – |
 | `browser_replay` | Replay one step by sequence number (navigate/execute/click/type) | ✅ |
@@ -160,6 +166,10 @@ See the full list in [Tool reference](#tool-reference).
 - **Click right after taking coordinates**: do not insert other operations in between (filling/scrolling moves elements and invalidates old coordinates).
 - **Verify before clicking**: use `document.elementFromPoint(x, y)` to confirm the coordinate hits the intended element (button/link), then perform the real click.
 - **DPR awareness**: CDP input uses CSS pixels; on high-DPI screens calibrate with `elementFromPoint` instead of guessing coordinates.
+
+## Per-task windows & spaces
+
+Each DSH task gets its own browser window; the window title is the space name. Name it with the `space` parameter of `browser_open`; rename the current task's window, or list every open window, with `browser_space`.
 
 ## Configuration
 

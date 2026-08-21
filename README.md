@@ -132,17 +132,23 @@ dsh plugin --profile web add <本仓库路径>
 | --- | --- | --- |
 | `browser_open` | 打开 URL(可选新标签),返回页面快照 | ✅ |
 | `browser_snapshot` | 交互元素(输入框/按钮/链接)带编号清单 | – |
+| `browser_wait_for` | 等待 CSS 选择器命中的元素出现且可见(250ms 轮询,默认超时 15s) | ✅ |
 | `browser_execute` | 在页面执行 JS;参数以 `arguments[0..n]` 传入 | ✅ |
 | `browser_content` | 以 html / markdown / txt / json 抓取页面(selector、maxChars、timeoutMs) | – |
 | `browser_click` | 按视口坐标点击(配合截图做视觉定位) | ✅ |
+| `browser_double_click` | 按视口坐标双击(选中文本、展开单击无效的 UI) | ✅ |
+| `browser_hover` | 移动指针到视口坐标(不点击),触发悬停态/工具提示/下拉菜单 | ✅ |
 | `browser_type` | 向聚焦元素输入文本(CDP `Input.insertText`) | ✅ |
+| `browser_press_key` | 向聚焦元素按键(keyDown+keyUp,支持 Enter/F 键与 Ctrl+A 等修饰组合) | ✅ |
 | `browser_fill` | 批量填充表单(选择器/名称/标签匹配,受控输入、下拉、单选/复选,可选提交) | ✅ |
+| `browser_upload_file` | 向文件输入框附加本地文件(CDP `DOM.setFileInputFiles`,页面看到真实文件选择) | ✅ |
 | `browser_screenshot` | PNG 截图,可选 `fullPage` 与 `savePath` | – |
 | `browser_list_tabs` | 当前会话的标签列表 | – |
 | `browser_switch_tab` | 按 id 切换标签(自托管下同步切换可见视图) | ✅ |
 | `browser_close_tab` | 按 id 关闭标签;关闭活动标签后激活下一个 | – |
 | `browser_reset` | 关闭本任务所有标签,回到一个空白标签 | ✅ |
 | `browser_session` | 查看本任务的浏览器会话与标签 | – |
+| `browser_space` | 命名本任务的浏览器窗口(space)或列出全部已开窗口 | – |
 | `browser_reset_session` | 关闭并重建本任务的浏览器会话 | ✅ |
 | `browser_history` | 操作日志(最新在后),含成功/失败与结果摘要 | – |
 | `browser_replay` | 按序号回放某一步(navigate/execute/click/type) | ✅ |
@@ -160,6 +166,10 @@ dsh plugin --profile web add <本仓库路径>
 - **取坐标后立即点击**:中间不要插入其他操作(填表、滚动会移动元素,旧坐标立即失效)。
 - **点击前验证命中**:`document.elementFromPoint(x, y)` 确认该坐标确实是目标元素(按钮/链接),再执行真实点击。
 - **DPR 注意**:CDP 输入使用 CSS 像素;高 DPI 屏上若点击落空,用 `elementFromPoint` 校准,不要盲试坐标。
+
+## Per-task windows & spaces:每个 DSH 任务一个浏览器窗口,窗口标题即 space 名
+
+每个 DSH 任务(会话)拥有自己的浏览器窗口:`browser_open` 可用 `space` 参数在首次打开时给窗口命名;`browser_space` 给当前任务窗口重命名,或不带参数列出所有打开的窗口。窗口标题即 space 名。
 
 ## 配置
 
