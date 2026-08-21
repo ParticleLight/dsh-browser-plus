@@ -114,3 +114,15 @@ test('doubleClick dispatches a clickCount 2 press/release pair', async () => {
   const history = await provider.history(session)
   assert.equal(history[0].action, 'doubleClick')
 })
+
+test('hover dispatches one mouseMoved with no button', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  await provider.hover(session, { x: 33, y: 44 })
+  assert.equal(host.log.length, 1)
+  assert.equal(host.log[0].method, 'Input.dispatchMouseEvent')
+  assert.equal(host.log[0].params.type, 'mouseMoved')
+  assert.equal(host.log[0].params.button, 'none')
+  assert.equal(host.log[0].params.x, 33)
+})

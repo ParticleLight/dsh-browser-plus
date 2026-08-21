@@ -63,6 +63,14 @@ export interface BrowserDoubleClickRequest {
   readonly y: number
 }
 
+/** Move the pointer to viewport coordinates (no button). */
+export interface BrowserHoverRequest {
+  /** Viewport-relative x in CSS pixels. */
+  readonly x: number
+  /** Viewport-relative y in CSS pixels. */
+  readonly y: number
+}
+
 /** One field of a batch form fill. Match by selector, or by name/label/placeholder. */
 export interface BrowserFillField {
   /** CSS selector; when present, candidates are scoped to it. */
@@ -315,6 +323,8 @@ export interface BrowserProvider {
   pressKey(session: BrowserSessionId, request: BrowserPressKeyRequest, signal?: AbortSignal): Promise<void>
   /** Double-click at viewport coordinates. Honor `signal` for cancellation. */
   doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void>
+  /** Move the pointer to viewport coordinates (hover). Honor `signal` for cancellation. */
+  hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void>
   /** Fill a form's fields in one batch. Honor `signal` for cancellation. */
   fillForm(session: BrowserSessionId, request: BrowserFillRequest, signal?: AbortSignal): Promise<BrowserFillResult>
   /** Capture the current page. Honor `signal` for cancellation. */

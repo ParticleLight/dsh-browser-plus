@@ -20,6 +20,7 @@ import type {
   BrowserFillRequest,
   BrowserFillResult,
   BrowserHistoryEntry,
+  BrowserHoverRequest,
   BrowserNavigateRequest,
   BrowserOpenRequest,
   BrowserPressKeyRequest,
@@ -52,6 +53,7 @@ export type {
   BrowserFillRequest,
   BrowserFillResult,
   BrowserHistoryEntry,
+  BrowserHoverRequest,
   BrowserNavigateRequest,
   BrowserOpenRequest,
   BrowserPressKeyRequest,
@@ -212,6 +214,11 @@ export class BrowserRuntime extends Service {
   /** Double-click at viewport coordinates through the selected provider. */
   async doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void> {
     return this.resolveProvider().doubleClick(session, request, signal)
+  }
+
+  /** Move the pointer to viewport coordinates through the selected provider. */
+  async hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void> {
+    return this.resolveProvider().hover(session, request, signal)
   }
 
   /** Type into the focused element through the selected provider. */

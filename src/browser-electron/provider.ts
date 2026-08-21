@@ -19,6 +19,7 @@ import type {
   BrowserFillRequest,
   BrowserFillResult,
   BrowserHistoryEntry,
+  BrowserHoverRequest,
   BrowserOpenRequest,
   BrowserPressKeyRequest,
   BrowserProvider,
@@ -639,6 +640,16 @@ export class ElectronBrowserProvider implements BrowserProvider {
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 2 })
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 2 })
     this.record(s, 'doubleClick', { x: request.x, y: request.y }, true)
+  }
+
+  /** Move the pointer to viewport coordinates (hover; no click). */
+  async hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
+    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: request.x, y: request.y, button: 'none' })
+    this.record(s, 'hover', { x: request.x, y: request.y }, true)
   }
 
   /** Type into the focused element. */

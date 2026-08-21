@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser/browser-electron
  */
-import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserTab, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserTab, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -161,6 +161,8 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     }, signal?: AbortSignal): Promise<void>;
     /** Double-click at viewport coordinates (physical input; clickCount 2). */
     doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void>;
+    /** Move the pointer to viewport coordinates (hover; no click). */
+    hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void>;
     /** Type into the focused element. */
     type(session: BrowserSessionId, request: {
         readonly text: string;
