@@ -28,6 +28,8 @@ import type {
   BrowserTab,
   BrowserUploadFileRequest,
   BrowserUploadFileResult,
+  BrowserWaitForRequest,
+  BrowserWaitForResult,
   ExportedCookie,
 } from '../browser/types.ts'
 import { BrowserError } from '../browser/types.ts'
@@ -680,6 +682,53 @@ export class ElectronBrowserProvider implements BrowserProvider {
     await handle.sendCommand('DOM.setFileInputFiles', { files: [request.filePath], nodeId })
     this.record(s, 'uploadFile', { filePath: request.filePath, selector }, true, { result: '1 file attached' })
     return { path: request.filePath }
+  }
+
+  /**
+   * Poll until an element matching the selector exists (and is visible).
+   * Bounds the total wait; a timeout surfaces as BROWSER_WAIT_TIMEOUT.
+   */
+  async waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    const timeoutMs = request.timeoutMs ?? 15_000
+    const visible = request.visible !== false
+    const selector = request.selector
+    const script = `(() => {
+      let el = null
+      try { el = document.querySelector(${JSON.stringify(selector)}) } catch (e) { return { error: String(e) } }
+      if (!el) return null
+      if (${visible}) {
+        const r = el.getBoundingClientRect()
+        const cs = getComputedStyle(el)
+        if (r.width < 4 || r.height < 4 || cs.visibility === 'hidden' || cs.display === 'none') return null
+      }
+      return {
+        found: true,
+        selector: ${JSON.stringify(selector)},
+        tag: el.tagName.toLowerCase(),
+        text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200),
+      }
+    })()`
+    const deadline = Date.now() + timeoutMs
+    let lastError: string | undefined
+    while (Date.now() <= deadline) {
+      signal?.throwIfAborted()
+      const result = await handleSendEvaluate(handle, script, signal).catch((error: unknown): BrowserExecuteResult => ({ ok: false, exception: String(error) }))
+      if (!result.ok) {
+        lastError = result.exception
+      } else {
+        const value = result.value as { found?: boolean; tag?: string; text?: string; error?: string } | null
+        if (value?.found === true && typeof value.tag === 'string') {
+          this.record(s, 'waitForElement', { selector, timeoutMs, visible }, true, { result: value.tag })
+          return { found: true, selector, tag: value.tag, text: value.text ?? '' }
+        }
+        if (value?.error !== undefined) lastError = value.error
+      }
+      await new Promise(resolve => setTimeout(resolve, 250))
+    }
+    throw new BrowserError(`browser: element "${selector}" did not appear within ${timeoutMs}ms${lastError !== undefined ? ` (${lastError})` : ''}`, 'BROWSER_WAIT_TIMEOUT')
   }
 
   /** Type into the focused element. */

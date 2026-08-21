@@ -74,6 +74,24 @@ export interface BrowserUploadFileResult {
     /** The path uploaded. */
     readonly path: string;
 }
+/** Wait for an element matching a CSS selector to appear (optionally visible). */
+export interface BrowserWaitForRequest {
+    /** CSS selector to wait for. */
+    readonly selector: string;
+    /** Total budget in ms. Default 15000. */
+    readonly timeoutMs?: number;
+    /** Wait for the element to be visible (>4x4 px, not display:none). Default true. */
+    readonly visible?: boolean;
+}
+/** Outcome of a successful wait. */
+export interface BrowserWaitForResult {
+    readonly found: true;
+    readonly selector: string;
+    /** Matching element's tag name. */
+    readonly tag: string;
+    /** Matching element's visible text (first 200 chars). */
+    readonly text: string;
+}
 /** One field of a batch form fill. Match by selector, or by name/label/placeholder. */
 export interface BrowserFillField {
     /** CSS selector; when present, candidates are scoped to it. */
@@ -316,6 +334,8 @@ export interface BrowserProvider {
     hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void>;
     /** Attach a local file to a file input. Honor `signal` for cancellation. */
     uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult>;
+    /** Wait until an element matching the selector exists (and optionally is visible). Honor `signal` for cancellation. */
+    waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult>;
     /** Fill a form's fields in one batch. Honor `signal` for cancellation. */
     fillForm(session: BrowserSessionId, request: BrowserFillRequest, signal?: AbortSignal): Promise<BrowserFillResult>;
     /** Capture the current page. Honor `signal` for cancellation. */

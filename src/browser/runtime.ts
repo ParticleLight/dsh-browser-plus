@@ -33,6 +33,8 @@ import type {
   BrowserTypeRequest,
   BrowserUploadFileRequest,
   BrowserUploadFileResult,
+  BrowserWaitForRequest,
+  BrowserWaitForResult,
   BrowserChallenge,
   ExportedCookie,
 } from './types.ts'
@@ -69,6 +71,8 @@ export type {
   BrowserTypeRequest,
   BrowserUploadFileRequest,
   BrowserUploadFileResult,
+  BrowserWaitForRequest,
+  BrowserWaitForResult,
   ExportedCookie,
 } from './types.ts'
 
@@ -228,6 +232,11 @@ export class BrowserRuntime extends Service {
   /** Attach a local file to a file input through the selected provider. */
   async uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult> {
     return this.resolveProvider().uploadFile(session, request, signal)
+  }
+
+  /** Wait for an element through the selected provider (bounded polling). */
+  async waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult> {
+    return this.resolveProvider().waitForElement(session, request, signal)
   }
 
   /** Type into the focused element through the selected provider. */

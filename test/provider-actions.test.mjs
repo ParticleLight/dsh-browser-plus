@@ -164,3 +164,32 @@ test('uploadFile reports a missing file input', async () => {
   }
   await assert.rejects(() => provider.uploadFile(session, { filePath: 'C:/tmp/x.txt' }), /no file input/)
 })
+
+test('waitForElement polls until the element appears', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  // 前两次 evaluate 返回 null,第三次返回 found
+  host.evalReplies.push(
+    { result: { value: null } },
+    { result: { value: null } },
+    { result: { value: { found: true, selector: '#go', tag: 'button', text: 'Go' } } },
+  )
+  const result = await provider.waitForElement(session, { selector: '#go', timeoutMs: 3000 })
+  assert.equal(result.found, true)
+  assert.equal(result.tag, 'button')
+  assert.equal(host.log.filter(e => e.method === 'Runtime.evaluate').length, 3)
+  const history = await provider.history(session)
+  assert.equal(history[0].action, 'waitForElement')
+})
+
+test('waitForElement times out with BROWSER_WAIT_TIMEOUT', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  host.evalReplies.push({ result: { value: null } })
+  await assert.rejects(
+    () => provider.waitForElement(session, { selector: '#never', timeoutMs: 600 }),
+    (error) => error.code === 'BROWSER_WAIT_TIMEOUT',
+  )
+})
