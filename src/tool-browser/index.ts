@@ -98,12 +98,12 @@ function parseFillValue(v: string | undefined): string | number | boolean {
 function formatSnapshot(snapshot: {
   url: string
   title?: string
-  elements: readonly { ref: number; kind: string; label: string; x: number; y: number }[]
+  elements: readonly { ref: number; kind: string; label: string; x: number; y: number; loc: string }[]
   truncated?: boolean
   challenge?: { blocked: boolean; kind?: string; reason?: string }
   userControlling?: boolean
 }): string {
-  const lines = snapshot.elements.map(el => `[${el.ref}] ${el.kind}: ${el.label} (${el.x},${el.y})`)
+  const lines = snapshot.elements.map(el => `[${el.ref}] ${el.kind}: ${el.label} (${el.x},${el.y}) loc=${el.loc}`)
   const header = `URL: ${snapshot.url}${snapshot.title !== undefined ? `\nTitle: ${snapshot.title}` : ''}`
   const body = lines.length > 0 ? lines.join('\n') : '(no interactive elements found)'
   const tail = snapshot.truncated === true ? '\n(snapshot truncated)' : ''
@@ -157,6 +157,7 @@ export function apply(ctx: Context, config: Config = {}): void {
                 label: { type: 'string', required: true },
                 x: { type: 'number', required: true },
                 y: { type: 'number', required: true },
+                loc: { type: 'string', required: true },
               },
             },
           },
@@ -189,7 +190,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       return {
         url: snapshot.url,
         ...snapshot.title !== undefined ? { title: snapshot.title } : {},
-        elements: snapshot.elements.map(el => ({ ref: el.ref, kind: el.kind, label: el.label, x: el.x, y: el.y })),
+        elements: snapshot.elements.map(el => ({ ref: el.ref, kind: el.kind, label: el.label, x: el.x, y: el.y, loc: el.loc })),
         truncated: snapshot.truncated,
         ...snapshot.challenge !== undefined ? { challenge: snapshot.challenge } : {},
         ...snapshot.userControlling !== undefined ? { userControlling: snapshot.userControlling } : {},
@@ -221,6 +222,7 @@ export function apply(ctx: Context, config: Config = {}): void {
                 label: { type: 'string', required: true },
                 x: { type: 'number', required: true },
                 y: { type: 'number', required: true },
+                loc: { type: 'string', required: true },
               },
             },
           },
@@ -248,7 +250,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       return {
         url: snapshot.url,
         ...snapshot.title !== undefined ? { title: snapshot.title } : {},
-        elements: snapshot.elements.map(el => ({ ref: el.ref, kind: el.kind, label: el.label, x: el.x, y: el.y })),
+        elements: snapshot.elements.map(el => ({ ref: el.ref, kind: el.kind, label: el.label, x: el.x, y: el.y, loc: el.loc })),
         truncated: snapshot.truncated,
         ...snapshot.challenge !== undefined ? { challenge: snapshot.challenge } : {},
         ...snapshot.userControlling !== undefined ? { userControlling: snapshot.userControlling } : {},

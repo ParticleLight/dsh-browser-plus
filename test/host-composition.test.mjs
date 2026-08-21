@@ -88,3 +88,10 @@ test('provider drains auto-accepted dialogs into history', async () => {
   assert.match(source, /this\.record\(s, 'dialog'/)
 })
 
+test('snapshots emit a targeted locator per element', async () => {
+  const source = await readFile(providerPath, 'utf8')
+  assert.match(source, /const locatorOf = /)
+  assert.match(source, /CSS\.escape/)
+  assert.match(source, /loc: locatorOf\(el\)/)
+})
+

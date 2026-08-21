@@ -228,6 +228,8 @@ export interface BrowserSnapshotElement {
   readonly label: string
   /** Best-effort CSS selector; may be empty when none is derivable. */
   readonly selector: string
+  /** Best-effort locator for re-targeting (id/name/aria-label/text). */
+  readonly loc: string
   /** Viewport-relative center, for coordinate fallbacks. */
   readonly x: number
   readonly y: number
