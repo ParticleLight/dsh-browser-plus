@@ -26,6 +26,8 @@ import type {
   BrowserSessionId,
   BrowserSnapshotResult,
   BrowserTab,
+  BrowserUploadFileRequest,
+  BrowserUploadFileResult,
   ExportedCookie,
 } from '../browser/types.ts'
 import { BrowserError } from '../browser/types.ts'
@@ -650,6 +652,34 @@ export class ElectronBrowserProvider implements BrowserProvider {
     await this.drainDialog(s, handle)
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: request.x, y: request.y, button: 'none' })
     this.record(s, 'hover', { x: request.x, y: request.y }, true)
+  }
+
+  /**
+   * Attach a local file to the first matching file input. Uses the CDP DOM
+   * domain (nodeId path), which — unlike a synthetic change event — makes the
+   * input's files list true (real file selection), so pages that read
+   * input.files or upload on change behave exactly like a real pick.
+   */
+  async uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
+    const selector = request.selector ?? 'input[type="file"]'
+    const doc = await handle.sendCommand('DOM.getDocument', {})
+    const root = (doc as { root?: { nodeId?: number } }).root
+    const rootId = root?.nodeId
+    if (rootId === undefined) {
+      throw new BrowserError('browser: could not resolve the document node', 'BROWSER_UPLOAD_FAILED')
+    }
+    const query = await handle.sendCommand('DOM.querySelector', { nodeId: rootId, selector })
+    const nodeId = (query as { nodeId?: number }).nodeId
+    if (nodeId === undefined || nodeId === 0) {
+      throw new BrowserError(`browser: no file input matches "${selector}"`, 'BROWSER_UPLOAD_NO_INPUT')
+    }
+    await handle.sendCommand('DOM.setFileInputFiles', { files: [request.filePath], nodeId })
+    this.record(s, 'uploadFile', { filePath: request.filePath, selector }, true, { result: '1 file attached' })
+    return { path: request.filePath }
   }
 
   /** Type into the focused element. */

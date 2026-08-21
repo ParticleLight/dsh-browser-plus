@@ -441,6 +441,32 @@ export function apply(ctx: Context, config: Config = {}): void {
   }))
 
   ctx.tools.register(defineTool({
+    name: 'browser_upload_file',
+    description: 'Attach a local file to a file input in the shared browser (CDP DOM.setFileInputFiles, so the page sees a real file selection). Use for avatar uploads, attachments, and import dialogs.',
+    parameters: {
+      filePath: { type: 'string', required: true, description: 'Absolute path of the file to attach.' },
+      selector: { type: 'string', description: 'CSS selector of the file input; defaults to the first input[type="file"] on the page.' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: false, properties: { path: { type: 'string', required: true } } },
+      render: (_args, value) => [{ type: 'text', text: `Attached ${value.path}.` }],
+    },
+    timeoutMs,
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      assertAllowed('browser_upload_file')
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const session = await ensureSession(browser, taskKey(exec))
+      const result = await browser.uploadFile(session, {
+        filePath: args.filePath,
+        ...args.selector !== undefined ? { selector: args.selector } : {},
+      }, exec.signal)
+      return { path: result.path }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
     name: 'browser_type',
 
     description: 'Type text into the focused element of the shared browser. Use after browser_execute focuses an input (e.g. el.focus()), or after a click lands in a field. Text is inserted at the current focus via CDP Input.insertText.',

@@ -62,6 +62,18 @@ export interface BrowserHoverRequest {
     /** Viewport-relative y in CSS pixels. */
     readonly y: number;
 }
+/** Set a file input's value from a local path. */
+export interface BrowserUploadFileRequest {
+    /** Absolute path of the file to attach. */
+    readonly filePath: string;
+    /** CSS selector of the file input; defaults to the first input[type="file"]. */
+    readonly selector?: string;
+}
+/** Outcome of a file upload. */
+export interface BrowserUploadFileResult {
+    /** The path uploaded. */
+    readonly path: string;
+}
 /** One field of a batch form fill. Match by selector, or by name/label/placeholder. */
 export interface BrowserFillField {
     /** CSS selector; when present, candidates are scoped to it. */
@@ -302,6 +314,8 @@ export interface BrowserProvider {
     doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void>;
     /** Move the pointer to viewport coordinates (hover). Honor `signal` for cancellation. */
     hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void>;
+    /** Attach a local file to a file input. Honor `signal` for cancellation. */
+    uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult>;
     /** Fill a form's fields in one batch. Honor `signal` for cancellation. */
     fillForm(session: BrowserSessionId, request: BrowserFillRequest, signal?: AbortSignal): Promise<BrowserFillResult>;
     /** Capture the current page. Honor `signal` for cancellation. */

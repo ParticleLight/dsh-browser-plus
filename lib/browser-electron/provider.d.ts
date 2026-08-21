@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser/browser-electron
  */
-import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserTab, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserTab, BrowserUploadFileRequest, BrowserUploadFileResult, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -163,6 +163,13 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void>;
     /** Move the pointer to viewport coordinates (hover; no click). */
     hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void>;
+    /**
+     * Attach a local file to the first matching file input. Uses the CDP DOM
+     * domain (nodeId path), which — unlike a synthetic change event — makes the
+     * input's files list true (real file selection), so pages that read
+     * input.files or upload on change behave exactly like a real pick.
+     */
+    uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult>;
     /** Type into the focused element. */
     type(session: BrowserSessionId, request: {
         readonly text: string;

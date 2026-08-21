@@ -31,6 +31,8 @@ import type {
   BrowserSnapshotResult,
   BrowserTab,
   BrowserTypeRequest,
+  BrowserUploadFileRequest,
+  BrowserUploadFileResult,
   BrowserChallenge,
   ExportedCookie,
 } from './types.ts'
@@ -65,6 +67,8 @@ export type {
   BrowserSnapshotResult,
   BrowserTab,
   BrowserTypeRequest,
+  BrowserUploadFileRequest,
+  BrowserUploadFileResult,
   ExportedCookie,
 } from './types.ts'
 
@@ -219,6 +223,11 @@ export class BrowserRuntime extends Service {
   /** Move the pointer to viewport coordinates through the selected provider. */
   async hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void> {
     return this.resolveProvider().hover(session, request, signal)
+  }
+
+  /** Attach a local file to a file input through the selected provider. */
+  async uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult> {
+    return this.resolveProvider().uploadFile(session, request, signal)
   }
 
   /** Type into the focused element through the selected provider. */

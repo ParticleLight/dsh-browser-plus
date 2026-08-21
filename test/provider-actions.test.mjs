@@ -126,3 +126,41 @@ test('hover dispatches one mouseMoved with no button', async () => {
   assert.equal(host.log[0].params.button, 'none')
   assert.equal(host.log[0].params.x, 33)
 })
+
+test('uploadFile resolves a nodeId through the DOM domain and sets files', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  // Stub the DOM-domain replies: document node resolves, then a matched input.
+  // Keep the fake's log contract so the CDP call sequence stays assertable.
+  host.views[0].sendCommand = async (method, params) => {
+    host.log.push({ method, params })
+    return method === 'DOM.getDocument' ? { root: { nodeId: 1 } }
+      : method === 'DOM.querySelector' ? { nodeId: 42 }
+        : {}
+  }
+  const result = await provider.uploadFile(session, { filePath: 'C:/tmp/x.txt' })
+  assert.equal(result.path, 'C:/tmp/x.txt')
+  const getDoc = host.log.find(e => e.method === 'DOM.getDocument')
+  assert.ok(getDoc, 'asks for the document')
+  const query = host.log.find(e => e.method === 'DOM.querySelector')
+  assert.equal(query.params.selector, 'input[type="file"]')
+  const set = host.log.find(e => e.method === 'DOM.setFileInputFiles')
+  assert.deepEqual(set.params.files, ['C:/tmp/x.txt'])
+  assert.equal(set.params.nodeId, 42)
+})
+
+test('uploadFile reports a missing file input', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  // Stub sendCommand for the missing-input scenario: document resolves but
+  // DOM.querySelector answers nodeId 0 (no match).
+  host.views[0].sendCommand = async (method, params) => {
+    host.log.push({ method, params })
+    return method === 'DOM.getDocument' ? { root: { nodeId: 1 } }
+      : method === 'DOM.querySelector' ? { nodeId: 0 }
+        : {}
+  }
+  await assert.rejects(() => provider.uploadFile(session, { filePath: 'C:/tmp/x.txt' }), /no file input/)
+})
