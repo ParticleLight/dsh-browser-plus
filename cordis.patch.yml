@@ -1,0 +1,17 @@
+# dsh-browser-plus bundle patch: mounts the shared-browser capability into a
+# profile composition. The browser seam (ctx.browser) is always mounted. The
+# Electron provider and browser_* tools are ALWAYS registered: when the host
+# provides `electronViewHost` (the desktop shell) that embedded view is used,
+# and otherwise the plugin self-hosts its own Electron window, so installing
+# the plugin is enough for the browser to work anywhere.
+- insert:
+    - id: browser
+      name: dsh-browser-plus/browser
+
+    - id: browser-electron
+      name: dsh-browser-plus/browser-electron
+      config:
+        viewHost: !!js ctx.get('electronViewHost')
+
+    - id: tool-browser
+      name: dsh-browser-plus/tool-browser

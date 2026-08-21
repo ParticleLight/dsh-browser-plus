@@ -1,0 +1,74 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+
+const hostPath = new URL('../lib/browser-electron/host-main.js', import.meta.url)
+const providerPath = new URL('../lib/browser-electron/provider.js', import.meta.url)
+const remotePath = new URL('../lib/browser-electron/remote-host.js', import.meta.url)
+
+test('showView changes visibility without reparenting a page view', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  const start = source.indexOf("case 'showView'")
+  const end = source.indexOf("case 'command'", start)
+  assert.ok(start >= 0 && end > start, 'showView block exists')
+  const showBlock = source.slice(start, end)
+  assert.doesNotMatch(showBlock, /removeChildView/)
+  assert.doesNotMatch(showBlock, /addChildView/)
+})
+
+test('host installs page chrome before creating the visible page surface', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.match(source, /buildPageChromeScript/)
+  assert.ok(source.includes('executeJavaScript('), 'uses native executeJavaScript')
+  assert.ok(source.includes('__dshTrail'), 'injects trail with chrome')
+  assert.ok(source.includes("on('did-navigate'"), 'reapplies on navigation')
+  assert.match(source, /void installPageChrome\(view, viewId\)/)
+})
+
+test('snapshots expose user-control state', async () => {
+  const source = await readFile(providerPath, 'utf8')
+  assert.match(source, /userControlling/)
+  assert.match(source, /data-dsh-user-active/)
+})
+
+test('host keeps popup navigation inside the shared view', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.match(source, /setWindowOpenHandler/)
+  assert.match(source, /action: 'deny'/)
+})
+
+test('host records trace ops and injects the trail into chrome', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.match(source, /case 'trace'/)
+  assert.match(source, /__dshTrail/)
+  assert.match(source, /traces/)
+})
+
+test('provider forwards each record as a host trace', async () => {
+  const source = await readFile(providerPath, 'utf8')
+  assert.match(source, /host\.trace/)
+})
+
+test('remote host forwards trace to the child', async () => {
+  const source = await readFile(remotePath, 'utf8')
+  assert.ok(source.includes("call('trace'"), 'forwards trace op')
+})
+
+test('model-facing snapshots ignore injected chrome controls', async () => {
+  const source = await readFile(providerPath, 'utf8')
+  assert.match(source, /data-dsh-browser-chrome/)
+  assert.match(source, /closest\(/)
+})
+
+test('provider re-injects chrome after every navigation', async () => {
+  const source = await readFile(providerPath, 'utf8')
+  assert.match(source, /PAGE_CHROME_SCRIPT/)
+  assert.match(source, /reinstallPageChrome\(handle\)/)
+})
+
+test('provider retains document-ready waiting and SPA empty-snapshot retry', async () => {
+  const source = await readFile(providerPath, 'utf8')
+  assert.match(source, /waitForDocumentReady/)
+  assert.match(source, /attempt < 5/)
+  assert.match(source, /readiness wait exceeded/)
+})

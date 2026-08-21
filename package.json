@@ -1,0 +1,85 @@
+{
+  "name": "dsh-browser-plus",
+  "version": "0.2.0",
+  "description": "Enhanced shared browser for DeepSeek Harness: visible browser both human and AI operate, with ego-style toolbar, operation trail, user-control detection, and stable single-view compositing (Electron 42.x). Fork of dsh-browser-plus (MIT).",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./browser": {
+      "types": "./lib/browser/runtime.d.ts",
+      "default": "./lib/browser/runtime.js"
+    },
+    "./browser-electron": {
+      "types": "./lib/browser-electron/entry.d.ts",
+      "default": "./lib/browser-electron/entry.js"
+    },
+    "./tool-browser": {
+      "types": "./lib/tool-browser/index.d.ts",
+      "default": "./lib/tool-browser/index.js"
+    },
+    "./host-main": {
+      "default": "./lib/browser-electron/host-main.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "docs",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "browser",
+    "cdp"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/dsh-browser-plus.git"
+  },
+  "homepage": "https://github.com/wqty123/dsh-browser",
+  "bugs": {
+    "url": "https://github.com/wqty123/dsh-browser/issues"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-llm": "^0.1.0-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.1",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "electron": ">= 30.0.0"
+  },
+  "peerDependenciesMeta": {
+    "electron": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
