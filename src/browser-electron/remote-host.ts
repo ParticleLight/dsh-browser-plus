@@ -524,34 +524,47 @@ class DeferredRemoteView implements ElectronViewHandle {
     return this.materialized
   }
 
+  /**
+   * Run an operation against the materialized view, with ONE self-heal
+   * retry: if the child died while this handle was cached (host restart or a
+   * recycle), dropping the cached materialization and re-materializing
+   * creates a fresh child view for the same session handle, so a session
+   * survives a host crash/recycle without a manual reset.
+   */
+  private async withView<T>(run: (view: RemoteView) => Promise<T>): Promise<T> {
+    try {
+      return await run(await this.materializeOnce())
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('browser host is not running')) throw error
+      // Stale child: forget the cached view, then re-create a fresh pair.
+      this.materialized = undefined
+      const view = await this.materializeOnce()
+      return run(view)
+    }
+  }
+
   async sendCommand(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const view = await this.materializeOnce()
-    return view.sendCommand(method, params)
+    return this.withView(view => view.sendCommand(method, params))
   }
 
   async download(url: string, savePath: string): Promise<void> {
-    const view = await this.materializeOnce()
-    return view.download(url, savePath)
+    return this.withView(view => view.download(url, savePath))
   }
 
   async capture(): Promise<{ base64: string; width: number; height: number }> {
-    const view = await this.materializeOnce()
-    return view.capture()
+    return this.withView(view => view.capture())
   }
 
   async flushAuth(): Promise<ExportedCookie[]> {
-    const view = await this.materializeOnce()
-    return view.flushAuth()
+    return this.withView(view => view.flushAuth())
   }
 
   async restoreAuth(cookies: ExportedCookie[]): Promise<number> {
-    const view = await this.materializeOnce()
-    return view.restoreAuth(cookies)
+    return this.withView(view => view.restoreAuth(cookies))
   }
 
   async clearDialog(): Promise<unknown> {
-    const view = await this.materializeOnce()
-    return view.clearDialog()
+    return this.withView(view => view.clearDialog())
   }
 
   async label(label: string): Promise<void> {
