@@ -182,23 +182,72 @@ export const CDP_RUNTIME_EVALUATE = 'Runtime.evaluate'
 /** CDP method for keyboard input. */
 export const CDP_INPUT_DISPATCH_KEY_EVENT = 'Input.dispatchKeyEvent'
 
-const KEY_VK: Record<string, number> = { Backspace: 8, Tab: 9, Enter: 13, Shift: 16, Control: 17, Alt: 18, CapsLock: 20, Escape: 27, Space: 32, PageUp: 33, PageDown: 34, End: 35, Home: 36, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Insert: 45, Delete: 46, Meta: 91, F1: 112, F2: 113, F3: 114, F4: 115, F5: 116, F6: 117, F7: 118, F8: 119, F9: 120, F10: 121, F11: 122, F12: 123 }
+const KEY_VK: Record<string, number> = {
+  Backspace: 8,
+  Tab: 9,
+  Enter: 13,
+  Shift: 16,
+  Control: 17,
+  Alt: 18,
+  CapsLock: 20,
+  Escape: 27,
+  Space: 32,
+  PageUp: 33,
+  PageDown: 34,
+  End: 35,
+  Home: 36,
+  ArrowLeft: 37,
+  ArrowUp: 38,
+  ArrowRight: 39,
+  ArrowDown: 40,
+  Insert: 45,
+  Delete: 46,
+  Meta: 91,
+  F1: 112,
+  F2: 113,
+  F3: 114,
+  F4: 115,
+  F5: 116,
+  F6: 117,
+  F7: 118,
+  F8: 119,
+  F9: 120,
+  F10: 121,
+  F11: 122,
+  F12: 123,
+}
 
 function keyText(key: string): string | null {
-  switch (key) { case 'Enter': return '\r'; case 'Tab': return '\t'; case 'Space': return ' '; default: return /^[a-z0-9]$/i.test(key) ? key : null }
+  switch (key) {
+    case 'Enter': return '\r'
+    case 'Tab': return '\t'
+    case 'Space': return ' '
+    default: return /^[a-z0-9]$/i.test(key) ? key : null
+  }
 }
 
 function keyDescriptor(key: string): { key: string; code: string; vk: number } {
   const upper = key.toUpperCase()
-  if (KEY_VK[key] !== undefined) return { key, code: key, vk: KEY_VK[key] }
-  if (/^[a-z]$/i.test(key)) return { key: upper, code: `Key${upper}`, vk: upper.charCodeAt(0) }
-  if (/^[0-9]$/.test(key)) return { key, code: `Digit${key}`, vk: key.charCodeAt(0) }
+  if (KEY_VK[key] !== undefined) {
+    return { key, code: key, vk: KEY_VK[key] }
+  }
+  if (/^[a-z]$/i.test(key)) {
+    return { key: upper, code: `Key${upper}`, vk: upper.charCodeAt(0) }
+  }
+  if (/^[0-9]$/.test(key)) {
+    return { key, code: `Digit${key}`, vk: key.charCodeAt(0) }
+  }
   throw new BrowserError(`browser: unsupported key "${key}"`, 'BROWSER_KEY_UNKNOWN')
 }
 
 function modifierMask(modifiers: readonly ('alt' | 'ctrl' | 'meta' | 'shift')[] | undefined): number {
   let mask = 0
-  for (const mod of modifiers ?? []) { if (mod === 'alt') mask |= 1; else if (mod === 'ctrl') mask |= 2; else if (mod === 'meta') mask |= 4; else if (mod === 'shift') mask |= 8 }
+  for (const mod of modifiers ?? []) {
+    if (mod === 'alt') mask |= 1
+    else if (mod === 'ctrl') mask |= 2
+    else if (mod === 'meta') mask |= 4
+    else if (mod === 'shift') mask |= 8
+  }
   return mask
 }
 export const CDP_PAGE_NAVIGATE = 'Page.navigate'
