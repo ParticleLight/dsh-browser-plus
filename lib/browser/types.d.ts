@@ -39,6 +39,15 @@ export interface BrowserTypeRequest {
     /** The text to insert. */
     readonly text: string;
 }
+/** Key press into the page, as one keyDown+keyUp pair. */
+export interface BrowserPressKeyRequest {
+    /** The key to press: a single character ('a', '1'), an Enter/Tab/Escape,
+     * navigation key (ArrowUp/ArrowDown/…), Home/End/PageUp/PageDown,
+     * Backspace/Delete, or F1..F12. */
+    readonly key: string;
+    /** Modifier keys held during the press. */
+    readonly modifiers?: readonly ('alt' | 'ctrl' | 'meta' | 'shift')[];
+}
 /** One field of a batch form fill. Match by selector, or by name/label/placeholder. */
 export interface BrowserFillField {
     /** CSS selector; when present, candidates are scoped to it. */
@@ -273,6 +282,8 @@ export interface BrowserProvider {
     click(session: BrowserSessionId, request: BrowserClickRequest, signal?: AbortSignal): Promise<void>;
     /** Type into the focused element (fallback path). Honor `signal` for cancellation. */
     type(session: BrowserSessionId, request: BrowserTypeRequest, signal?: AbortSignal): Promise<void>;
+    /** Press a key (keyDown + keyUp) into the active tab. Honor `signal` for cancellation. */
+    pressKey(session: BrowserSessionId, request: BrowserPressKeyRequest, signal?: AbortSignal): Promise<void>;
     /** Fill a form's fields in one batch. Honor `signal` for cancellation. */
     fillForm(session: BrowserSessionId, request: BrowserFillRequest, signal?: AbortSignal): Promise<BrowserFillResult>;
     /** Capture the current page. Honor `signal` for cancellation. */

@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser/browser-electron
  */
-import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserOpenRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserTab, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserTab, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -104,6 +104,8 @@ export declare const CDP_PAGE_CAPTURE_SCREENSHOT = "Page.captureScreenshot";
 /** CDP method for runtime evaluation (the execute path). */
 export declare const CDP_RUNTIME_EVALUATE = "Runtime.evaluate";
 /** CDP method for navigation. */
+/** CDP method for keyboard input. */
+export declare const CDP_INPUT_DISPATCH_KEY_EVENT = "Input.dispatchKeyEvent";
 export declare const CDP_PAGE_NAVIGATE = "Page.navigate";
 /**
  * Browser provider over Electron views. Sessions hold an ordered list of
@@ -161,6 +163,9 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     type(session: BrowserSessionId, request: {
         readonly text: string;
     }, signal?: AbortSignal): Promise<void>;
+    /** Press a key into the page (keyDown + keyUp), as a physical-input path
+     * for shortcuts and keyboard-driven UI. */
+    pressKey(session: BrowserSessionId, request: BrowserPressKeyRequest, signal?: AbortSignal): Promise<void>;
     /**
      * Fill a form's fields in one batch. Runs one page-context script that
      * resolves each field (selector, or name/label/placeholder among visible

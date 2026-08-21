@@ -17,6 +17,7 @@ class FakeView {
   }
 
   async sendCommand(method, params) {
+    this.host.log.push({ method, params })
     // The only reply path the provider exercises with this fake is a
     // Runtime.evaluate: hand back the next queued reply.
     if (method === 'Runtime.evaluate') {
@@ -32,6 +33,7 @@ class FakeHost {
     this.views = []
     this.evalReplies = []
     this.nextId = 1
+    this.log = []
   }
 
   createView() {
@@ -69,4 +71,31 @@ test('execute records an auto-accepted dialog before running the script', async 
   const history = await provider.history(session)
   assert.equal(history[0].action, 'dialog')
   assert.equal(history[0].params.message, 'really?')
+})
+
+test('pressKey dispatches keyDown and keyUp with CDP key descriptors', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  await provider.pressKey(session, { key: 'Enter' })
+  assert.equal(host.log.length, 2)
+  assert.equal(host.log[0].method, 'Input.dispatchKeyEvent')
+  assert.equal(host.log[0].params.type, 'keyDown')
+  assert.equal(host.log[0].params.key, 'Enter')
+  assert.equal(host.log[0].params.windowsVirtualKeyCode, 13)
+  assert.equal(host.log[0].params.text, '\r')
+  assert.equal(host.log[1].params.type, 'keyUp')
+  await provider.pressKey(session, { key: 'a', modifiers: ['ctrl'] })
+  assert.equal(host.log[2].params.key, 'A')
+  assert.equal(host.log[2].params.code, 'KeyA')
+  assert.equal(host.log[2].params.modifiers, 2)
+  const history = await provider.history(session)
+  assert.equal(history[0].action, 'pressKey')
+})
+
+test('pressKey rejects unknown keys', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  await assert.rejects(() => provider.pressKey(session, { key: 'Giggles' }), /unsupported key/)
 })
