@@ -1,8 +1,8 @@
 /**
  * Self-hosted Electron browser host (child side): the Electron main process
- * spawned by {@link RemoteElectronViewHost}. Owns one `BrowserWindow` per
- * session key plus
- * `WebContentsView`s and their `webContents.debugger` (CDP), and answers
+ * spawned by {@link RemoteElectronViewHost}. Owns one shared `BrowserWindow`
+ * containing task-scoped `WebContentsView`s and their `webContents.debugger`
+ * (CDP), and answers
  * line-delimited JSON-RPC on stdio.
  *
  * Protocol (one JSON object per line, both directions):

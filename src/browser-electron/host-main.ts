@@ -1,8 +1,8 @@
 /**
  * Self-hosted Electron browser host (child side): the Electron main process
- * spawned by {@link RemoteElectronViewHost}. Owns one `BrowserWindow` per
- * session key plus
- * `WebContentsView`s and their `webContents.debugger` (CDP), and answers
+ * spawned by {@link RemoteElectronViewHost}. Owns one shared `BrowserWindow`
+ * containing task-scoped `WebContentsView`s and their `webContents.debugger`
+ * (CDP), and answers
  * line-delimited JSON-RPC on stdio.
  *
  * Protocol (one JSON object per line, both directions):
@@ -40,13 +40,10 @@ const CDP_VERSION = '1.3'
 /** Download cap: the body is shipped base64 as one JSON line; bound the memory. */
 const MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024
 
-/** One view: the Electron object plus its CDP-backed surface. */
+/** One task-scoped page view in the shared browser window. */
 interface HostView {
   readonly webContentsView: WebContentsView
-  /** The window this view lives in (one per session key). */
-  readonly window: BrowserWindow
-  /** The window group key the view belongs to. */
-  readonly windowKey: string
+  readonly taskKey: string
 }
 
 /** Views by the id the parent assigned at createView time. */
@@ -58,54 +55,76 @@ const traces = new Map<string, unknown[]>()
 /** Latest unread JS dialog per view (auto-accepted; read by drainDialog). */
 const dialogLogs = new Map<string, unknown>()
 
-/** Default window (key 'default'), created lazily. */
-let defaultWindow: BrowserWindow | undefined
-/** Per-session windows by their key. */
-const windowsByKey = new Map<string, BrowserWindow>()
-/** Most recent label per window key (for listWindows). */
-const windowLabels = new Map<string, string>()
+/** Display label and current tab for each isolated browser task. */
+const taskLabels = new Map<string, string>()
+const activeViewByTask = new Map<string, string>()
 
-function makeWindow(title: string): BrowserWindow {
-  const win = new BrowserWindow({ width: 1400, height: 900, show: true, title })
+/** The task the human currently sees in the one shared native window. */
+let visibleTaskKey: string | undefined
+let window: BrowserWindow | undefined
+
+function taskTitle(taskKey: string): string {
+  const label = taskLabels.get(taskKey) ?? ''
+  return label === '' ? 'dsh-browser-plus' : 'dsh-browser-plus — ' + label
+}
+
+function makeWindow(): BrowserWindow {
+  const win = new BrowserWindow({ width: 1400, height: 900, show: true, title: 'dsh-browser-plus' })
   win.setMenu(null)
-  win.on('resize', () => layoutWindow(win))
+  win.on('resize', layoutViews)
+  win.on('closed', () => {
+    window = undefined
+    visibleTaskKey = undefined
+    activeViewByTask.clear()
+    taskLabels.clear()
+    views.clear()
+    traces.clear()
+    dialogLogs.clear()
+  })
   return win
 }
 
-function windowFor(key: string, label?: string): BrowserWindow {
-  if (key === 'default') {
-    if (defaultWindow === undefined) {
-      defaultWindow = makeWindow(label !== undefined ? `dsh-browser-plus — ${label}` : 'dsh-browser-plus')
-      if (label !== undefined) windowLabels.set('default', label)
-      // Mirror the keyed branch: a human-closed default window must drop out
-      // of the cache/label map or createView would attach into a dead window.
-      defaultWindow.on('closed', () => { defaultWindow = undefined; windowLabels.delete('default') })
-    }
-    return defaultWindow
-  }
-  let win = windowsByKey.get(key)
-  if (win === undefined) {
-    win = makeWindow(label !== undefined ? `dsh-browser-plus — ${label}` : 'dsh-browser-plus')
-    if (label !== undefined) windowLabels.set(key, label)
-    windowsByKey.set(key, win)
-    win.on('closed', () => { windowsByKey.delete(key); windowLabels.delete(key) })
-  }
-  return win
+function ensureWindow(): BrowserWindow {
+  if (window !== undefined && !window.isDestroyed()) return window
+  window = makeWindow()
+  return window
 }
 
-/** The RPC socket to the parent; set when the connection is established. */
-let rpcSocket: import('node:net').Socket | undefined
-
-/** Keep all views of one window aligned with its content surface. */
-function layoutWindow(win: BrowserWindow): void {
+/** Keep every task view aligned with the one shared content surface. */
+function layoutViews(): void {
+  const win = window
+  if (win === undefined || win.isDestroyed()) return
   const [width, height] = win.getContentSize()
   for (const entry of views.values()) {
-    if (entry.window !== win) continue
     try {
       entry.webContentsView.setBounds({ x: 0, y: 0, width: width ?? 0, height: height ?? 0 })
     } catch { /* destroyed */ }
   }
 }
+
+/** Restore the one visible task after any operation that touched child views. */
+function syncVisibleTaskVisibility(): void {
+  const viewId = visibleTaskKey === undefined ? undefined : activeViewByTask.get(visibleTaskKey)
+  const target = viewId === undefined ? undefined : views.get(viewId)
+  for (const entry of views.values()) {
+    try {
+      if (entry === target) entry.webContentsView.setVisible(true)
+      else entry.webContentsView.setVisible(false)
+    } catch { /* destroyed */ }
+  }
+}
+/** Select a task for the human without reparenting any page view. */
+function switchVisibleTask(taskKey: string): void {
+  const viewId = activeViewByTask.get(taskKey)
+  const target = viewId === undefined ? undefined : views.get(viewId)
+  if (target === undefined) throw new Error(`switch task: unknown task ${taskKey}`)
+  const win = ensureWindow()
+  visibleTaskKey = taskKey
+  syncVisibleTaskVisibility()
+  try { win.setTitle(taskTitle(taskKey)) } catch { /* closing */ }
+}
+/** The RPC socket to the parent; set when the connection is established. */
+let rpcSocket: import('node:net').Socket | undefined
 
 /** Install human browser chrome without creating or reparenting a child view. */
 function installPageChrome(view: WebContentsView, viewId: string): void {
@@ -173,9 +192,10 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
       case 'createView': {
         const viewId = msg.viewId
         if (viewId === undefined) throw new Error('createView missing viewId')
-        const windowKey = typeof msg.key === 'string' ? msg.key : 'default'
+        const taskKey = typeof msg.key === 'string' ? msg.key : 'default'
         const label = typeof msg.label === 'string' ? msg.label : undefined
-        const win = windowFor(windowKey, label)
+        const win = ensureWindow()
+        if (label !== undefined) taskLabels.set(taskKey, label)
         const view = new WebContentsView()
         // Attach the debugger BEFORE the view can be seen: an attach failure
         // then leaves nothing in the window (no visible ghost view).
@@ -201,28 +221,21 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           } catch { /* closing */ }
         })
         // Keep window.open / target=_blank navigations inside this shared view
-        // instead of spawning separate Electron windows (rewards cards, sign-in
-        // flows, and most sites use them). Only HTTP(S) targets are admitted.
+        // instead of spawning a second native window. Only HTTP(S) targets are admitted.
         view.webContents.setWindowOpenHandler(({ url }) => {
           try {
             if (/^https?:\/\//i.test(url)) view.webContents.loadURL(url)
           } catch { /* closing */ }
           return { action: 'deny' }
         })
-        // New views start hidden: with several sessions/tabs only the shown
-        // one may be visible (they stack in contentView child order).
+        // All later task views remain hidden until the human selects their task.
         view.setVisible(false)
-        // Per-window first-view visibility: show this view only when its OWN
-        // window had no other views yet; otherwise it stays hidden until an
-        // explicit showView (a process-global check leaves every later
-        // session's window visibly blank).
-        const firstInWindow = ![...views.values()].some(v => v.window === win)
         win.contentView.addChildView(view)
-        views.set(viewId, { webContentsView: view, window: win, windowKey })
-        layoutWindow(win)
-        if (firstInWindow) view.setVisible(true)
-        // Fire-and-forget chrome registration: CDP calls on a view that is not
-        // yet inside the window can hang, and chrome must never block first paint.
+        views.set(viewId, { webContentsView: view, taskKey })
+        activeViewByTask.set(taskKey, viewId)
+        layoutViews()
+        if (visibleTaskKey === undefined) switchVisibleTask(taskKey)
+        // Fire-and-forget chrome registration: chrome must never block first paint.
         void installPageChrome(view, viewId)
         reply(msg.id, { ok: true })
         return
@@ -232,12 +245,32 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (viewId === undefined) throw new Error('destroyView missing viewId')
         const entry = views.get(viewId)
         if (entry !== undefined) {
+          const wasActive = activeViewByTask.get(entry.taskKey) === viewId
           views.delete(viewId)
           dialogLogs.delete(viewId)
           traces.delete(viewId)
+          try { window?.contentView.removeChildView(entry.webContentsView) } catch { /* already removed */ }
           try { entry.webContentsView.webContents.debugger.detach() } catch { /* already detached */ }
           entry.webContentsView.webContents.close()
-          entry.window.contentView.removeChildView(entry.webContentsView)
+          if (wasActive) {
+            const replacementView = [...views.entries()].find(([, candidate]) => candidate.taskKey === entry.taskKey)
+            if (replacementView !== undefined) activeViewByTask.set(entry.taskKey, replacementView[0])
+            else {
+              activeViewByTask.delete(entry.taskKey)
+              taskLabels.delete(entry.taskKey)
+            }
+          }
+          if (visibleTaskKey === entry.taskKey) {
+            if (activeViewByTask.has(entry.taskKey)) switchVisibleTask(entry.taskKey)
+            else {
+              const fallbackTask = activeViewByTask.keys().next().value as string | undefined
+              if (fallbackTask !== undefined) switchVisibleTask(fallbackTask)
+              else {
+                visibleTaskKey = undefined
+                try { window?.setTitle('dsh-browser-plus') } catch { /* closing */ }
+              }
+            }
+          }
         }
         reply(msg.id, { ok: true })
         return
@@ -247,13 +280,13 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (viewId === undefined) throw new Error('showView missing viewId')
         const entry = views.get(viewId)
         if (entry === undefined) throw new Error(`showView: unknown view ${viewId}`)
-        // Hide every other view, then show and RAISE the target so the
-        // human actually sees the active tab/session (topmost child wins).
-        for (const v of views.values()) {
-          if (v === entry || v.window !== entry.window) continue
-          try { v.webContentsView.setVisible(false) } catch { /* destroyed */ }
-        }
-        entry.webContentsView.setVisible(true)
+        activeViewByTask.set(entry.taskKey, viewId)
+        if (visibleTaskKey === undefined) switchVisibleTask(entry.taskKey)
+        else if (entry.taskKey !== visibleTaskKey) {
+          // Background task tab changes stay in the background.
+          reply(msg.id, { ok: true })
+          return
+        } else switchVisibleTask(entry.taskKey)
         reply(msg.id, { ok: true })
         return
       }
@@ -263,17 +296,15 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (viewId === undefined || typeof label !== 'string') throw new Error('label missing viewId/label')
         const entry = views.get(viewId)
         if (entry === undefined) throw new Error(`label: unknown view ${viewId}`)
-        try { entry.window.setTitle(label === '' ? 'dsh-browser-plus' : `dsh-browser-plus — ${label}`) } catch { /* closing */ }
-        windowLabels.set(entry.windowKey, label)
+        taskLabels.set(entry.taskKey, label)
+        if (entry.taskKey === visibleTaskKey) {
+          try { ensureWindow().setTitle(taskTitle(entry.taskKey)) } catch { /* closing */ }
+        }
         reply(msg.id, { ok: true })
         return
       }
       case 'listWindows': {
-        const windows: Array<{ key: string; label: string }> = []
-        if (defaultWindow !== undefined && !defaultWindow.isDestroyed()) windows.push({ key: 'default', label: windowLabels.get('default') ?? '' })
-        for (const [key, win] of windowsByKey) {
-          if (!win.isDestroyed()) windows.push({ key, label: windowLabels.get(key) ?? '' })
-        }
+        const windows = [...activeViewByTask.keys()].map(key => ({ key, label: taskLabels.get(key) ?? '' }))
         reply(msg.id, { ok: true, result: { windows } })
         return
       }
@@ -293,6 +324,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (viewId === undefined) throw new Error('capture missing viewId')
         const entry = views.get(viewId)
         if (entry === undefined) throw new Error(`capture: unknown view ${viewId}`)
+        const win = ensureWindow()
         // Two complementary paths, because each has a failure mode:
         //  - capturePage: fast and reliable with several WebContentsViews in
         //    the window, but needs a live display surface (fails when the
@@ -300,9 +332,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         //  - CDP Page.captureScreenshot: works without a display surface, but
         //    can hang when another hidden WebContentsView exists in the window.
         // Try capturePage first (show/focus/restore + one retry), then CDP.
-        try { if (!entry.window.isVisible()) entry.window.show() } catch { /* closing */ }
-        try { entry.window.restore() } catch { /* not minimized */ }
-        try { entry.window.focus() } catch { /* closing */ }
+        try { if (!win.isVisible()) win.show() } catch { /* closing */ }
+        try { win.restore() } catch { /* not minimized */ }
+        try { win.focus() } catch { /* closing */ }
         let base64 = ''
         try {
           let image
@@ -317,7 +349,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           if (png.length > 0) base64 = png.toString('base64')
         } catch (error) {
           const state = JSON.stringify({
-            win: { visible: entry.window.isVisible(), minimized: entry.window.isMinimized(), focused: entry.window.isFocused() },
+            win: { visible: win.isVisible(), minimized: win.isMinimized(), focused: win.isFocused() },
           })
           process.stderr.write(`[dsh-browser-plus host] capturePage retry failed: ${String(error)} state=${state}\n`)
           base64 = ''
@@ -327,9 +359,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           // (especially hidden attach-first ones) are in the window, so
           // temporarily detach the siblings, capture in single-view state,
           // then restore them (target stays on top).
-          const siblings = [...views.values()].filter(v => v !== entry && v.window === entry.window)
+          const siblings = [...views.values()].filter(v => v !== entry)
           for (const v of siblings) {
-            try { entry.window.contentView.removeChildView(v.webContentsView) } catch { /* already gone */ }
+            try { win.contentView.removeChildView(v.webContentsView) } catch { /* already gone */ }
           }
           try {
             const shot = await entry.webContentsView.webContents.debugger.sendCommand('Page.captureScreenshot', {})
@@ -337,12 +369,15 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             if (typeof data === 'string' && data.length > 0) base64 = data
           } finally {
             for (const v of siblings) {
-              try { entry.window.contentView.addChildView(v.webContentsView) } catch { /* destroyed */ }
+              try { win.contentView.addChildView(v.webContentsView) } catch { /* destroyed */ }
             }
-            try {
-              entry.window.contentView.removeChildView(entry.webContentsView)
-              entry.window.contentView.addChildView(entry.webContentsView)
-            } catch { /* closing */ }
+            if (entry.taskKey === visibleTaskKey) {
+              try {
+                win.contentView.removeChildView(entry.webContentsView)
+                win.contentView.addChildView(entry.webContentsView)
+              } catch { /* closing */ }
+            }
+            syncVisibleTaskVisibility()
           }
         }
         if (base64 === '') {

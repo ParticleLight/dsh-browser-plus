@@ -96,15 +96,30 @@ test('snapshots emit a targeted locator per element', async () => {
   assert.match(source, /loc: locatorOf\(el\)/)
 })
 
-test('host keeps one window per session key and labels them', async () => {
+test('host uses one shared window with task-keyed views', async () => {
   const source = await readFile(hostPath, 'utf8')
-  assert.match(source, /windowsByKey/)
-  assert.match(source, /windowFor\(/)
-  assert.match(source, /case 'label'/)
-  assert.match(source, /case 'listWindows'/)
-  assert.match(source, /dsh-browser-plus — /)
-  assert.match(source, /v\.window !== entry\.window/)
-  assert.ok(!source.includes('layoutPageViews()'), 'window-scoped layout only')
+  assert.match(source, /let window;/)
+  assert.match(source, /function ensureWindow\(/)
+  assert.match(source, /views\.set\(viewId, \{ webContentsView: view, taskKey \}\)/)
+  assert.match(source, /taskLabels/)
+  assert.match(source, /activeViewByTask/)
+  assert.match(source, /visibleTaskKey/)
+  assert.ok(!source.includes('windowsByKey'), 'per-task native windows removed')
+  assert.ok(!source.includes('function windowFor'), 'no window factory by task key')
+})
+
+test('switchVisibleTask changes visibility without reparenting views', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  const start = source.indexOf('function switchVisibleTask')
+  assert.ok(start >= 0, 'switchVisibleTask exists')
+  const block = source.slice(start, start + 1800)
+  assert.match(block, /syncVisibleTaskVisibility\(\)/)
+  const helperStart = source.indexOf('function syncVisibleTaskVisibility')
+  const helper = source.slice(helperStart, helperStart + 1200)
+  assert.match(helper, /setVisible\(false\)/)
+  assert.match(helper, /setVisible\(true\)/)
+  assert.doesNotMatch(helper, /addChildView/)
+  assert.doesNotMatch(helper, /removeChildView/)
 })
 
 test('provider opens with a window key and label through the host seam', async () => {
@@ -112,22 +127,26 @@ test('provider opens with a window key and label through the host seam', async (
   assert.match(source, /createView\(options\?\.key/)
 })
 
-test('capture CDP fallback detaches only same-window siblings', async () => {
+test('capture fallback handles sibling views in the shared window', async () => {
   const source = await readFile(hostPath, 'utf8')
   const start = source.indexOf("case 'capture'")
   const end = source.indexOf("case 'download'", start)
   assert.ok(start >= 0 && end > start, 'capture block exists')
   const captureBlock = source.slice(start, end)
-  assert.match(captureBlock, /v !== entry && v\.window === entry\.window/)
+  assert.match(captureBlock, /filter\(v => v !== entry\)/)
+  assert.match(captureBlock, /syncVisibleTaskVisibility\(\)/)
+  assert.doesNotMatch(captureBlock, /v\.window === entry\.window/)
 })
 
-test('default window resets on close and first visibility is per window', async () => {
+test('hidden task showView keeps the user-selected task visible', async () => {
   const source = await readFile(hostPath, 'utf8')
-  assert.match(source, /defaultWindow\.on\('closed'/)
-  assert.match(source, /windowLabels\.delete\('default'\)/)
-  assert.match(source, /!defaultWindow\.isDestroyed\(\)/)
-  assert.ok(!source.includes('views.size === 0'), 'process-global first-view check removed')
-  assert.match(source, /some\(v => v\.window === win\)/)
+  const start = source.indexOf("case 'showView'")
+  const end = source.indexOf("case 'label'", start)
+  assert.ok(start >= 0 && end > start, 'showView block exists')
+  const showBlock = source.slice(start, end)
+  assert.match(showBlock, /activeViewByTask\.set/)
+  assert.match(showBlock, /entry\.taskKey !== visibleTaskKey/)
+  assert.match(showBlock, /reply\(msg\.id, \{ ok: true \}\)/)
 })
 
 test('remote host forwards createView key/label and window ops', async () => {
