@@ -1,7 +1,7 @@
 {
   "name": "dsh-browser-plus",
   "version": "0.3.0",
-  "description": "Enhanced shared browser for DeepSeek Harness: visible browser both human and AI operate, with ego-style toolbar, operation trail, user-control detection, per-task windows, and stable Electron 42.x compositing.",
+  "description": "Enhanced shared browser for DeepSeek Harness: visible browser both human and AI operate, with built-in page toolbar, operation trail, user-control detection, per-task windows, and stable Electron 42.x compositing.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -35,7 +35,8 @@
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
