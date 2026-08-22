@@ -75,10 +75,10 @@ export const ELECTRON_BROWSER_PROVIDER_ID = 'electron'
 export interface ElectronBrowserViewHost {
   /**
    * Create a new browser view and return a handle to its webContents-like
-   * surface. `key` (default 'default') picks the window group — each key gets
-   * its own BrowserWindow; `label` names the window (space name). The host
-   * owns windowing (adding the view to the window, sizing, removal); the
-   * provider owns CDP-driven behavior.
+   * surface. `key` (default 'default') identifies an isolated browser task in
+   * the shared BrowserWindow; `label` names that task. The host owns view
+   * attachment, sizing, task visibility, and removal; the provider owns
+   * CDP-driven behavior.
    */
   createView(key?: string, label?: string): ElectronViewHandle
   /**
@@ -88,11 +88,10 @@ export interface ElectronBrowserViewHost {
    */
   destroyView(handle: ElectronViewHandle): void
   /**
-   * Show one view as the session's visible surface. The host keeps exactly
-   * one visible; switching tabs reorders visibility without losing state.
-   * Optional: a host without visible-tab switching treats every view as
-   * always present (acceptable for headless/probe hosts).
-   * @param handle - the handle to make visible.
+   * Notify the host that this session selected a tab. In the shared-window
+   * host, a background task updates its active view without changing the
+   * human-selected visible task. Optional for headless/probe hosts.
+   * @param handle - the handle selected by its session.
    */
   showView?(handle: ElectronViewHandle): void
   /**
@@ -101,7 +100,7 @@ export interface ElectronBrowserViewHost {
    * @param entry - the trail entry ({ action, params, ok, at }).
    */
   trace?(viewId: string, entry: unknown): void
-  /** List open windows with their labels. Optional (self-hosted only). */
+  /** List browser tasks with their labels. Legacy method name retained for compatibility. */
   listWindows?(): Promise<Array<{ key: string; label: string }>>
 }
 
@@ -127,7 +126,7 @@ export interface ElectronViewHandle {
    * @returns the dialog detail ({ type, message, prompt? }) or null.
    */
   clearDialog?(): Promise<unknown>
-  /** Set the window title (space name) for this view's window. Optional. */
+  /** Set this view's browser task label; it titles the shared window only when selected. Optional. */
   label?(label: string): Promise<void>
 }
 
@@ -306,11 +305,11 @@ export class ElectronBrowserProvider implements BrowserProvider {
   }
 
   /**
-   * Open a NEW browser session with its own view. Every call mints a fresh
-   * session id and backing view; per-task reuse is owned by the caller (the
-   * tool layer caches one session per DSH task). Sessions are isolated from
-   * each other: each keeps its own tabs, active tab, and history, and only
-   * the active tab of a session is made visible.
+   * Open a NEW browser session with its own backing view. Every call mints a
+   * fresh session id; per-task reuse is owned by the caller (the tool layer
+   * caches one session per DSH task). Sessions keep isolated tabs, active tab,
+   * and history while the host keeps one human-selected task view visible in
+   * the shared BrowserWindow.
    */
   open(options?: BrowserOpenOptions): Promise<BrowserSessionId> {
     const taskKey = options?.key ?? 'default'
@@ -346,7 +345,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     return result
   }
 
-  /** Switch to a tab by id, making its view visible. */
+  /** Switch to a tab by id; background task tabs stay hidden until user-selected. */
   switchTab(session: BrowserSessionId, tabId: string): Promise<void> {
     const s = this.session(session)
     const index = s.tabs.findIndex(tab => tab.id === tabId)
@@ -1009,7 +1008,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     signal?.throwIfAborted()
     // Native capturePage path (self-hosted): CDP Page.captureScreenshot can
     // hang indefinitely on a view once another (hidden) WebContentsView exists
-    // in the window; capturePage is fast for visible views and resolves
+    // in the shared window; capturePage is fast for the visible task view and resolves
     // immediately (empty) for hidden ones.
     const capturable = handle as { capture?(): Promise<{ base64: string; width: number; height: number }> }
     if (request?.fullPage !== true && typeof capturable.capture === 'function') {
@@ -1080,7 +1079,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     }
   }
 
-  /** Name this session's window (space). */
+  /** Name this browser task (space). */
   async setSpace(session: BrowserSessionId, label: string): Promise<void> {
     const s = this.session(session)
     const { handle } = this.activeTab(s)
@@ -1094,7 +1093,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     this.record(s, 'setSpace', { label }, true)
   }
 
-  /** List every open window (space) with its label. */
+  /** List every browser task (space) with its label. */
   async listSpaces(): Promise<readonly BrowserSpaceInfo[]> {
     const host = this.host as { listWindows?(): Promise<Array<{ key: string; label: string }>> }
     if (typeof host.listWindows !== 'function') return []
@@ -1217,7 +1216,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     this.showActive(s)
   }
 
-  /** Ask the host to show the active tab's view. */
+  /** Notify the host of the active tab; it preserves the human-selected task view. */
   private showActive(s: Session): void {
     this.host.showView?.(this.activeTab(s).handle)
   }

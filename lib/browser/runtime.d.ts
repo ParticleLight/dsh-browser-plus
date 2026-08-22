@@ -104,9 +104,9 @@ export declare class BrowserRuntime extends Service {
     flushAuth(session: BrowserSessionId): Promise<readonly ExportedCookie[]>;
     /** Import cookies into the session through the provider. */
     restoreAuth(session: BrowserSessionId, cookies: readonly ExportedCookie[]): Promise<number>;
-    /** Set the session's window title (space name) through the selected provider. */
+    /** Set the session's browser task label through the selected provider. */
     setSpace(session: BrowserSessionId, label: string): Promise<void>;
-    /** List every open window (space) with its label through the selected provider. */
+    /** List browser tasks (legacy spaces) with labels through the selected provider. */
     listSpaces(): Promise<readonly BrowserSpaceInfo[]>;
     /** Close the session through the selected provider. Idempotent; a missing
      *  provider is treated as already-closed so teardown paths stay no-ops. */

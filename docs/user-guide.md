@@ -79,7 +79,7 @@ dsh plugin --profile web add <本仓库路径>
 插件按顺序自动定位:① peer 依赖 `require('electron')` → ② `ELECTRON_PATH` 环境变量 → ③ DSH 锚点与 pnpm 虚拟仓库中版本最新者。都找不到时报清晰错误,可 `dsh plugin --profile web add electron` 或设置 `ELECTRON_PATH`。
 
 **Q:截图失败或挂起?**
-确保 Electron ≥ 40(33.x 有合成器缺陷)。自托管截图优先走原生 `capturePage`,多视图/窗口未激活时自动兜底到 CDP。
+确保 Electron ≥ 40(33.x 有合成器缺陷)。自托管截图优先走原生 `capturePage`,共享窗口内存在多个视图且目标未激活时自动兜底到 CDP。
 
 **Q:浏览器窗口不见了?**
 窗口标题为 `dsh-browser-plus`(显示当前任务标签时为 `dsh-browser-plus — <名>`)；所有任务共享这一可见窗口，通过页面任务管理器切换各自隔离视图。若子进程崩溃会自动重启;重启后旧会话失效,调用 `browser_reset_session` 重建。

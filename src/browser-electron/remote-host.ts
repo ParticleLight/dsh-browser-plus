@@ -351,7 +351,7 @@ class RemoteView implements ElectronViewHandle {
     return this.client.call<unknown>('drainDialog', { viewId: this.id })
   }
 
-  /** Set the window title (space name) for this view's window. */
+  /** Set this view's browser-task label; selected task controls the shared title. */
   async label(label: string): Promise<void> {
     await this.client.call('label', { viewId: this.id, label })
   }
@@ -483,7 +483,7 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
       .catch(() => { /* child gone */ })
   }
 
-  /** List all open window keys with their labels (host-level). */
+  /** List browser task keys with labels (legacy RPC name retained for compatibility). */
   async listWindows(): Promise<Array<{ key: string; label: string }>> {
     await this.ready()
     const client = this.client
@@ -517,7 +517,7 @@ class DeferredRemoteView implements ElectronViewHandle {
   /**
    * Materialize once and cache: every sendCommand on the same handle must
    * target the SAME child view (re-materializing would re-run createView and
-   * duplicate the window). A FAILED materialization is reset so a later call
+   * duplicate the view). A FAILED materialization is reset so a later call
    * (e.g. after the host restarted) can retry instead of being poisoned.
    */
   private materializeOnce(): Promise<RemoteView> {

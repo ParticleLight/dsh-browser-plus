@@ -41,7 +41,7 @@ export declare class RemoteElectronViewHost implements ElectronBrowserViewHost {
     destroyView(handle: ElectronViewHandle): void;
     /** Append one operation to the child's per-view trail. */
     trace(viewId: string, entry: unknown): void;
-    /** List all open window keys with their labels (host-level). */
+    /** List browser task keys with labels (legacy RPC name retained for compatibility). */
     listWindows(): Promise<Array<{
         key: string;
         label: string;

@@ -4,7 +4,10 @@ import { readFile } from 'node:fs/promises'
 
 const hostPath = new URL('../lib/browser-electron/host-main.js', import.meta.url)
 const providerPath = new URL('../lib/browser-electron/provider.js', import.meta.url)
+const providerSourcePath = new URL('../src/browser-electron/provider.ts', import.meta.url)
 const remotePath = new URL('../lib/browser-electron/remote-host.js', import.meta.url)
+const runtimePath = new URL('../lib/browser/runtime.js', import.meta.url)
+const typesPath = new URL('../lib/browser/types.d.ts', import.meta.url)
 
 test('showView changes visibility without reparenting a page view', async () => {
   const source = await readFile(hostPath, 'utf8')
@@ -201,4 +204,19 @@ test('browser_space is documented as a task label, not a separate window', async
   const source = await readFile(new URL('../lib/tool-browser/index.js', import.meta.url), 'utf8')
   assert.match(source, /Name this browser task/)
   assert.doesNotMatch(source, /Each task gets its own window/)
+})
+
+test('legacy listWindows compatibility is documented as browser tasks', async () => {
+  const [providerSource, remote, runtime, types] = await Promise.all([
+    readFile(providerSourcePath, 'utf8'),
+    readFile(remotePath, 'utf8'),
+    readFile(runtimePath, 'utf8'),
+    readFile(typesPath, 'utf8'),
+  ])
+  assert.match(providerSource, /List browser tasks/)
+  assert.match(remote, /List browser task keys/)
+  assert.match(runtime, /browser task label/)
+  assert.match(types, /browser task label/)
+  assert.doesNotMatch(providerSource, /List open windows/)
+  assert.doesNotMatch(remote, /List all open window keys/)
 })

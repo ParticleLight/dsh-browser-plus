@@ -293,12 +293,12 @@ export class BrowserRuntime extends Service {
     return this.resolveProvider().restoreAuth(session, cookies)
   }
 
-  /** Set the session's window title (space name) through the selected provider. */
+  /** Set the session's browser task label through the selected provider. */
   async setSpace(session: BrowserSessionId, label: string): Promise<void> {
     return this.resolveProvider().setSpace(session, label)
   }
 
-  /** List every open window (space) with its label through the selected provider. */
+  /** List browser tasks (legacy spaces) with labels through the selected provider. */
   async listSpaces(): Promise<readonly BrowserSpaceInfo[]> {
     return this.resolveProvider().listSpaces()
   }
