@@ -436,7 +436,7 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
     // The seam is synchronous; the provider uses the handle immediately, so
     // commands are deferred until the child is up and the view materialized.
     const id = `view:${Math.random().toString(36).slice(2, 10)}`
-    const view = new DeferredRemoteView(id, () => this.ensureView(id, key, label))
+    const view = new DeferredRemoteView(id, label, currentLabel => this.ensureView(id, key, currentLabel))
     this.views.set(id, view)
     return view
   }
@@ -504,15 +504,20 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
   }
 }
 
-/** A view handle that waits for child readiness before issuing commands. */
-class DeferredRemoteView implements ElectronViewHandle {
+/** @internal Deferred view recovery handle; exported for focused behavior tests. */
+export class DeferredRemoteView implements ElectronViewHandle {
   private materialized: Promise<RemoteView> | undefined
   private recoveryCompositorSettle: Promise<void> | undefined
+  private taskLabel: string | undefined
+  private labelRevision = 0
 
   constructor(
     readonly id: string,
-    private readonly materialize: () => Promise<RemoteView>,
-  ) {}
+    label: string | undefined,
+    private readonly materialize: (label: string | undefined) => Promise<RemoteView>,
+  ) {
+    this.taskLabel = label
+  }
 
   /**
    * Materialize once and cache: every sendCommand on the same handle must
@@ -522,7 +527,7 @@ class DeferredRemoteView implements ElectronViewHandle {
    */
   private materializeOnce(): Promise<RemoteView> {
     if (this.materialized === undefined) {
-      const pending = this.materialize()
+      const pending = this.materialize(this.taskLabel)
       this.materialized = pending.catch(error => {
         if (this.materialized === pending) this.materialized = undefined
         throw error
@@ -604,8 +609,15 @@ class DeferredRemoteView implements ElectronViewHandle {
   }
 
   async label(label: string): Promise<void> {
-    const view = await this.materializeOnce()
-    return view.label(label)
+    const previousLabel = this.taskLabel
+    const revision = ++this.labelRevision
+    this.taskLabel = label
+    try {
+      await this.withView(view => view.label(label))
+    } catch (error) {
+      if (this.labelRevision === revision) this.taskLabel = previousLabel
+      throw error
+    }
   }
 }
 

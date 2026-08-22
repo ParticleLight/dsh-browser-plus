@@ -220,3 +220,20 @@ test('legacy listWindows compatibility is documented as browser tasks', async ()
   assert.doesNotMatch(providerSource, /List open windows/)
   assert.doesNotMatch(remote, /List all open window keys/)
 })
+
+test('deferred views retain the latest task label for child recovery', async () => {
+  const source = await readFile(remotePath, 'utf8')
+  assert.match(source, /taskLabel;/)
+  assert.match(source, /this\.materialize\(this\.taskLabel\)/)
+  assert.match(source, /this.taskLabel = label/)
+  assert.match(source, /this\.withView\(view => view\.label\(label\)\)/)
+})
+
+test('task summaries redact paths and query strings before page injection', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.match(source, /taskSummaryUrl/)
+  const start = source.indexOf('function taskSummaries')
+  const end = source.indexOf('function pushTaskState', start)
+  assert.ok(start >= 0 && end > start, 'task summary block exists')
+  assert.match(source.slice(start, end), /url: taskSummaryUrl\(url\)/)
+})

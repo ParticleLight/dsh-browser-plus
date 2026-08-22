@@ -21,6 +21,7 @@ import { createInterface } from 'node:readline'
 import { createConnection } from 'node:net'
 import { join } from 'node:path'
 import { buildPageChromeScript } from './page-chrome.js'
+import { taskSummaryUrl } from './task-summary.js'
 
 // Isolate this host's profile from the DSH app's default Electron userData:
 // several Electron instances sharing Roaming\Electron fight over the GPU
@@ -148,7 +149,7 @@ function taskSummaries(): TaskSummary[] {
       label: taskLabels.get(key) ?? '',
       active: key === visibleTaskKey,
       background: key !== visibleTaskKey,
-      url,
+      url: taskSummaryUrl(url),
       tabs: [...views.values()].filter(view => view.taskKey === key).length,
       ...(latest === undefined ? {} : { latest: latest }),
     }]
