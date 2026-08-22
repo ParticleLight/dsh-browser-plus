@@ -55,6 +55,7 @@ declare module 'electron' {
     capturePage(): Promise<NativeImage>
     executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>
     loadURL(url: string): Promise<void>
+    getURL(): string
     setWindowOpenHandler(handler: (details: { url: string }) => { action: 'deny' | 'allow' }): void
     on(event: 'did-navigate' | 'did-navigate-in-page', listener: (event: unknown, url?: string) => void): this
   }

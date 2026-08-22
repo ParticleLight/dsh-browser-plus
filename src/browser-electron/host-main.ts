@@ -113,6 +113,61 @@ function syncVisibleTaskVisibility(): void {
     } catch { /* destroyed */ }
   }
 }
+interface TaskTraceSummary {
+  readonly action: string
+  readonly at: number
+}
+
+interface TaskSummary {
+  readonly key: string
+  readonly label: string
+  readonly active: boolean
+  readonly background: boolean
+  readonly url: string
+  readonly tabs: number
+  readonly latest?: TaskTraceSummary
+}
+
+function summarizeLatestTrace(entry: unknown): TaskTraceSummary | undefined {
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return undefined
+  const record = entry as Record<string, unknown>
+  const action = typeof record.action === 'string' ? record.action : undefined
+  const at = typeof record.at === 'number' ? record.at : undefined
+  return action === undefined || at === undefined ? undefined : { action, at }
+}
+
+function taskSummaries(): TaskSummary[] {
+  return [...activeViewByTask.entries()].flatMap(([key, viewId]) => {
+    const activeView = views.get(viewId)
+    if (activeView === undefined) return []
+    const latest = summarizeLatestTrace((traces.get(viewId) ?? []).at(-1))
+    let url = ''
+    try { url = activeView.webContentsView.webContents.getURL() } catch { /* closing */ }
+    return [{
+      key,
+      label: taskLabels.get(key) ?? '',
+      active: key === visibleTaskKey,
+      background: key !== visibleTaskKey,
+      url,
+      tabs: [...views.values()].filter(view => view.taskKey === key).length,
+      ...(latest === undefined ? {} : { latest: latest }),
+    }]
+  })
+}
+
+function pushTaskState(target: WebContentsView): void {
+  const tasks = JSON.stringify(taskSummaries())
+  try {
+    void target.webContents.executeJavaScript('window.__dshTasks = ' + tasks + '; try { window.__dshTaskRender?.() } catch {}').catch(() => undefined)
+  } catch { /* closing */ }
+}
+
+function pushVisibleTaskState(): void {
+  const viewId = visibleTaskKey === undefined ? undefined : activeViewByTask.get(visibleTaskKey)
+  const target = viewId === undefined ? undefined : views.get(viewId)
+  if (target !== undefined) pushTaskState(target.webContentsView)
+}
+
 /** Select a task for the human without reparenting any page view. */
 function switchVisibleTask(taskKey: string): void {
   const viewId = activeViewByTask.get(taskKey)
@@ -122,6 +177,7 @@ function switchVisibleTask(taskKey: string): void {
   visibleTaskKey = taskKey
   syncVisibleTaskVisibility()
   try { win.setTitle(taskTitle(taskKey)) } catch { /* closing */ }
+  pushTaskState(target.webContentsView)
 }
 /** The RPC socket to the parent; set when the connection is established. */
 let rpcSocket: import('node:net').Socket | undefined
@@ -135,7 +191,8 @@ function installPageChrome(view: WebContentsView, viewId: string): void {
   const apply = (): void => {
     try {
       const trail = JSON.stringify(traces.get(viewId) ?? [])
-      void view.webContents.executeJavaScript('window.__dshTrail = ' + trail + ';' + source).catch(() => undefined)
+      const tasks = JSON.stringify(taskSummaries())
+      void view.webContents.executeJavaScript('window.__dshTrail = ' + trail + '; window.__dshTasks = ' + tasks + ';' + source).catch(() => undefined)
     } catch {
       // Chrome is cosmetic; never fail a page for it.
     }
@@ -176,6 +233,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             void entryView.webContentsView.webContents.executeJavaScript('window.__dshTrail = ' + JSON.stringify(list) + '; try { window.__dshTrailRender && window.__dshTrailRender() } catch {}').catch(() => undefined)
           } catch { /* closing */ }
         }
+        pushVisibleTaskState()
         reply(msg.id, { ok: true })
         return
       }
@@ -204,10 +262,23 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // fire-and-forget — a failure must never block first paint.
         try { void view.webContents.debugger.sendCommand('Page.enable').catch(() => undefined) } catch { /* closed */ }
         try { void view.webContents.debugger.sendCommand('DOM.enable').catch(() => undefined) } catch { /* closed */ }
+        try { void view.webContents.debugger.sendCommand('Runtime.addBinding', { name: '__dshBrowserTaskAction' }).catch(() => undefined) } catch { /* closed */ }
         // JS dialogs (alert/confirm/prompt) would freeze the page until
         // answered. Auto-accept immediately so automation never stalls, and
         // stash the detail for the provider to surface via drainDialog.
         view.webContents.debugger.on('message', (_event, method, params) => {
+          if (method === 'Runtime.bindingCalled') {
+            const binding = (params ?? {}) as { name?: unknown; payload?: unknown }
+            if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
+              try {
+                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown }
+                if (action.type === 'switch-task' && typeof action.taskKey === 'string' && activeViewByTask.has(action.taskKey)) {
+                  switchVisibleTask(action.taskKey)
+                }
+              } catch { /* malformed page action */ }
+            }
+            return
+          }
           if (method !== 'Page.javascriptDialogOpening') return
           const p = (params ?? {}) as { type?: unknown; message?: unknown; defaultPrompt?: unknown }
           const info = {
@@ -237,6 +308,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (visibleTaskKey === undefined) switchVisibleTask(taskKey)
         // Fire-and-forget chrome registration: chrome must never block first paint.
         void installPageChrome(view, viewId)
+        pushVisibleTaskState()
         reply(msg.id, { ok: true })
         return
       }
@@ -272,6 +344,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             }
           }
         }
+        pushVisibleTaskState()
         reply(msg.id, { ok: true })
         return
       }
@@ -284,6 +357,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (visibleTaskKey === undefined) switchVisibleTask(entry.taskKey)
         else if (entry.taskKey !== visibleTaskKey) {
           // Background task tab changes stay in the background.
+          pushVisibleTaskState()
           reply(msg.id, { ok: true })
           return
         } else switchVisibleTask(entry.taskKey)
@@ -300,6 +374,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (entry.taskKey === visibleTaskKey) {
           try { ensureWindow().setTitle(taskTitle(entry.taskKey)) } catch { /* closing */ }
         }
+        pushVisibleTaskState()
         reply(msg.id, { ok: true })
         return
       }
