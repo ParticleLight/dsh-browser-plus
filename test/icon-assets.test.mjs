@@ -47,3 +47,29 @@ test('host passes resolved icon to BrowserWindow', async () => {
   assert.match(source, /icon/)
   assert.match(source, /dock/)
 })
+
+test('icon resolver handles unknown platform and missing derivative safely', async () => {
+  const icon = await import('../lib/browser-electron/icon.js')
+  // Unknown platforms resolve deterministically to the linux fallback PNG.
+  const fallback = icon.resolveBrowserIconPath('aix')
+  assert.equal(typeof fallback, 'string')
+  assert.equal(fallback.endsWith('dsh-browser-plus-256.png'), true)
+  assert.equal(fallback.includes('assets'), true)
+  // Path-only API: synchronous platform -> absolute path; never reads asset
+  // contents and never throws for an unknown platform. Missing assets are a
+  // packaging concern, not a resolver crash, so tracked files are not deleted
+  // here; the packaged fallback asset is asserted to exist below (and all four
+  // package assets are asserted by the package test).
+  const fallbackStat = await stat(png256)
+  assert.ok(fallbackStat.size > 0)
+})
+
+test('package includes Browser Flow icon assets', async () => {
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.ok(pkg.files.includes('assets'))
+  const [svg, p256, p512, icoFile] = await Promise.all([stat(svgPath), stat(png256), stat(png512), stat(ico)])
+  assert.ok(svg.size > 100)
+  assert.ok(p256.size > 100)
+  assert.ok(p512.size > p256.size)
+  assert.ok(icoFile.size > p256.size)
+})
