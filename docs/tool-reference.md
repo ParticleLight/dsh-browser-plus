@@ -34,7 +34,7 @@
 | `browser_close_tab` | `tabId`(必填) | `{ closed }` | – | 关闭标签;关闭活动标签后激活下一个 |
 | `browser_reset` | – | `{ reset }` | ✅ | 关闭本任务所有标签,回到一个空白标签 |
 | `browser_session` | – | `{ session, tabs[] }` | – | 查看本任务的浏览器会话与标签 |
-| `browser_space` | `label?` | `{ label? / spaces[] }` | – | 命名本任务浏览器窗口(space)或列出全部窗口;每任务一窗,便于用户分辨归属 |
+| `browser_space` | `label?` | `{ label? / spaces[] }` | – | 命名本浏览器任务或列出浏览器任务；页面任务管理器控制哪个隔离任务视图显示在共享窗口中 |
 | `browser_reset_session` | – | `{ reset }` | ✅ | 关闭并重建本任务的浏览器会话(崩溃/卡死后恢复) |
 
 ## 历史与下载

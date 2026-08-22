@@ -292,16 +292,16 @@ export interface BrowserOpenRequest {
 }
 /** Options for opening a new browser session. */
 export interface BrowserOpenOptions {
-    /** Window group key; each distinct key gets its own window. Default 'default'. */
+    /** Stable browser-task key; views remain isolated but share one visible window. */
     readonly key?: string;
-    /** Label (space name) shown in the window title. */
+    /** Optional display name shown in the task manager and active window title. */
     readonly label?: string;
 }
-/** One open browser window (space). */
+/** One browser task represented in the shared visible window. */
 export interface BrowserSpaceInfo {
-    /** Window group key. */
+    /** Stable browser-task key. */
     readonly key: string;
-    /** Display label, or '' for unlabeled. */
+    /** Task display label, or '' for unlabeled. */
     readonly label: string;
 }
 /**

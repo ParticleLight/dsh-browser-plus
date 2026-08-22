@@ -61,7 +61,7 @@ RemoteElectronViewHost  ──TCP JSON-RPC──▶  host-main.js
 - **协议**:本机 loopback TCP,每行一个 JSON(`{ id, op, ... }` ↔ `{ id, ok, result|err }`);
 - **Electron 定位**:① peer 依赖 → ② `ELECTRON_PATH` → ③ 锚点与 pnpm store 中**版本最新**者(33.x 有合成器缺陷,建议 ≥ 40);
 - **稳健性**:子进程/套接字都有 `error` 监听(否则未捕获事件会炸掉整个 DSH 进程);子进程退出自动重启;物化失败可重试;下载有 256MB 上限与 60s 超时;cookie 导出/恢复有 30s 超时;
-- **视图可见性**:v0.3 起每个任务键(DSH 会话)一个 `BrowserWindow`(`windowsByKey`);`showView` 在**同一窗口内**用 `setVisible` 隐藏兄弟视图并显示目标(绝不 remove/re-add;remove/re-add 仅存在于 capture 的 CDP 兜底且只作用于同窗口临时 detach/restore);
+- **视图可见性**:所有任务键(DSH 会话)共用一个 `BrowserWindow`，每个任务有隔离视图；页面任务管理器选择可见任务，`showView` 对后台任务只更新其活动视图，不改变用户当前选择。切换仅用 `setVisible`，绝不 remove/re-add（capture 的 CDP 兜底仍只临时 detach/restore 同窗口兄弟视图）；
 - **孤儿防护**:父进程断开时子进程自动退出,不留僵尸窗口;
 - **cookie 落盘**:子进程使用独立 userData 目录(`<DSH_HOME>/dsh-browser-plus-host`),登录态跨重启保留(另有 `browser_auth` 手动导出/恢复)。
 
@@ -72,7 +72,7 @@ RemoteElectronViewHost  ──TCP JSON-RPC──▶  host-main.js
 | 任务级会话隔离,共享 cookie | 并行任务不抢页面;登录一次到处可用 |
 | 原生 capturePage 优先,CDP 兜底 | CDP 截图多视图挂起;原生捕获窗口未激活时失败——两通道互补 |
 | 页面注入 chrome | 保留单视图合成树，避免第二个 WebContentsView 引发的人眼白屏 |
-| 每任务一窗口 + space 命名 | 并行任务窗口可辨识、互不干扰;`browser_space` 以窗口标题为 GUI |
+| 一个共享窗口 + 页面任务管理器 | 任务视图、标签与历史隔离；`browser_space` 命名浏览器任务，后台更新不抢可见页面 |
 | 自动选最新 Electron | 33.x 合成器缺陷导致截图间歇失败 |
 | 独立 userData | 多实例争用默认目录导致 GPU 缓存/会话锁冲突 |
 | withTimeout 全覆盖 | 卡死的 CDP 调用必须能被工具超时兜底 |

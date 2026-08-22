@@ -196,3 +196,9 @@ test('host binds page task actions and pushes safe task state', async () => {
   assert.doesNotMatch(summaryBlock, /params/)
   assert.doesNotMatch(source, /latest: list\.at\(-1\)/)
 })
+
+test('browser_space is documented as a task label, not a separate window', async () => {
+  const source = await readFile(new URL('../lib/tool-browser/index.js', import.meta.url), 'utf8')
+  assert.match(source, /Name this browser task/)
+  assert.doesNotMatch(source, /Each task gets its own window/)
+})

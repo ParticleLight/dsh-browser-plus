@@ -11,7 +11,7 @@ dsh-browser-plus is developed on top of the MIT-licensed `dsh-browser` codebase 
 Browser automation should not disappear into a process the user cannot inspect. dsh-browser-plus keeps the browser window visible while giving agents reliable CDP control.
 
 - **Visible by default**: a real Electron `WebContentsView`, not a headless relay.
-- **Task isolation**: each DSH session owns its window, tabs, and history; `browser_space` names the title.
+- **Task isolation**: all DSH sessions share one visible window while keeping isolated task views, tabs, and history; the page task manager switches the visible view, and `browser_space` names browser tasks.
 - **Human handoff**: page chrome, bookmarks, operation trail, and user activity detection live on the real page.
 - **Physical input**: keyboard, mouse, hover, double-click, and file selection use CDP instead of synthetic `element.click()` events.
 - **Recovery-aware**: a recycled child re-materializes the same session view; the first recovered capture waits for compositor readiness.
@@ -32,7 +32,7 @@ If another browser bundle is already installed, read the [migration guide](docs/
 | Open and inspect | `browser_open`, `browser_snapshot`, `browser_content`, `browser_screenshot` |
 | Page interaction | `browser_click`, `browser_press_key`, `browser_double_click`, `browser_hover`, `browser_type` |
 | Forms and files | `browser_fill`, `browser_upload_file`, `browser_wait_for` |
-| Tabs and windows | `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab`, `browser_space` |
+| Tasks and tabs | `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab`, `browser_space` |
 | Auth and recovery | `browser_auth`, `browser_reset_session`, `browser_history` |
 
 Snapshot elements expose `loc=` for reliable retargeting, and page-level scripts automatically ignore the browser's own chrome.
@@ -47,7 +47,7 @@ browser_* tools
   -> host-main.js (BrowserWindow + WebContentsView)
 ```
 
-The chrome is injected through a closed Shadow DOM rather than a second Electron view, preserving capture and multi-window composition.
+The chrome and task manager are injected through a closed Shadow DOM rather than a second Electron view. Background task updates stay in their isolated views and do not steal the user's visible page.
 
 `alert`, `confirm`, and `prompt` are auto-accepted so pages do not block. The next page operation records the detail as a `dialog` item in `browser_history`.
 

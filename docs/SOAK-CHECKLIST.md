@@ -21,12 +21,13 @@
 - [ ] 动态元素:注入延时节点后 `browser_wait_for selector="#late"` 命中
 - [ ] `browser_snapshot` 每行含 `loc=`
 
-## 4. 每任务窗口与 space
-- [ ] 本会话 `browser_open https://www.iana.org/` → 窗口标题 `dsh-browser-plus`(默认键)
-- [ ] **另一个 DSH 会话** `browser_open` → 出现**第二个独立窗口**,两窗口各自显示且互不遮挡
-- [ ] `browser_space label="奖励任务"` → 窗口标题变 `dsh-browser-plus — 奖励任务`;history 有 setSpace
-- [ ] `browser_space`(无参)→ 列出所有窗口(key + label);不产生新窗口
-- [ ] 关闭任意窗口后再次 `browser_open`(同键)→ 窗口重建不残留
+## 4. 共享窗口、任务管理器与 space
+- [ ] 本会话 `browser_open https://www.iana.org/` → 一个可见 `dsh-browser-plus` 窗口和对应任务视图
+- [ ] **另一个 DSH 会话** `browser_open https://www.w3.org/` → 仍只有**一个共享窗口**，页面任务管理器显示两个隔离任务
+- [ ] `browser_space label="奖励任务"` → 当前浏览器任务在任务管理器中显示该标签，活动时标题为 `dsh-browser-plus — 奖励任务`;history 有 setSpace
+- [ ] `browser_space`(无参)→ 列出全部浏览器任务(key + label);不产生新窗口
+- [ ] 在任务管理器切换两个任务 → 各自 URL/标签正确；隐藏任务的浏览器操作更新自身状态但不抢当前可见页面
+- [ ] 关闭共享窗口后再次 `browser_open` → 窗口重建且不残留
 
 ## 5. 稳定性
 - [ ] 连续导航 5 站(example.com → bing.com → w3.org → iana.org → example.com)→ 无白屏,每窗口有且仅有一个视图

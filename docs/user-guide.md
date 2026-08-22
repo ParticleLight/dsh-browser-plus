@@ -62,7 +62,7 @@ dsh plugin --profile web add <本仓库路径>
 - `browser_session` 查看本任务的会话与标签;
 - `browser_reset_session` 关闭并重建本任务的会话(崩溃或卡死后用它恢复)。
 
-v0.3 起**每个任务拥有独立浏览器窗口**:窗口标题为 `dsh-browser-plus`(`browser_space label="..."` 命名后为 `dsh-browser-plus — <名>`),`browser_space`(无参)可列出所有窗口。
+当前版本使用**一个共享可见浏览器窗口**，每个任务仍有隔离的任务视图、标签与历史。页面任务管理器切换可见任务；后台任务操作只更新自己的视图，不会抢走当前页面。`browser_space label="..."` 为本浏览器任务命名，`browser_space`(无参)列出全部浏览器任务。
 
 页面原生 `alert/confirm/prompt` 会被**自动接受**(页面永不卡死),对话框内容记录在 `browser_history`(`dialog` 条目)中。
 
@@ -82,7 +82,7 @@ v0.3 起**每个任务拥有独立浏览器窗口**:窗口标题为 `dsh-browser
 确保 Electron ≥ 40(33.x 有合成器缺陷)。自托管截图优先走原生 `capturePage`,多视图/窗口未激活时自动兜底到 CDP。
 
 **Q:浏览器窗口不见了?**
-窗口标题为 `dsh-browser-plus`(经 `browser_space` 命名后为 `dsh-browser-plus — <空间名>`);每个 DSH 任务一个窗口。若子进程崩溃会自动重启;重启后旧会话失效,调用 `browser_reset_session` 重建。
+窗口标题为 `dsh-browser-plus`(显示当前任务标签时为 `dsh-browser-plus — <名>`)；所有任务共享这一可见窗口，通过页面任务管理器切换各自隔离视图。若子进程崩溃会自动重启;重启后旧会话失效,调用 `browser_reset_session` 重建。
 
 **Q:下载报 CORS 错误?**
 `browser_download` 在页面上下文内 `fetch`,受同源/CORS 约束;跨域文件请先在同源页面内操作,或直接请求用户提供。
