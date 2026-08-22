@@ -15,7 +15,7 @@ Browser automation should not disappear into a process the user cannot inspect. 
 - **Human handoff**: page chrome, bookmarks, operation trail, and user activity detection live on the real page.
 - **Physical input**: keyboard, mouse, hover, double-click, and file selection use CDP instead of synthetic `element.click()` events.
 - **Recovery-aware**: a recycled child re-materializes the same session view; the first recovered capture waits for compositor readiness.
-- **Stable baseline**: Electron 42.9.3 is supported; Electron 43.4.1 compositor failures are deliberately excluded.
+- **Stable baseline**: Electron 42.9.3 is pinned; the resolver rejects Electron 43.4.1 because of compositor failures.
 
 ## Install
 

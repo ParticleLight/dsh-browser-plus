@@ -3,7 +3,7 @@
 ## 环境要求
 
 - DeepSeek Harness(dsh)且安装了 `web` profile
-- **Electron 运行时**(可选 peer 依赖):桌面外壳自带;纯 `dsh web` 下插件自动定位 Electron 二进制(建议 ≥ 40,33.x 存在截图合成器缺陷)
+- **Electron 运行时**(可选 package dependency):插件固定 `42.9.3` 并优先使用自身安装的 binary；纯 `dsh web` 下找不到该版本会明确失败，避免 43.x compositor 故障。
 
 ## 安装
 
@@ -76,10 +76,10 @@ dsh plugin --profile web add <本仓库路径>
 能。插件自托管:自己拉起 Electron 窗口,无需桌面外壳。
 
 **Q:找不到 Electron?**
-插件按顺序自动定位:① peer 依赖 `require('electron')` → ② `ELECTRON_PATH` 环境变量 → ③ DSH 锚点与 pnpm 虚拟仓库中版本最新者。都找不到时报清晰错误,可 `dsh plugin --profile web add electron` 或设置 `ELECTRON_PATH`。
+插件只接受 Electron `42.9.3`:优先自身 optional dependency，其次校验 `ELECTRON_PATH`、DSH 锚点与 pnpm store 候选。找不到时重新安装插件依赖，或把 `ELECTRON_PATH` 指向一个经 package metadata 验证为 `42.9.3` 的 binary。
 
 **Q:截图失败或挂起?**
-确保 Electron ≥ 40(33.x 有合成器缺陷)。自托管截图优先走原生 `capturePage`,共享窗口内存在多个视图且目标未激活时自动兜底到 CDP。
+确认运行时是 Electron `42.9.3`，不要用 43.x。自托管截图优先走原生 `capturePage`，共享窗口内存在多个视图且目标未激活时自动兜底到 CDP。
 
 **Q:浏览器窗口不见了?**
 窗口标题为 `dsh-browser-plus`(显示当前任务标签时为 `dsh-browser-plus — <名>`)；所有任务共享这一可见窗口，通过页面任务管理器切换各自隔离视图。若子进程崩溃会自动重启;重启后旧会话失效,调用 `browser_reset_session` 重建。

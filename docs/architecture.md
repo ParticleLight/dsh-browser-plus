@@ -59,7 +59,7 @@ RemoteElectronViewHost  ──TCP JSON-RPC──▶  host-main.js
 ```
 
 - **协议**:本机 loopback TCP,每行一个 JSON(`{ id, op, ... }` ↔ `{ id, ok, result|err }`);
-- **Electron 定位**:① peer 依赖 → ② `ELECTRON_PATH` → ③ 锚点与 pnpm store 中**版本最新**者(33.x 有合成器缺陷,建议 ≥ 40);
+- **Electron 定位**:优先 package-local 的精确 `42.9.3` optional dependency；其次只接受经 package metadata 验证为 `42.9.3` 的 `ELECTRON_PATH`、DSH 锚点或 pnpm store 候选；找不到即失败，绝不回退到 43.x。
 - **稳健性**:子进程/套接字都有 `error` 监听(否则未捕获事件会炸掉整个 DSH 进程);子进程退出自动重启;物化失败可重试;下载有 256MB 上限与 60s 超时;cookie 导出/恢复有 30s 超时;
 - **视图可见性**:所有任务键(DSH 会话)共用一个 `BrowserWindow`，每个任务有隔离视图；页面任务管理器选择可见任务，`showView` 对后台任务只更新其活动视图，不改变用户当前选择。切换仅用 `setVisible`，绝不 remove/re-add（capture 的 CDP 兜底仍只临时 detach/restore 同窗口兄弟视图）；
 - **孤儿防护**:父进程断开时子进程自动退出,不留僵尸窗口;
@@ -73,7 +73,7 @@ RemoteElectronViewHost  ──TCP JSON-RPC──▶  host-main.js
 | 原生 capturePage 优先,CDP 兜底 | CDP 截图多视图挂起;原生捕获窗口未激活时失败——两通道互补 |
 | 页面注入 chrome | 保留单视图合成树，避免第二个 WebContentsView 引发的人眼白屏 |
 | 一个共享窗口 + 页面任务管理器 | 任务视图、标签与历史隔离；`browser_space` 命名浏览器任务，后台更新不抢可见页面 |
-| 自动选最新 Electron | 33.x 合成器缺陷导致截图间歇失败 |
+| 固定 Electron 42.9.3 | 43.4.1 合成器故障会导致截图/白屏；找不到 pin 时明确失败 |
 | 独立 userData | 多实例争用默认目录导致 GPU 缓存/会话锁冲突 |
 | withTimeout 全覆盖 | 卡死的 CDP 调用必须能被工具超时兜底 |
 | 输出 schema 严格匹配 | DSH 运行时会校验返回值,多字段即报错 |
