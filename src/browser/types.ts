@@ -4,7 +4,7 @@
  * configuration; providers differ only in what backs a session (an Electron
  * `WebContentsView` in the desktop shell, a headless Chromium relay for
  * remote deployments, and so on).
- * @module dsh-browser/browser/types
+ * @module dsh-browser-plus/browser/types
  */
 
 import { HarnessError } from '@deepseek-ai/dsh-llm'

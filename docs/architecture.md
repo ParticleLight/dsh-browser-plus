@@ -53,7 +53,7 @@ agent (browser_* 工具)
 ```
 父进程(DSH)                        子进程(Electron main)
 RemoteElectronViewHost  ──TCP JSON-RPC──▶  host-main.js
-  resolveElectronPath()                    BrowserWindow('dsh-browser')
+  resolveElectronPath()                    BrowserWindow('dsh-browser-plus')
   ElectronChildClient                      WebContentsView × N
   DeferredRemoteView(物化缓存)              webContents.debugger(CDP)
 ```

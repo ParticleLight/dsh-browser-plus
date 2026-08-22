@@ -7,7 +7,7 @@
  * (`host-main.js`) and drives it over a local TCP JSON-RPC socket, so
  * installing the plugin is enough for `browser_*` tools to work on any
  * surface.
- * @module dsh-browser/browser-electron
+ * @module dsh-browser-plus/browser-electron
  */
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';

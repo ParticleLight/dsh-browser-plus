@@ -1,6 +1,6 @@
 <p align="center">
   <img src="https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?style=flat&amp;label=%E2%98%85&amp;color=08C" alt="GitHub stars">
-  <img src="https://img.shields.io/npm/v/dsh-browser-plus?style=flat&amp;label=npm&amp;color=CB3837" alt="npm version">
+  <img src="https://img.shields.io/github/v/release/ParticleLight/dsh-browser-plus?style=flat&amp;label=release&amp;color=0969DA" alt="GitHub release">
   <img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat" alt="MIT License">
   <img src="https://img.shields.io/badge/DSH-Plugin-47848F?style=flat" alt="DeepSeek Harness plugin">
   <img src="https://img.shields.io/badge/Platform-Windows-4493F8?style=flat-square" alt="Platform: Windows (verified)">
@@ -198,7 +198,7 @@ agent (browser_* 工具)
 - **provider 层**(`browser-electron` 行)通过 `ElectronBrowserViewHost` 接缝操作视图(创建/销毁/显示/`sendCommand`),由真实外壳用 Electron 对象实现;
 - **工具层**(`tool-browser` 行)提供模型侧的 26 个 `browser_*` 工具,按调用方任务(DSH 会话)维护独立的浏览器会话。
 
-**自托管模式**:没有桌面外壳时,插件自己拉起一个 Electron 子进程(`host-main.js`),通过本机 TCP JSON-RPC 驱动,窗口标题 `dsh-browser`。子进程崩溃会自动重启;截图优先走 Electron 原生 `capturePage`(CDP 截图在多视图下会挂起),并自动选择环境中**最新版本**的 Electron(33.x 有合成器缺陷,建议 ≥ 40)。
+**自托管模式**:没有桌面外壳时,插件自己拉起一个 Electron 子进程(`host-main.js`),通过本机 TCP JSON-RPC 驱动,窗口标题 `dsh-browser-plus`。子进程崩溃会自动重启;截图优先走 Electron 原生 `capturePage`(CDP 截图在多视图下会挂起),并自动选择环境中**最新版本**的 Electron(33.x 有合成器缺陷,建议 ≥ 40)。
 
 **Electron 定位顺序**:① `require('electron')`(peer 依赖)→ ② `ELECTRON_PATH`(显式覆盖)→ ③ DSH 安装锚点与 pnpm 虚拟仓库中**版本最新**者。找不到时工具会报清晰的错误提示。
 

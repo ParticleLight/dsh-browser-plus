@@ -3,7 +3,7 @@
  * browser host (`host-main.ts`). The electron package is an optional peer
  * dependency (present in desktop-shell environments), so it is not in
  * devDependencies; this shim keeps typechecking self-contained.
- * @module dsh-browser/types/electron-shim
+ * @module dsh-browser-plus/types/electron-shim
  */
 
 declare module 'electron' {

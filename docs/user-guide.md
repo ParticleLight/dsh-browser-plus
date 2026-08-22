@@ -9,7 +9,7 @@
 
 ```sh
 # 从 npm 安装(已发布)
-dsh plugin --profile web add dsh-browser-plus
+dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 
 # 或从源码目录(独立仓库,一插件一仓库)
 dsh plugin --profile web add <本仓库路径>
@@ -23,7 +23,7 @@ dsh plugin --profile web add <本仓库路径>
 | `browser-electron` | `dsh-browser-plus/browser-electron` | Electron CDP provider |
 | `tool-browser` | `dsh-browser-plus/tool-browser` | `browser_*` 模型侧工具 |
 
-> 没有桌面外壳时插件**自托管**:自己拉起一个标题为 `dsh-browser` 的 Electron 窗口,`browser_*` 工具照常可用。
+> 没有桌面外壳时插件**自托管**:自己拉起一个标题为 `dsh-browser-plus` 的 Electron 窗口,`browser_*` 工具照常可用。
 
 ## 配置
 
@@ -62,7 +62,7 @@ dsh plugin --profile web add <本仓库路径>
 - `browser_session` 查看本任务的会话与标签;
 - `browser_reset_session` 关闭并重建本任务的会话(崩溃或卡死后用它恢复)。
 
-v0.3 起**每个任务拥有独立浏览器窗口**:窗口标题为 `dsh-browser`(`browser_space label="..."` 命名后为 `dsh-browser — <名>`),`browser_space`(无参)可列出所有窗口。
+v0.3 起**每个任务拥有独立浏览器窗口**:窗口标题为 `dsh-browser-plus`(`browser_space label="..."` 命名后为 `dsh-browser-plus — <名>`),`browser_space`(无参)可列出所有窗口。
 
 页面原生 `alert/confirm/prompt` 会被**自动接受**(页面永不卡死),对话框内容记录在 `browser_history`(`dialog` 条目)中。
 
@@ -82,7 +82,7 @@ v0.3 起**每个任务拥有独立浏览器窗口**:窗口标题为 `dsh-browser
 确保 Electron ≥ 40(33.x 有合成器缺陷)。自托管截图优先走原生 `capturePage`,多视图/窗口未激活时自动兜底到 CDP。
 
 **Q:浏览器窗口不见了?**
-窗口标题为 `dsh-browser`(经 `browser_space` 命名后为 `dsh-browser — <空间名>`);每个 DSH 任务一个窗口。若子进程崩溃会自动重启;重启后旧会话失效,调用 `browser_reset_session` 重建。
+窗口标题为 `dsh-browser-plus`(经 `browser_space` 命名后为 `dsh-browser-plus — <空间名>`);每个 DSH 任务一个窗口。若子进程崩溃会自动重启;重启后旧会话失效,调用 `browser_reset_session` 重建。
 
 **Q:下载报 CORS 错误?**
 `browser_download` 在页面上下文内 `fetch`,受同源/CORS 约束;跨域文件请先在同源页面内操作,或直接请求用户提供。

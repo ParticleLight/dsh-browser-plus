@@ -1,7 +1,7 @@
 {
   "name": "dsh-browser-plus",
   "version": "0.3.0",
-  "description": "Enhanced shared browser for DeepSeek Harness: visible browser both human and AI operate, with ego-style toolbar, operation trail, user-control detection, and stable single-view compositing (Electron 42.x). Fork of dsh-builtin-browser v0.1.15 (MIT).",
+  "description": "Enhanced shared browser for DeepSeek Harness: visible browser both human and AI operate, with ego-style toolbar, operation trail, user-control detection, per-task windows, and stable Electron 42.x compositing.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

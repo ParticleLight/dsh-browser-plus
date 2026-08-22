@@ -13,4 +13,4 @@ Ego 级功能集:
 
 ## v0.2.0 (2026-08-21)
 
-首版 `dsh-browser-plus`(自 dsh-builtin-browser v0.1.15 fork 改名):共享可见浏览器、ego 风格页面内工具栏、操作轨迹(trail)面板、用户控制检测、稳定单视图合成。
+首版 `dsh-browser-plus`:共享可见浏览器、ego 风格页面内工具栏、操作轨迹(trail)面板、用户控制检测、稳定单视图合成。

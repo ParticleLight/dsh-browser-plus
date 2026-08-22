@@ -13,6 +13,6 @@
  *   -> { id, ok: true, result? } | { id, ok: false, err }
  *
  * The parent never parses stderr, so diagnostics may go there freely.
- * @module dsh-browser/browser-electron/host-main
+ * @module dsh-browser-plus/browser-electron/host-main
  */
 export {};

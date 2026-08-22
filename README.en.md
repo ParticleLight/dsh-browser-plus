@@ -1,6 +1,6 @@
 <p align="center">
   <img src="https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?style=flat&amp;label=%E2%98%85&amp;color=08C" alt="GitHub stars">
-  <img src="https://img.shields.io/npm/v/dsh-browser-plus?style=flat&amp;label=npm&amp;color=CB3837" alt="npm version">
+  <img src="https://img.shields.io/github/v/release/ParticleLight/dsh-browser-plus?style=flat&amp;label=release&amp;color=0969DA" alt="GitHub release">
   <img src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat" alt="MIT License">
   <img src="https://img.shields.io/badge/DSH-Plugin-47848F?style=flat" alt="DeepSeek Harness plugin">
   <img src="https://img.shields.io/badge/Platform-Windows-4493F8?style=flat-square" alt="Platform: Windows (verified)">
@@ -198,7 +198,7 @@ agent (browser_* tools)
 - **Provider** (`browser-electron` row): operates views through the `ElectronBrowserViewHost` seam (create/destroy/show, `sendCommand`), implemented with real Electron objects by the shell.
 - **Tools** (`tool-browser` row): the 26 model-facing `browser_*` tools, maintaining one browser session per calling task (DSH session).
 
-**Self-hosted mode**: without a desktop shell, the plugin spawns its own Electron child process (`host-main.js`) and drives it over loopback TCP JSON-RPC (window title `dsh-browser`). The child auto-restarts after a crash; screenshots prefer Electron's native `capturePage` (CDP capture can hang with multiple views in the window); the plugin automatically picks the **newest** Electron in the environment (33.x has a compositor defect; ≥ 40 recommended).
+**Self-hosted mode**: without a desktop shell, the plugin spawns its own Electron child process (`host-main.js`) and drives it over loopback TCP JSON-RPC (window title `dsh-browser-plus`). The child auto-restarts after a crash; screenshots prefer Electron's native `capturePage` (CDP capture can hang with multiple views in the window); the plugin automatically picks the **newest** Electron in the environment (33.x has a compositor defect; ≥ 40 recommended).
 
 **Electron lookup order**: ① `require('electron')` (peer dependency) → ② `ELECTRON_PATH` (explicit override) → ③ the newest among DSH install anchors and pnpm virtual stores. A clear error tells you when none is found.
 

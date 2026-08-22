@@ -4,7 +4,7 @@
  * desktop shell implements with real Electron objects. That keeps this
  * package testable under plain Node and leaves the Electron dependency to the
  * shell that owns the `BrowserWindow`.
- * @module dsh-browser/browser-electron
+ * @module dsh-browser-plus/browser-electron
  */
 
 import { randomUUID } from 'node:crypto'

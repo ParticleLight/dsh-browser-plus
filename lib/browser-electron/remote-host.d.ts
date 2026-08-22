@@ -13,7 +13,7 @@
  *
  * The child is Electron's main process; host-main.js owns the BrowserWindow,
  * WebContentsViews, and webContents.debugger (CDP).
- * @module dsh-browser/browser-electron/remote-host
+ * @module dsh-browser-plus/browser-electron/remote-host
  */
 import type { ElectronBrowserViewHost, ElectronViewHandle } from './provider.ts';
 /**

@@ -22,9 +22,9 @@
 - [ ] `browser_snapshot` 每行含 `loc=`
 
 ## 4. 每任务窗口与 space
-- [ ] 本会话 `browser_open https://example.com` → 窗口标题 `dsh-browser`(默认键)
+- [ ] 本会话 `browser_open https://www.iana.org/` → 窗口标题 `dsh-browser-plus`(默认键)
 - [ ] **另一个 DSH 会话** `browser_open` → 出现**第二个独立窗口**,两窗口各自显示且互不遮挡
-- [ ] `browser_space label="奖励任务"` → 窗口标题变 `dsh-browser — 奖励任务`;history 有 setSpace
+- [ ] `browser_space label="奖励任务"` → 窗口标题变 `dsh-browser-plus — 奖励任务`;history 有 setSpace
 - [ ] `browser_space`(无参)→ 列出所有窗口(key + label);不产生新窗口
 - [ ] 关闭任意窗口后再次 `browser_open`(同键)→ 窗口重建不残留
 

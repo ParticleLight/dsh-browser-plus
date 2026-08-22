@@ -102,7 +102,7 @@ test('host keeps one window per session key and labels them', async () => {
   assert.match(source, /windowFor\(/)
   assert.match(source, /case 'label'/)
   assert.match(source, /case 'listWindows'/)
-  assert.match(source, /dsh-browser — /)
+  assert.match(source, /dsh-browser-plus — /)
   assert.match(source, /v\.window !== entry\.window/)
   assert.ok(!source.includes('layoutPageViews()'), 'window-scoped layout only')
 })

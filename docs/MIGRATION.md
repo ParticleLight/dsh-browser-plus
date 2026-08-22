@@ -1,11 +1,10 @@
-# 从 dsh-builtin-browser 迁移到 dsh-browser-plus v0.3.0
+# 迁移到 dsh-browser-plus
 
-> 本仓库(https://github.com/ParticleLight/dsh-browser-plus)已发布 **v0.3.0**(Release 含 tarball)。
-> 若本机曾以旧名 `dsh-builtin-browser` 安装(live 目录: `~/.dsh/profiles/web/node_modules/dsh-builtin-browser/`),按本指南换名安装并迁移登录态。
+> 如果你的 DSH profile 仍装着旧版浏览器插件（package name 为 `dsh-builtin-browser`），按本指南切换到 `dsh-browser-plus` 并迁移登录态。
 
 ## 步骤
 
-### 1. 导出旧包登录态(可选但推荐)
+### 1. 导出当前浏览器登录态(可选但推荐)
 
 在旧包仍生效的 DSH 会话中:
 
@@ -20,7 +19,7 @@ browser_auth action="flush"      # 把返回的 cookies JSON 保存到文件
 dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 ```
 
-### 3. 移除旧包(可选)
+### 3. 移除已替换的旧包(可选)
 
 ```sh
 dsh plugin --profile web remove dsh-builtin-browser   # 如实际安装名如此
@@ -46,4 +45,4 @@ browser_auth action="restore" cookies=<步骤1保存的JSON>
 
 ## 重启要求
 
-provider / remote-host / tool-browser 层改动需要**重启 DSH Web** 后生效;`host-main.js` 改动在旧包目录同步后仅回收 Electron 子进程即可(见 `docs/SOAK-CHECKLIST.md` 的完整验证清单)。
+迁移 profile bundle 后请**重启 DSH Web**，确保旧 loader entry 完整卸载、新包以 `dsh-browser-plus` 身份加载（见 `docs/SOAK-CHECKLIST.md`）。

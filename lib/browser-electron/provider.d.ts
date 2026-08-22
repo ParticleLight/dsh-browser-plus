@@ -4,7 +4,7 @@
  * desktop shell implements with real Electron objects. That keeps this
  * package testable under plain Node and leaves the Electron dependency to the
  * shell that owns the `BrowserWindow`.
- * @module dsh-browser/browser-electron
+ * @module dsh-browser-plus/browser-electron
  */
 import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */

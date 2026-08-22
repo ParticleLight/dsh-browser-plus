@@ -4,7 +4,7 @@
  * Duplicate ids are rejected. At execution time, a configured provider must
  * exist and be usable; without one, exactly one usable provider is required,
  * so selection never depends on registration order.
- * @module dsh-browser/browser
+ * @module dsh-browser-plus/browser
  */
 import { Context, Service } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';

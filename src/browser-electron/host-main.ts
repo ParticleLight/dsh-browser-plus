@@ -13,7 +13,7 @@
  *   -> { id, ok: true, result? } | { id, ok: false, err }
  *
  * The parent never parses stderr, so diagnostics may go there freely.
- * @module dsh-browser/browser-electron/host-main
+ * @module dsh-browser-plus/browser-electron/host-main
  */
 
 import { app, BrowserWindow, WebContentsView } from 'electron'
@@ -31,7 +31,7 @@ try {
   const base = process.env.DSH_HOME ?? app.getPath('appData')
   app.setPath('userData', join(base, 'dsh-browser-plus-host'))
 } catch (error) {
-  process.stderr.write(`[dsh-browser host] userData setup failed: ${String(error)}\n`)
+  process.stderr.write(`[dsh-browser-plus host] userData setup failed: ${String(error)}\n`)
 }
 
 /** CDP protocol version attached to every view's debugger. */
@@ -75,7 +75,7 @@ function makeWindow(title: string): BrowserWindow {
 function windowFor(key: string, label?: string): BrowserWindow {
   if (key === 'default') {
     if (defaultWindow === undefined) {
-      defaultWindow = makeWindow(label !== undefined ? `dsh-browser — ${label}` : 'dsh-browser')
+      defaultWindow = makeWindow(label !== undefined ? `dsh-browser-plus — ${label}` : 'dsh-browser-plus')
       if (label !== undefined) windowLabels.set('default', label)
       // Mirror the keyed branch: a human-closed default window must drop out
       // of the cache/label map or createView would attach into a dead window.
@@ -85,7 +85,7 @@ function windowFor(key: string, label?: string): BrowserWindow {
   }
   let win = windowsByKey.get(key)
   if (win === undefined) {
-    win = makeWindow(label !== undefined ? `dsh-browser — ${label}` : 'dsh-browser')
+    win = makeWindow(label !== undefined ? `dsh-browser-plus — ${label}` : 'dsh-browser-plus')
     if (label !== undefined) windowLabels.set(key, label)
     windowsByKey.set(key, win)
     win.on('closed', () => { windowsByKey.delete(key); windowLabels.delete(key) })
@@ -129,7 +129,7 @@ function installPageChrome(view: WebContentsView, viewId: string): void {
 /** Reply to the parent over the RPC socket. */
 function reply(id: number, payload: Record<string, unknown>): void {
   if (rpcSocket === undefined) {
-    process.stderr.write(`[dsh-browser host] reply without socket (id=${id})\n`)
+    process.stderr.write(`[dsh-browser-plus host] reply without socket (id=${id})\n`)
     return
   }
   rpcSocket.write(JSON.stringify({ id, ...payload }) + '\n')
@@ -263,7 +263,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (viewId === undefined || typeof label !== 'string') throw new Error('label missing viewId/label')
         const entry = views.get(viewId)
         if (entry === undefined) throw new Error(`label: unknown view ${viewId}`)
-        try { entry.window.setTitle(label === '' ? 'dsh-browser' : `dsh-browser — ${label}`) } catch { /* closing */ }
+        try { entry.window.setTitle(label === '' ? 'dsh-browser-plus' : `dsh-browser-plus — ${label}`) } catch { /* closing */ }
         windowLabels.set(entry.windowKey, label)
         reply(msg.id, { ok: true })
         return
@@ -309,7 +309,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           try {
             image = await entry.webContentsView.webContents.capturePage()
           } catch (error) {
-            process.stderr.write(`[dsh-browser host] capturePage failed: ${String(error)}\n`)
+            process.stderr.write(`[dsh-browser-plus host] capturePage failed: ${String(error)}\n`)
             await new Promise(resolve => setTimeout(resolve, 400))
             image = await entry.webContentsView.webContents.capturePage()
           }
@@ -319,7 +319,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           const state = JSON.stringify({
             win: { visible: entry.window.isVisible(), minimized: entry.window.isMinimized(), focused: entry.window.isFocused() },
           })
-          process.stderr.write(`[dsh-browser host] capturePage retry failed: ${String(error)} state=${state}\n`)
+          process.stderr.write(`[dsh-browser-plus host] capturePage retry failed: ${String(error)} state=${state}\n`)
           base64 = ''
         }
         if (base64 === '') {
@@ -455,7 +455,7 @@ void app.whenReady().then(() => {
   const portArg = process.argv.indexOf('--rpc-port')
   const port = portArg >= 0 ? Number(process.argv[portArg + 1]) : NaN
   if (!Number.isFinite(port)) {
-    process.stderr.write('[dsh-browser host] missing --rpc-port\n')
+    process.stderr.write('[dsh-browser-plus host] missing --rpc-port\n')
     app.exit(1)
     return
   }
@@ -476,12 +476,12 @@ void app.whenReady().then(() => {
     void handle(msg.op, msg).catch(() => { /* reply already sent inside handle */ })
   })
   socket.on('error', error => {
-    process.stderr.write(`[dsh-browser host] socket error: ${String(error)}\n`)
+    process.stderr.write(`[dsh-browser-plus host] socket error: ${String(error)}\n`)
   })
   // The parent owns our lifetime: when it closes the socket (dispose) or dies
   // without cleanup, exit so no zombie Electron window is left behind.
   socket.on('close', () => {
-    process.stderr.write('[dsh-browser host] parent connection closed, exiting\n')
+    process.stderr.write('[dsh-browser-plus host] parent connection closed, exiting\n')
     app.exit(0)
   })
   // Keep the process alive until the parent closes the socket or kills us.
@@ -489,5 +489,5 @@ void app.whenReady().then(() => {
 
 // Diagnostics go to stderr, which the parent never parses as protocol.
 process.on('uncaughtException', error => {
-  process.stderr.write(`[dsh-browser host] uncaught: ${String(error)}\n`)
+  process.stderr.write(`[dsh-browser-plus host] uncaught: ${String(error)}\n`)
 })

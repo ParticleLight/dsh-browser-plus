@@ -13,7 +13,7 @@
  *
  * The child is Electron's main process; host-main.js owns the BrowserWindow,
  * WebContentsViews, and webContents.debugger (CDP).
- * @module dsh-browser/browser-electron/remote-host
+ * @module dsh-browser-plus/browser-electron/remote-host
  */
 
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
@@ -191,7 +191,7 @@ class ElectronChildClient {
     private readonly onExit?: () => void,
   ) {
     const electron = resolveElectronPath()
-    process.stderr.write(`[dsh-browser host] spawning electron: ${electron}\n`)
+    process.stderr.write(`[dsh-browser-plus host] spawning electron: ${electron}\n`)
     // ELECTRON_RUN_AS_NODE (even an empty string) makes Electron run as plain
     // Node, breaking require('electron'); NODE_OPTIONS can inject flags that
     // break the child. Rebuild the env without either.
@@ -206,12 +206,12 @@ class ElectronChildClient {
     this.child.stderr.setEncoding('utf8')
     this.child.stderr.on('data', chunk => {
       // Diagnostics only; never parse stderr as protocol.
-      process.stderr.write(`[dsh-browser host] ${String(chunk)}`)
+      process.stderr.write(`[dsh-browser-plus host] ${String(chunk)}`)
     })
     // A failed spawn (bad/corrupt binary) emits 'error' — without a listener
     // that would crash the whole DSH process.
     this.child.on('error', error => {
-      process.stderr.write(`[dsh-browser host] spawn error: ${String(error)}\n`)
+      process.stderr.write(`[dsh-browser-plus host] spawn error: ${String(error)}\n`)
       this.fail(new Error(`dsh-browser-plus: browser host failed to start: ${String(error)}`))
     })
     this.child.on('exit', (code, signal) => {
@@ -239,7 +239,7 @@ class ElectronChildClient {
     // uncaught 'error' event and crashes the whole DSH process; 'close' below
     // does the cleanup.
     socket.on('error', error => {
-      process.stderr.write(`[dsh-browser host] socket error: ${String(error)}\n`)
+      process.stderr.write(`[dsh-browser-plus host] socket error: ${String(error)}\n`)
     })
     socket.on('data', chunk => this.onData(chunk))
     socket.on('close', () => {
@@ -406,7 +406,7 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
     // A later server error (rare on a loopback ephemeral port) must not crash
     // the process; the client's fail path handles the actual recovery.
     server.on('error', error => {
-      process.stderr.write(`[dsh-browser host] rpc server error: ${String(error)}\n`)
+      process.stderr.write(`[dsh-browser-plus host] rpc server error: ${String(error)}\n`)
     })
     const address = server.address()
     const port = typeof address === 'object' && address !== null ? address.port : 0
