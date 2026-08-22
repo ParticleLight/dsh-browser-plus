@@ -62,6 +62,8 @@ RemoteElectronViewHost  ──TCP JSON-RPC──▶  host-main.js
 - **Electron 定位**:优先 package-local 的精确 `42.9.3` optional dependency；其次只接受经 package metadata 验证为 `42.9.3` 的 `ELECTRON_PATH`、DSH 锚点或 pnpm store 候选；找不到即失败，绝不回退到 43.x。
 - **稳健性**:子进程/套接字都有 `error` 监听(否则未捕获事件会炸掉整个 DSH 进程);子进程退出自动重启;物化失败可重试;下载有 256MB 上限与 60s 超时;cookie 导出/恢复有 30s 超时;
 - **视图可见性**:所有任务键(DSH 会话)共用一个 `BrowserWindow`，每个任务有隔离视图；页面任务管理器选择可见任务，`showView` 对后台任务只更新其活动视图，不改变用户当前选择。切换仅用 `setVisible`，绝不 remove/re-add（capture 的 CDP 兜底仍只临时 detach/restore 同窗口兄弟视图）；
+- **任务状态传递**:宿主以一个原子消息发送所有任务摘要，以及当前选中任务的活动视图操作轨迹；摘要中的 URL 只保留 origin，避免泄露完整路径与查询参数；
+- **任务缩略图**:缩略图使用原生 `capturePage` 生成 JPEG data URL，最长边限制为 288px、质量 58、上限 180 KiB。仅可见任务的捕获会去抖并以 best-effort 执行；捕获流程不得改变视图可见性、焦点或层级，后台任务保留最后成功图像。
 - **孤儿防护**:父进程断开时子进程自动退出,不留僵尸窗口;
 - **cookie 落盘**:子进程使用独立 userData 目录(`<DSH_HOME>/dsh-browser-plus-host`),登录态跨重启保留(另有 `browser_auth` 手动导出/恢复)。
 

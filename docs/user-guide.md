@@ -64,6 +64,8 @@ dsh plugin --profile web add <本仓库路径>
 
 当前版本使用**一个共享可见浏览器窗口**，每个任务仍有隔离的任务视图、标签与历史。页面任务管理器切换可见任务；后台任务操作只更新自己的视图，不会抢走当前页面。`browser_space label="..."` 为本浏览器任务命名，`browser_space`(无参)列出全部浏览器任务。
 
+任务按钮打开左侧工作区面板，操作轨迹按钮在桌面端打开右侧工作区面板。两个半透明面板彼此独立，可同时保持打开；窄屏上它们垂直堆叠，仍可同时打开。选择一个任务会更新可见任务视图及其操作轨迹；每个任务显示最近一次可见页面缩略图，后台任务保留最后图像，不会被周期定时器强制显示或捕获。
+
 页面原生 `alert/confirm/prompt` 会被**自动接受**(页面永不卡死),对话框内容记录在 `browser_history`(`dialog` 条目)中。
 
 按键、双击、悬停、文件上传、等待元素:见 `browser_press_key` / `browser_double_click` / `browser_hover` / `browser_upload_file` / `browser_wait_for`(完整参考见 [工具参考](tool-reference.md))。
