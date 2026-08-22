@@ -79,3 +79,28 @@ test('task rows safely render host thumbnail data', () => {
   assert.match(script, /document\.createElement\('img'\)/)
   assert.match(script, /task-thumb/)
 })
+
+test('glass workspace uses frosted materials and responsive dual panels', () => {
+  const script = buildPageChromeScript()
+  assert.match(script, /backdrop-filter:blur\(24px\)/)
+  assert.match(script, /backdrop-filter:blur\(30px\)/)
+  assert.match(script, /-apple-system/)
+  assert.match(script, /glass-panel/)
+  assert.match(script, /@media \(max-width:760px\)/)
+  assert.match(script, /height:min\(42vh,320px\)/)
+})
+
+test('glass task cards reserve visual thumbnail space and readable activity timeline', () => {
+  const script = buildPageChromeScript()
+  assert.match(script, /object-fit:cover/)
+  assert.match(script, /task-thumb/)
+  assert.match(script, /activity-item/)
+  assert.match(script, /timeline-rail/)
+})
+
+test('glass trail renderer uses the activity timeline DOM', () => {
+  const script = buildPageChromeScript()
+  assert.match(script, /row\.className = 'activity-item'/)
+  assert.match(script, /rail\.className = 'timeline-rail'/)
+  assert.match(script, /head\.className = 'activity-day'/)
+})
