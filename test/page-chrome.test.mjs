@@ -18,6 +18,17 @@ test('normalizes domains, full URLs, and search terms', () => {
   assert.equal(normalizeBrowserAddress('file:///C:/secret.txt'), '')
 })
 
+test('page chrome exposes a task manager drawer and host binding action', () => {
+  const script = buildPageChromeScript()
+  assert.ok(script.includes('tasksBtn'), 'has task button')
+  assert.ok(script.includes('taskPanel'), 'has task drawer')
+  assert.ok(script.includes('__dshTasks'), 'renders injected task state')
+  assert.ok(script.includes('__dshTaskRender'), 'exports task renderer')
+  assert.ok(script.includes('__dshBrowserTaskAction'), 'emits host switch action')
+  assert.ok(script.includes('switch-task'), 'uses explicit switch action')
+  assert.ok(script.includes('textContent'), 'renders task fields as text content')
+})
+
 test('page chrome script is top-frame-only, closed-shadow, and idempotent', () => {
   const script = buildPageChromeScript()
   assert.match(script, /window\.top !== window/)
