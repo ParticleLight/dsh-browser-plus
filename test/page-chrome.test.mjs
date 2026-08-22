@@ -54,3 +54,12 @@ test('page chrome script is top-frame-only, closed-shadow, and idempotent', () =
   assert.ok(script.includes('localStorage'), 'uses localStorage')
   assert.ok(script.includes('data-dsh-user-active'), 'tracks user control')
 })
+
+test('task drawer docks left without conflicting with the right trail', () => {
+  const script = buildPageChromeScript()
+  const taskRule = script.match(/#taskPanel \{[^}]+\}/)?.[0] ?? ''
+  const trailRule = script.match(/#trail \{[^}]+\}/)?.[0] ?? ''
+  assert.match(taskRule, /left:12px/)
+  assert.doesNotMatch(taskRule, /right:12px/)
+  assert.match(trailRule, /right:12px/)
+})
