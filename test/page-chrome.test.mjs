@@ -77,8 +77,21 @@ test('task rows safely render host JPEG thumbnail data', () => {
   assert.match(script, /task\.thumbnail/)
   assert.match(script, /startsWith\('data:image\/jpeg;base64,'\)/)
   assert.doesNotMatch(script, /startsWith\('data:image\/'\)/)
-  assert.match(script, /document\.createElement\('img'\)/)
+  assert.ok(!script.includes('.src'), 'never wires image src under page CSP')
+  assert.match(script, /thumb\.isConnected/, 'stale async decode cannot touch unmounted rows')
   assert.match(script, /task-thumb/)
+})
+
+test('task thumbnail renderer decodes host JPEG without img-src', () => {
+  const script = buildPageChromeScript()
+  assert.ok(script.includes("source.startsWith('data:image/jpeg;base64,')"), 'keeps the strict JPEG gate')
+  assert.ok(script.includes('atob('), 'decodes base64 payload with atob')
+  assert.ok(script.includes('new Blob('), 'wraps decoded bytes in a Blob')
+  assert.ok(script.includes('createImageBitmap('), 'decodes pixels via createImageBitmap')
+  assert.ok(script.includes("document.createElement('canvas')"), 'paints onto a canvas')
+  assert.ok(script.includes('task-thumb-canvas'), 'canvas carries the thumb class')
+  assert.ok(!script.includes("document.createElement('img')"), 'never builds an img element')
+  assert.ok(!script.includes('image.src = source'), 'never assigns img.src')
 })
 
 test('thumbnail trust gate accepts only host JPEG payloads', () => {
@@ -99,7 +112,13 @@ test('glass workspace uses frosted materials and responsive dual panels', () => 
 
 test('glass task cards reserve visual thumbnail space and readable activity timeline', () => {
   const script = buildPageChromeScript()
-  assert.match(script, /object-fit:cover/)
+  assert.match(
+    script,
+    /#taskPanel \.task-thumb canvas\.task-thumb-canvas \{ display:block; width:100%; height:100%; \}/,
+    'canvas thumbnails fill the reserved slot',
+  )
+  assert.ok(!script.includes('object-fit:cover'), 'no img object-fit rule remains')
+  assert.match(script, /width:94px; height:64px/, '94x64 rounded thumbnail slot preserved')
   assert.match(script, /task-thumb/)
   assert.match(script, /activity-item/)
   assert.match(script, /timeline-rail/)
@@ -110,4 +129,16 @@ test('glass trail renderer uses the activity timeline DOM', () => {
   assert.match(script, /row\.className = 'activity-item'/)
   assert.match(script, /rail\.className = 'timeline-rail'/)
   assert.match(script, /head\.className = 'activity-day'/)
+})
+
+test('task thumbnail guards a missing 2d context before clearing the fallback', () => {
+  const script = buildPageChromeScript()
+  const start = script.indexOf("const ctx = canvas.getContext('2d')")
+  assert.ok(start !== -1, 'success callback obtains a 2d context')
+  const end = script.indexOf("thumb.textContent = ''", start)
+  assert.ok(end !== -1, 'success callback clears the thumb fallback')
+  const guard = script.slice(start, end)
+  assert.ok(guard.includes('if (!ctx)'), 'guards a missing 2d context before any clear/append')
+  assert.ok(guard.includes('return'), 'returns early so the origin/DSH fallback remains')
+  assert.ok(guard.includes('bitmap.close()'), 'closes the decoded bitmap on the missing-context path')
 })
