@@ -189,6 +189,17 @@ test('open forwards a window key and label to the host', async () => {
   assert.deepEqual(host.createViewArgs[1], { key: 'default', label: undefined })
 })
 
+test('new tabs retain their session task key and label', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open({ key: 'task-alpha', label: '采购审批' })
+  await provider.openUrl(session, { url: 'https://www.iana.org/', newTab: true })
+  assert.deepEqual(host.createViewArgs, [
+    { key: 'task-alpha', label: '采购审批' },
+    { key: 'task-alpha', label: '采购审批' },
+  ])
+})
+
 test('waitForElement times out with BROWSER_WAIT_TIMEOUT', async () => {
   const host = new FakeHost()
   const provider = new ElectronBrowserProvider(host)

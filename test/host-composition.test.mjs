@@ -124,7 +124,8 @@ test('switchVisibleTask changes visibility without reparenting views', async () 
 
 test('provider opens with a window key and label through the host seam', async () => {
   const source = await readFile(providerPath, 'utf8')
-  assert.match(source, /createView\(options\?\.key/)
+  assert.match(source, /const taskKey = options\?\.key \?\? 'default'/)
+  assert.match(source, /createView\(taskKey, taskLabel/)
 })
 
 test('capture fallback handles sibling views in the shared window', async () => {

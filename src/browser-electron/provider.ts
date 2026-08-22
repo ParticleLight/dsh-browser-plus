@@ -140,6 +140,8 @@ interface Tab {
 /** One live browser session: an ordered list of tabs, one active. */
 interface Session {
   readonly id: BrowserSessionId
+  readonly taskKey: string
+  taskLabel: string
   readonly tabs: Tab[]
   activeIndex: number
   /** Chronological operation log (navigate/execute/click/type/fill/download/auth). */
@@ -311,9 +313,11 @@ export class ElectronBrowserProvider implements BrowserProvider {
    * the active tab of a session is made visible.
    */
   open(options?: BrowserOpenOptions): Promise<BrowserSessionId> {
-    const handle = this.host.createView(options?.key ?? 'default', options?.label)
+    const taskKey = options?.key ?? 'default'
+    const taskLabel = options?.label ?? ''
+    const handle = this.host.createView(taskKey, taskLabel === '' ? undefined : taskLabel)
     const id = `browser:${randomUUID()}`
-    this.sessions.set(id, { id, tabs: [{ id: `tab:${randomUUID()}`, handle }], activeIndex: 0, history: [], nextSeq: 1 })
+    this.sessions.set(id, { id, taskKey, taskLabel, tabs: [{ id: `tab:${randomUUID()}`, handle }], activeIndex: 0, history: [], nextSeq: 1 })
     return Promise.resolve(id)
   }
 
@@ -1086,6 +1090,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     } else {
       throw new BrowserError('browser: space naming is only available on the self-hosted browser', 'BROWSER_SPACE_UNSUPPORTED')
     }
+    s.taskLabel = label
     this.record(s, 'setSpace', { label }, true)
   }
 
@@ -1206,7 +1211,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
 
   /** Append a fresh tab and make it active. */
   private newTab(s: Session): void {
-    const handle = this.host.createView()
+    const handle = this.host.createView(s.taskKey, s.taskLabel === '' ? undefined : s.taskLabel)
     s.tabs.push({ id: `tab:${randomUUID()}`, handle })
     s.activeIndex = s.tabs.length - 1
     this.showActive(s)
