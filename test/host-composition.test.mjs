@@ -138,3 +138,21 @@ test('remote host forwards createView key/label and window ops', async () => {
   assert.ok(source.includes("call('listWindows'"), 'lists windows')
 })
 
+
+test('recovered remote views settle the compositor before capture operations', async () => {
+  const source = await readFile(remotePath, 'utf8')
+  assert.match(source, /RECOVERY_CAPTURE_SETTLE_MS = 3_000/)
+  assert.match(source, /recoveryCompositorSettle/)
+  assert.match(source, /settleRecoveredCompositorForCapture/)
+  const captureStart = source.indexOf('async capture()')
+  const captureEnd = source.indexOf('async flushAuth()', captureStart)
+  assert.ok(captureStart >= 0 && captureEnd > captureStart, 'capture method exists')
+  assert.match(source.slice(captureStart, captureEnd), /settleRecoveredCompositorForCapture/)
+  const deferredStart = source.indexOf('class DeferredRemoteView')
+  const commandStart = source.indexOf('async sendCommand(', deferredStart)
+  const commandEnd = source.indexOf('async download(', commandStart)
+  assert.ok(commandStart >= 0 && commandEnd > commandStart, 'sendCommand method exists')
+  const commandBlock = source.slice(commandStart, commandEnd)
+  assert.match(commandBlock, /method === 'Page\.captureScreenshot'/)
+  assert.match(commandBlock, /settleRecoveredCompositorForCapture/)
+})

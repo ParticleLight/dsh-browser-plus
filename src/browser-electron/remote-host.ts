@@ -32,6 +32,12 @@ const READY_TIMEOUT_MS = 20_000
 const MAX_RPC_BUFFER_BYTES = 512 * 1024 * 1024
 
 /**
+ * A recycled Electron child can report document-ready before its compositor
+ * owns a paintable surface. Delay only the first capture after self-healing.
+ */
+const RECOVERY_CAPTURE_SETTLE_MS = 3_000
+
+/**
  * Locate the Electron binary:
  *   1. require('electron') from this module (optional peer dependency),
  *   2. ELECTRON_PATH (explicit override),
@@ -501,6 +507,7 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
 /** A view handle that waits for child readiness before issuing commands. */
 class DeferredRemoteView implements ElectronViewHandle {
   private materialized: Promise<RemoteView> | undefined
+  private recoveryCompositorSettle: Promise<void> | undefined
 
   constructor(
     readonly id: string,
@@ -524,6 +531,25 @@ class DeferredRemoteView implements ElectronViewHandle {
     return this.materialized
   }
 
+  private scheduleRecoveredCompositorSettle(): void {
+    this.recoveryCompositorSettle = new Promise<void>(resolve => {
+      setTimeout(resolve, RECOVERY_CAPTURE_SETTLE_MS)
+    })
+  }
+
+  /** Wait for a recovered child to acquire a paintable compositor surface. */
+  private async settleRecoveredCompositorForCapture(): Promise<void> {
+    // A second recovery can happen while a prior settle delay is resolving.
+    while (this.recoveryCompositorSettle !== undefined) {
+      const settle = this.recoveryCompositorSettle
+      await settle
+      if (this.recoveryCompositorSettle === settle) {
+        this.recoveryCompositorSettle = undefined
+        return
+      }
+    }
+  }
+
   /**
    * Run an operation against the materialized view, with ONE self-heal
    * retry: if the child died while this handle was cached (host restart or a
@@ -531,7 +557,10 @@ class DeferredRemoteView implements ElectronViewHandle {
    * creates a fresh child view for the same session handle, so a session
    * survives a host crash/recycle without a manual reset.
    */
-  private async withView<T>(run: (view: RemoteView) => Promise<T>): Promise<T> {
+  private async withView<T>(
+    run: (view: RemoteView) => Promise<T>,
+    afterRecovery?: () => Promise<void>,
+  ): Promise<T> {
     try {
       return await run(await this.materializeOnce())
     } catch (error) {
@@ -539,12 +568,18 @@ class DeferredRemoteView implements ElectronViewHandle {
       // Stale child: forget the cached view, then re-create a fresh pair.
       this.materialized = undefined
       const view = await this.materializeOnce()
+      this.scheduleRecoveredCompositorSettle()
+      await afterRecovery?.()
       return run(view)
     }
   }
 
   async sendCommand(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>> {
-    return this.withView(view => view.sendCommand(method, params))
+    const settle = method === 'Page.captureScreenshot'
+      ? () => this.settleRecoveredCompositorForCapture()
+      : undefined
+    await settle?.()
+    return this.withView(view => view.sendCommand(method, params), settle)
   }
 
   async download(url: string, savePath: string): Promise<void> {
@@ -552,7 +587,8 @@ class DeferredRemoteView implements ElectronViewHandle {
   }
 
   async capture(): Promise<{ base64: string; width: number; height: number }> {
-    return this.withView(view => view.capture())
+    await this.settleRecoveredCompositorForCapture()
+    return this.withView(view => view.capture(), () => this.settleRecoveredCompositorForCapture())
   }
 
   async flushAuth(): Promise<ExportedCookie[]> {
