@@ -27,6 +27,8 @@ test('page chrome exposes a task manager drawer and host binding action', () => 
   assert.ok(script.includes('__dshBrowserTaskAction'), 'emits host switch action')
   assert.ok(script.includes('switch-task'), 'uses explicit switch action')
   assert.ok(script.includes('textContent'), 'renders task fields as text content')
+  assert.ok(script.includes("taskKey !== undefined"), 'guards malformed task keys before binding')
+  assert.ok(script.includes("row.disabled = taskKey === undefined"), 'disables malformed task rows')
 })
 
 test('page chrome script is top-frame-only, closed-shadow, and idempotent', () => {
