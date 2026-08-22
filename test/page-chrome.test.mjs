@@ -72,12 +72,19 @@ test('task and trail panels can remain open together', () => {
   assert.doesNotMatch(trailToggle, /taskPanel\.classList\.remove/)
 })
 
-test('task rows safely render host thumbnail data', () => {
+test('task rows safely render host JPEG thumbnail data', () => {
   const script = buildPageChromeScript()
   assert.match(script, /task\.thumbnail/)
-  assert.match(script, /startsWith\('data:image\/'\)/)
+  assert.match(script, /startsWith\('data:image\/jpeg;base64,'\)/)
+  assert.doesNotMatch(script, /startsWith\('data:image\/'\)/)
   assert.match(script, /document\.createElement\('img'\)/)
   assert.match(script, /task-thumb/)
+})
+
+test('thumbnail trust gate accepts only host JPEG payloads', () => {
+  const script = buildPageChromeScript()
+  assert.ok(script.includes("startsWith('data:image/jpeg;base64,')"))
+  assert.ok(!script.includes("startsWith('data:image/')"))
 })
 
 test('glass workspace uses frosted materials and responsive dual panels', () => {
