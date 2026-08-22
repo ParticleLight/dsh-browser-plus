@@ -2,6 +2,8 @@
 
 > DeepSeek Harness 的可见浏览器运行时。人和 agent 操作同一个真实页面，不是无头回放，也不是截图代理。
 
+基于 MIT 许可的 `dsh-browser` 代码基础持续开发，并由 ParticleLight 独立维护。
+
 [![GitHub stars](https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?style=flat&label=stars)](https://github.com/ParticleLight/dsh-browser-plus)
 
 ## 为何使用它
