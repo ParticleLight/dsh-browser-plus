@@ -66,6 +66,8 @@ const thumbnailTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 /** The task the human currently sees in the one shared native window. */
 let visibleTaskKey: string | undefined
+/** Current open state of the left task and right trail glass panels. */
+let workspacePanels: { tasks: boolean; trail: boolean } = { tasks: false, trail: false }
 let window: BrowserWindow | undefined
 
 function taskTitle(taskKey: string): string {
@@ -88,6 +90,7 @@ function makeWindow(): BrowserWindow {
     views.clear()
     traces.clear()
     dialogLogs.clear()
+    workspacePanels = { tasks: false, trail: false }
   })
   return win
 }
@@ -174,10 +177,13 @@ function activeTraceForTask(taskKey: string | undefined): unknown[] {
 function chromeStateScript(selectedTaskKey = visibleTaskKey): string {
   const trail = JSON.stringify(activeTraceForTask(selectedTaskKey))
   const tasks = JSON.stringify(taskSummaries())
+  const panels = JSON.stringify(workspacePanels)
   return ';window.__dshTrail = ' + trail
     + '; window.__dshTasks = ' + tasks
+    + '; window.__dshWorkspacePanels = ' + panels
     + '; try { window.__dshTrailRender?.() } catch {}'
     + '; try { window.__dshTaskRender?.() } catch {}'
+    + '; try { window.__dshWorkspaceRender?.() } catch {}'
 }
 
 function pushChromeState(target: WebContentsView, selectedTaskKey = visibleTaskKey): void {
@@ -325,9 +331,14 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             const binding = (params ?? {}) as { name?: unknown; payload?: unknown }
             if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
               try {
-                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown }
+                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tasks?: unknown; trail?: unknown }
                 if (action.type === 'switch-task' && typeof action.taskKey === 'string' && activeViewByTask.has(action.taskKey)) {
                   switchVisibleTask(action.taskKey)
+                } else if (action.type === 'set-workspace-panels'
+                  && typeof action.tasks === 'boolean'
+                  && typeof action.trail === 'boolean') {
+                  workspacePanels = { tasks: action.tasks, trail: action.trail }
+                  pushVisibleChromeState()
                 }
               } catch { /* malformed page action */ }
             }

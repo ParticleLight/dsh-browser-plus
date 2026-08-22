@@ -255,3 +255,36 @@ test('host captures thumbnails only for the visible task', async () => {
   assert.match(source, /taskThumbnailDataUrl/)
   assert.doesNotMatch(source, /setInterval\(.*thumbnail/)
 })
+
+test('host persists task/trail panel open state and re-broadcasts it', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.match(source, /workspacePanels/)
+  const chromeStart = source.indexOf('function chromeStateScript')
+  assert.ok(chromeStart >= 0, 'chromeStateScript exists')
+  const chromeBlock = source.slice(chromeStart, chromeStart + 900)
+  assert.match(chromeBlock, /window\.__dshWorkspacePanels =/)
+  assert.match(chromeBlock, /window\.__dshTrailRender\?\.\(\)/)
+  assert.match(chromeBlock, /window\.__dshTaskRender\?\.\(\)/)
+  assert.match(chromeBlock, /window\.__dshWorkspaceRender\?\.\(\)/)
+})
+
+test('host applies set-workspace-panels only when both panel flags are booleans', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  const start = source.indexOf('Runtime.bindingCalled')
+  assert.ok(start >= 0, 'binding handler exists')
+  const bindingBlock = source.slice(start, start + 2600)
+  assert.match(bindingBlock, /set-workspace-panels/)
+  assert.match(bindingBlock, /typeof action\.tasks === 'boolean'/)
+  assert.match(bindingBlock, /typeof action\.trail === 'boolean'/)
+  assert.match(bindingBlock, /workspacePanels = \{ tasks: action\.tasks, trail: action\.trail \}/)
+  assert.match(bindingBlock, /pushVisibleChromeState\(\)/)
+})
+
+test('host resets workspace panel state when the shared window closes', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.match(source, /let workspacePanels = \{ tasks: false, trail: false \}/)
+  const closedStart = source.indexOf("win.on('closed'")
+  assert.ok(closedStart >= 0, 'closed handler exists')
+  const closedBlock = source.slice(closedStart, closedStart + 900)
+  assert.match(closedBlock, /workspacePanels = \{ tasks: false, trail: false \}/)
+})
