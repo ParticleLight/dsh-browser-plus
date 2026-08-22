@@ -1,6 +1,6 @@
 # dsh-browser-plus
 
-> DeepSeek Harness 的可见浏览器运行时。人和 agent 操作同一个真实页面，不是无头回放，也不是截图代理。
+专为 DeepSeek Harness（DSH）打造的 EGO 风格可视化 Agent 浏览器。基于 `dsh-browser` 构建，支持人机协同操作：用户可以在真实页面中操作，Agent 也能同步执行、接管和恢复任务。浏览器支持多任务流并行管理与切换，并完整记录 Agent 的操作轨迹；任务流和操作轨迹均配备独立的可视化菜单面板，让任务状态、页面缩略图与操作过程一目了然。
 
 基于 MIT 许可的 `dsh-browser` 代码基础持续开发，并由 ParticleLight 独立维护。
 
