@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="dsh-browser-plus">
+  <defs>
+    <linearGradient id="tile-material" x1="24" y1="18" x2="232" y2="238" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1d3048"/>
+      <stop offset="1" stop-color="#142235"/>
+    </linearGradient>
+    <linearGradient id="flow-accent" x1="104" y1="166" x2="215" y2="216" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#68c9e8"/>
+      <stop offset="1" stop-color="#9adff0"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="232" height="232" rx="52" fill="url(#tile-material)"/>
+  <rect x="13.5" y="13.5" width="229" height="229" rx="50.5" fill="none" stroke="#e6f4ff" stroke-opacity=".22" stroke-width="3"/>
+  <g id="browser-window" fill="#1b2c43" stroke="#b9d8f2" stroke-opacity=".28" stroke-width="4">
+    <rect x="43" y="58" width="142" height="112" rx="23" transform="rotate(-8 114 114)"/>
+    <rect x="70" y="45" width="142" height="112" rx="23" transform="rotate(8 141 101)"/>
+    <rect x="43" y="57" width="155" height="122" rx="25" fill="#142235" stroke="#e6f4ff" stroke-opacity=".62"/>
+    <path d="M43 88h155" fill="none" stroke="#e6f4ff" stroke-opacity=".35"/>
+    <circle cx="63" cy="73" r="5" fill="#77d59a" stroke="none"/>
+    <circle cx="80" cy="73" r="5" fill="#68c9e8" stroke="none"/>
+    <rect x="61" y="106" width="81" height="9" rx="4.5" fill="#e6f4ff" fill-opacity=".82" stroke="none"/>
+    <rect x="61" y="125" width="111" height="7" rx="3.5" fill="#b9d8f2" fill-opacity=".42" stroke="none"/>
+  </g>
+  <g id="task-flow" fill="none" stroke="url(#flow-accent)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M116 176c18 18 39 28 65 29 17 1 27-5 34-15" stroke-width="9"/>
+    <circle id="task-node-a" cx="181" cy="204" r="12" fill="#77d59a" stroke="#e6f4ff" stroke-opacity=".72" stroke-width="4"/>
+    <circle id="task-node-b" cx="216" cy="188" r="12" fill="#68c9e8" stroke="#e6f4ff" stroke-opacity=".72" stroke-width="4"/>
+  </g>
+</svg>
