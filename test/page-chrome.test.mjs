@@ -63,3 +63,19 @@ test('task drawer docks left without conflicting with the right trail', () => {
   assert.doesNotMatch(taskRule, /right:12px/)
   assert.match(trailRule, /right:12px/)
 })
+
+test('task and trail panels can remain open together', () => {
+  const script = buildPageChromeScript()
+  const taskToggle = script.slice(script.indexOf('const toggleTasks'), script.indexOf('const closeTasks'))
+  const trailToggle = script.slice(script.indexOf('const toggleTrail'), script.indexOf('const closeTrail'))
+  assert.doesNotMatch(taskToggle, /trailPanel\.classList\.remove/)
+  assert.doesNotMatch(trailToggle, /taskPanel\.classList\.remove/)
+})
+
+test('task rows safely render host thumbnail data', () => {
+  const script = buildPageChromeScript()
+  assert.match(script, /task\.thumbnail/)
+  assert.match(script, /startsWith\('data:image\/'\)/)
+  assert.match(script, /document\.createElement\('img'\)/)
+  assert.match(script, /task-thumb/)
+})
