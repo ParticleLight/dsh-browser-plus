@@ -32,3 +32,18 @@ test('icon derivatives exist with valid PNG/ICO signatures', async () => {
   assert.deepEqual([...await fsApi.readFile(png256)].slice(0, 8), [137, 80, 78, 71, 13, 10, 26, 10])
   assert.deepEqual([...await fsApi.readFile(ico)].slice(0, 4), [0, 0, 1, 0])
 })
+
+test('icon resolver selects platform assets', async () => {
+  const icon = await import('../lib/browser-electron/icon.js')
+  assert.equal(icon.resolveBrowserIconPath('win32').endsWith('dsh-browser-plus.ico'), true)
+  assert.equal(icon.resolveBrowserIconPath('linux').endsWith('dsh-browser-plus-256.png'), true)
+  assert.equal(icon.resolveBrowserIconPath('darwin').endsWith('dsh-browser-plus-512.png'), true)
+  assert.equal(icon.resolveBrowserIconPath('win32').includes('assets'), true)
+})
+
+test('host passes resolved icon to BrowserWindow', async () => {
+  const source = await readFile(new URL('../src/browser-electron/host-main.ts', import.meta.url), 'utf8')
+  assert.match(source, /resolveBrowserIconPath/)
+  assert.match(source, /icon/)
+  assert.match(source, /dock/)
+})

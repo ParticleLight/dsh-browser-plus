@@ -94,6 +94,7 @@ declare module 'electron' {
     exit(code?: number): void
     getPath(name: string): string
     setPath(name: string, path: string): void
+    dock?: { setIcon(path: string): void }
   }
   export interface BrowserWindowConstructor {
     new(options?: Record<string, unknown>): BrowserWindow

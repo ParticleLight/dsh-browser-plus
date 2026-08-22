@@ -24,6 +24,7 @@ import { buildPageChromeScript } from './page-chrome.js'
 import { taskSummaryUrl } from './task-summary.js'
 import { taskThumbnailDataUrl } from './task-thumbnail.js'
 import { exportCookiesForAuth } from './auth-cookies.js'
+import { resolveBrowserIconPath } from './icon.js'
 
 // Isolate this host's profile from the DSH app's default Electron userData:
 // several Electron instances sharing Roaming\Electron fight over the GPU
@@ -76,7 +77,21 @@ function taskTitle(taskKey: string): string {
 }
 
 function makeWindow(): BrowserWindow {
-  const win = new BrowserWindow({ width: 1400, height: 900, show: true, title: 'dsh-browser-plus' })
+  const icon = resolveBrowserIconPath()
+  if (process.platform === 'darwin' && icon !== undefined) {
+    try {
+      app.dock?.setIcon(icon)
+    } catch {
+      // The dock icon is cosmetic; a failure must never block window creation.
+    }
+  }
+  const win = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    show: true,
+    title: 'dsh-browser-plus',
+    ...(icon === undefined ? {} : { icon }),
+  })
   win.setMenu(null)
   win.on('resize', layoutViews)
   win.on('closed', () => {
