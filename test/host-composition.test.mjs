@@ -237,3 +237,21 @@ test('task summaries redact paths and query strings before page injection', asyn
   assert.ok(start >= 0 && end > start, 'task summary block exists')
   assert.match(source.slice(start, end), /url: taskSummaryUrl\(url\)/)
 })
+
+test('host synchronizes selected task trace with chrome state', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.match(source, /function activeTraceForTask/)
+  assert.match(source, /window\.__dshTrail =/)
+  const switchStart = source.indexOf('function switchVisibleTask')
+  const switchBlock = source.slice(switchStart, switchStart + 2200)
+  assert.match(switchBlock, /pushVisibleChromeState\(\)/)
+})
+
+test('host captures thumbnails only for the visible task', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  assert.match(source, /taskThumbnails/)
+  assert.match(source, /scheduleVisibleTaskThumbnail/)
+  assert.match(source, /taskKey !== visibleTaskKey/)
+  assert.match(source, /taskThumbnailDataUrl/)
+  assert.doesNotMatch(source, /setInterval\(.*thumbnail/)
+})

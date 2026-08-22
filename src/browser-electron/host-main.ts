@@ -22,6 +22,7 @@ import { createConnection } from 'node:net'
 import { join } from 'node:path'
 import { buildPageChromeScript } from './page-chrome.js'
 import { taskSummaryUrl } from './task-summary.js'
+import { taskThumbnailDataUrl } from './task-thumbnail.js'
 import { exportCookiesForAuth } from './auth-cookies.js'
 
 // Isolate this host's profile from the DSH app's default Electron userData:
@@ -60,6 +61,8 @@ const dialogLogs = new Map<string, unknown>()
 /** Display label and current tab for each isolated browser task. */
 const taskLabels = new Map<string, string>()
 const activeViewByTask = new Map<string, string>()
+const taskThumbnails = new Map<string, string>()
+const thumbnailTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 /** The task the human currently sees in the one shared native window. */
 let visibleTaskKey: string | undefined
@@ -77,6 +80,9 @@ function makeWindow(): BrowserWindow {
   win.on('closed', () => {
     window = undefined
     visibleTaskKey = undefined
+    for (const timer of thumbnailTimers.values()) clearTimeout(timer)
+    thumbnailTimers.clear()
+    taskThumbnails.clear()
     activeViewByTask.clear()
     taskLabels.clear()
     views.clear()
@@ -128,6 +134,7 @@ interface TaskSummary {
   readonly url: string
   readonly tabs: number
   readonly latest?: TaskTraceSummary
+  readonly thumbnail?: string
 }
 
 function summarizeLatestTrace(entry: unknown): TaskTraceSummary | undefined {
@@ -143,6 +150,7 @@ function taskSummaries(): TaskSummary[] {
     const activeView = views.get(viewId)
     if (activeView === undefined) return []
     const latest = summarizeLatestTrace((traces.get(viewId) ?? []).at(-1))
+    const thumbnail = taskThumbnails.get(key)
     let url = ''
     try { url = activeView.webContentsView.webContents.getURL() } catch { /* closing */ }
     return [{
@@ -153,21 +161,67 @@ function taskSummaries(): TaskSummary[] {
       url: taskSummaryUrl(url),
       tabs: [...views.values()].filter(view => view.taskKey === key).length,
       ...(latest === undefined ? {} : { latest: latest }),
+      ...(thumbnail === undefined ? {} : { thumbnail: thumbnail }),
     }]
   })
 }
 
-function pushTaskState(target: WebContentsView): void {
+function activeTraceForTask(taskKey: string | undefined): unknown[] {
+  const viewId = taskKey === undefined ? undefined : activeViewByTask.get(taskKey)
+  return viewId === undefined ? [] : traces.get(viewId) ?? []
+}
+
+function chromeStateScript(selectedTaskKey = visibleTaskKey): string {
+  const trail = JSON.stringify(activeTraceForTask(selectedTaskKey))
   const tasks = JSON.stringify(taskSummaries())
+  return ';window.__dshTrail = ' + trail
+    + '; window.__dshTasks = ' + tasks
+    + '; try { window.__dshTrailRender?.() } catch {}'
+    + '; try { window.__dshTaskRender?.() } catch {}'
+}
+
+function pushChromeState(target: WebContentsView, selectedTaskKey = visibleTaskKey): void {
   try {
-    void target.webContents.executeJavaScript('window.__dshTasks = ' + tasks + '; try { window.__dshTaskRender?.() } catch {}').catch(() => undefined)
+    void target.webContents.executeJavaScript(chromeStateScript(selectedTaskKey)).catch(() => undefined)
   } catch { /* closing */ }
 }
 
-function pushVisibleTaskState(): void {
+function pushTaskState(target: WebContentsView, selectedTaskKey: string | undefined): void {
+  pushChromeState(target, selectedTaskKey)
+}
+
+function pushVisibleChromeState(): void {
   const viewId = visibleTaskKey === undefined ? undefined : activeViewByTask.get(visibleTaskKey)
   const target = viewId === undefined ? undefined : views.get(viewId)
-  if (target !== undefined) pushTaskState(target.webContentsView)
+  if (target !== undefined) pushTaskState(target.webContentsView, visibleTaskKey)
+}
+
+function scheduleVisibleTaskThumbnail(taskKey: string, delayMs = 360): void {
+  if (taskKey !== visibleTaskKey) return
+  const existing = thumbnailTimers.get(taskKey)
+  if (existing !== undefined) clearTimeout(existing)
+  const timer = setTimeout(() => {
+    thumbnailTimers.delete(taskKey)
+    void refreshVisibleTaskThumbnail(taskKey)
+  }, delayMs)
+  thumbnailTimers.set(taskKey, timer)
+}
+
+async function refreshVisibleTaskThumbnail(taskKey: string): Promise<void> {
+  if (taskKey !== visibleTaskKey) return
+  const viewId = activeViewByTask.get(taskKey)
+  const entry = viewId === undefined ? undefined : views.get(viewId)
+  if (entry === undefined) return
+  try {
+    const image = await entry.webContentsView.webContents.capturePage()
+    if (taskKey !== visibleTaskKey || activeViewByTask.get(taskKey) !== viewId) return
+    const thumbnail = taskThumbnailDataUrl(image)
+    if (thumbnail === undefined) return
+    taskThumbnails.set(taskKey, thumbnail)
+    pushVisibleChromeState()
+  } catch {
+    // Thumbnails are cosmetic; capture or JPEG encoding failures are ignored.
+  }
 }
 
 /** Select a task for the human without reparenting any page view. */
@@ -179,7 +233,8 @@ function switchVisibleTask(taskKey: string): void {
   visibleTaskKey = taskKey
   syncVisibleTaskVisibility()
   try { win.setTitle(taskTitle(taskKey)) } catch { /* closing */ }
-  pushTaskState(target.webContentsView)
+  pushVisibleChromeState()
+  scheduleVisibleTaskThumbnail(taskKey, 550)
 }
 /** The RPC socket to the parent; set when the connection is established. */
 let rpcSocket: import('node:net').Socket | undefined
@@ -192,12 +247,12 @@ function installPageChrome(view: WebContentsView, viewId: string): void {
   // committed navigation so the toolbar follows each document.
   const apply = (): void => {
     try {
-      const trail = JSON.stringify(traces.get(viewId) ?? [])
-      const tasks = JSON.stringify(taskSummaries())
-      void view.webContents.executeJavaScript('window.__dshTrail = ' + trail + '; window.__dshTasks = ' + tasks + ';' + source).catch(() => undefined)
+      void view.webContents.executeJavaScript(source + chromeStateScript()).catch(() => undefined)
     } catch {
       // Chrome is cosmetic; never fail a page for it.
     }
+    const taskKey = views.get(viewId)?.taskKey
+    if (taskKey !== undefined && taskKey === visibleTaskKey) scheduleVisibleTaskThumbnail(taskKey, 550)
   }
   view.webContents.on('did-navigate', apply)
   view.webContents.on('did-navigate-in-page', apply)
@@ -228,14 +283,11 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         list.push(entry)
         if (list.length > 500) list.splice(0, list.length - 500)
         traces.set(viewId, list)
-        // Push the freshest trail into the live page so the panel updates in place.
         const entryView = views.get(viewId)
-        if (entryView !== undefined) {
-          try {
-            void entryView.webContentsView.webContents.executeJavaScript('window.__dshTrail = ' + JSON.stringify(list) + '; try { window.__dshTrailRender && window.__dshTrailRender() } catch {}').catch(() => undefined)
-          } catch { /* closing */ }
+        pushVisibleChromeState()
+        if (entryView !== undefined && entryView.taskKey === visibleTaskKey && activeViewByTask.get(entryView.taskKey) === viewId) {
+          scheduleVisibleTaskThumbnail(entryView.taskKey)
         }
-        pushVisibleTaskState()
         reply(msg.id, { ok: true })
         return
       }
@@ -305,12 +357,14 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         view.setVisible(false)
         win.contentView.addChildView(view)
         views.set(viewId, { webContentsView: view, taskKey })
+        const activeViewChanged = activeViewByTask.get(taskKey) !== viewId
         activeViewByTask.set(taskKey, viewId)
+        if (activeViewChanged) taskThumbnails.delete(taskKey)
         layoutViews()
         if (visibleTaskKey === undefined) switchVisibleTask(taskKey)
         // Fire-and-forget chrome registration: chrome must never block first paint.
         void installPageChrome(view, viewId)
-        pushVisibleTaskState()
+        pushVisibleChromeState()
         reply(msg.id, { ok: true })
         return
       }
@@ -326,13 +380,19 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           try { window?.contentView.removeChildView(entry.webContentsView) } catch { /* already removed */ }
           try { entry.webContentsView.webContents.debugger.detach() } catch { /* already detached */ }
           entry.webContentsView.webContents.close()
+          const replacementView = [...views.entries()].find(([, candidate]) => candidate.taskKey === entry.taskKey)
           if (wasActive) {
-            const replacementView = [...views.entries()].find(([, candidate]) => candidate.taskKey === entry.taskKey)
             if (replacementView !== undefined) activeViewByTask.set(entry.taskKey, replacementView[0])
             else {
               activeViewByTask.delete(entry.taskKey)
               taskLabels.delete(entry.taskKey)
             }
+          }
+          if (replacementView === undefined) {
+            const thumbnailTimer = thumbnailTimers.get(entry.taskKey)
+            if (thumbnailTimer !== undefined) clearTimeout(thumbnailTimer)
+            thumbnailTimers.delete(entry.taskKey)
+            taskThumbnails.delete(entry.taskKey)
           }
           if (visibleTaskKey === entry.taskKey) {
             if (activeViewByTask.has(entry.taskKey)) switchVisibleTask(entry.taskKey)
@@ -346,7 +406,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             }
           }
         }
-        pushVisibleTaskState()
+        pushVisibleChromeState()
         reply(msg.id, { ok: true })
         return
       }
@@ -355,11 +415,13 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (viewId === undefined) throw new Error('showView missing viewId')
         const entry = views.get(viewId)
         if (entry === undefined) throw new Error(`showView: unknown view ${viewId}`)
+        const activeViewChanged = activeViewByTask.get(entry.taskKey) !== viewId
         activeViewByTask.set(entry.taskKey, viewId)
+        if (activeViewChanged) taskThumbnails.delete(entry.taskKey)
         if (visibleTaskKey === undefined) switchVisibleTask(entry.taskKey)
         else if (entry.taskKey !== visibleTaskKey) {
           // Background task tab changes stay in the background.
-          pushVisibleTaskState()
+          pushVisibleChromeState()
           reply(msg.id, { ok: true })
           return
         } else switchVisibleTask(entry.taskKey)
@@ -376,7 +438,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (entry.taskKey === visibleTaskKey) {
           try { ensureWindow().setTitle(taskTitle(entry.taskKey)) } catch { /* closing */ }
         }
-        pushVisibleTaskState()
+        pushVisibleChromeState()
         reply(msg.id, { ok: true })
         return
       }
