@@ -43,6 +43,8 @@ declare module 'electron' {
     }
   }
   export interface NativeImage {
+    resize(options: { width: number }): NativeImage
+    toJPEG(quality: number): Buffer
     toPNG(): Buffer
     getSize(): { width: number; height: number }
   }
