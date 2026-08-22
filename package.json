@@ -32,6 +32,7 @@
     "lib",
     "src",
     "docs",
+    "assets",
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
@@ -39,7 +40,8 @@
     "NOTICE.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run build:icons && tsc -p tsconfig.json",
+    "build:icons": "node scripts/build-icons.mjs",
     "test": "node --test test/*.test.mjs",
     "prepack": "npm run build"
   },
@@ -69,6 +71,7 @@
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^22.0.0",
     "typescript": "^5.5.0"
   },
