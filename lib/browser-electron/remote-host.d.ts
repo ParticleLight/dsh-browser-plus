@@ -17,6 +17,11 @@
  */
 import type { ElectronBrowserViewHost, ElectronViewHandle } from './provider.ts';
 import type { ExportedCookie } from '../browser/types.ts';
+/** Select the one Electron version this plugin supports; exported for behavior tests. */
+export declare function selectSupportedElectronPath(candidates: ReadonlyArray<{
+    version: string;
+    path: string;
+}>): string;
 /**
  * Line-delimited JSON-RPC client over a local TCP socket. Electron's main
  * process on Windows does not receive piped stdin, so the parent listens on a

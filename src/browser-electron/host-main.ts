@@ -22,6 +22,7 @@ import { createConnection } from 'node:net'
 import { join } from 'node:path'
 import { buildPageChromeScript } from './page-chrome.js'
 import { taskSummaryUrl } from './task-summary.js'
+import { exportCookiesForAuth } from './auth-cookies.js'
 
 // Isolate this host's profile from the DSH app's default Electron userData:
 // several Electron instances sharing Roaming\Electron fight over the GPU
@@ -505,21 +506,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // Export the session's cookies so login state can be saved/restored
         // across browser hosts (or shared with another machine).
         const cookies = await entry.webContentsView.webContents.session.cookies.get({})
-        const exported = cookies.map(c => {
-          const host = c.domain.startsWith('.') ? c.domain.slice(1) : c.domain
-          // IPv6 literal domains need brackets in a URL (e.g. http://[::1]/).
-          const hostPart = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
-          return {
-            url: `http${c.secure ? 's' : ''}://${hostPart}${c.path}`,
-            name: c.name,
-            value: c.value,
-            domain: c.domain,
-            path: c.path,
-            secure: c.secure,
-            httpOnly: c.httpOnly,
-            expirationDate: c.expirationDate,
-          }
-        })
+        const exported = exportCookiesForAuth(cookies)
         reply(msg.id, { ok: true, result: { cookies: exported } })
         return
       }

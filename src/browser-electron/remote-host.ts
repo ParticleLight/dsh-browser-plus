@@ -18,7 +18,7 @@
 
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { existsSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createServer, type Server, type Socket } from 'node:net'
 import { fileURLToPath } from 'node:url'
@@ -37,52 +37,46 @@ const MAX_RPC_BUFFER_BYTES = 512 * 1024 * 1024
  */
 const RECOVERY_CAPTURE_SETTLE_MS = 3_000
 
+/** Electron 43.x is known to trigger compositor faults in this host. */
+const SUPPORTED_ELECTRON_VERSION = '42.9.3'
+
 /**
- * Locate the Electron binary:
- *   1. require('electron') from this module (optional peer dependency),
- *   2. ELECTRON_PATH (explicit override),
- *   3. every DSH install anchor + pnpm virtual store candidate, choosing the
- *      NEWEST version found. Older Electron releases (e.g. 33.x) have a
- *      compositor defect that intermittently breaks page capture, so prefer
- *      the newest binary available in the environment.
- * @returns the path to the Electron executable.
+ * Locate the one supported Electron binary. Candidates may come from the
+ * plugin, DSH anchors, an explicit override, or pnpm stores, but only the
+ * pinned version is admitted. A newer binary is not a safe substitute.
  */
 function resolveElectronPath(): string {
   const require = createRequire(import.meta.url)
-  // 1. Optional peer dependency.
-  try {
-    const resolved: unknown = require('electron')
-    if (typeof resolved === 'string' && resolved.length > 0) return resolved
-  } catch {
-    // continue probing
-  }
-  // 2. Explicit override (user intent wins).
-  const override = process.env.ELECTRON_PATH
-  if (typeof override === 'string' && override.length > 0 && existsSync(override)) return override
-  // 3. Collect every candidate (anchors + pnpm stores), then pick the newest.
   const candidates: Array<{ version: string; path: string }> = []
-  const add = (version: string, path: string | undefined): void => {
-    if (path !== undefined) candidates.push({ version, path })
+  const add = (version: string | undefined, path: string | undefined): void => {
+    if (version === undefined || path === undefined) return
+    candidates.push({ version, path })
   }
+  const addResolvedModule = (resolved: string): void => {
+    const packageJson = join(dirname(resolved), 'package.json')
+    add(packageVersion(packageJson) ?? versionOf(resolved), electronExeBeside(resolved))
+  }
+
+  // Prefer the package-local optional dependency when it is installed.
+  try { addResolvedModule(require.resolve('electron')) } catch { /* continue probing */ }
+
+  // An explicit path is admitted only after its package metadata verifies 42.9.3.
+  const override = process.env.ELECTRON_PATH
+  if (typeof override === 'string' && override.length > 0 && existsSync(override)) {
+    add(versionOfElectronExecutable(override), override)
+  }
+
   const anchors: string[] = []
   const globalPrefix = process.env.npm_config_prefix ?? process.env.PREFIX
   if (globalPrefix !== undefined) {
     anchors.push(join(globalPrefix, 'node_modules'))
     anchors.push(join(globalPrefix, 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'))
   }
-  if (process.env.DSH_HOME !== undefined) {
-    anchors.push(join(process.env.DSH_HOME, 'profiles', 'node_modules'))
-  }
+  if (process.env.DSH_HOME !== undefined) anchors.push(join(process.env.DSH_HOME, 'profiles', 'node_modules'))
   for (const anchor of anchors) {
-    try {
-      const resolved: unknown = require.resolve('electron', { paths: [anchor] })
-      if (typeof resolved === 'string' && resolved.length > 0) {
-        add(versionOf(resolved), electronExeBeside(resolved))
-      }
-    } catch {
-      // continue probing
-    }
+    try { addResolvedModule(require.resolve('electron', { paths: [anchor] })) } catch { /* keep probing */ }
   }
+
   const roots = new Set<string>([
     fileURLToPath(new URL('.', import.meta.url)),
     process.cwd(),
@@ -104,34 +98,40 @@ function resolveElectronPath(): string {
       dir = parent
     }
   }
-  if (candidates.length > 0) {
-    candidates.sort((a, b) => compareVersions(b.version, a.version))
-    const best = candidates[0]
-    if (best !== undefined) return best.path
-  }
+
+  return selectSupportedElectronPath(candidates)
+}
+
+/** Select the one Electron version this plugin supports; exported for behavior tests. */
+export function selectSupportedElectronPath(candidates: ReadonlyArray<{ version: string; path: string }>): string {
+  const supported = candidates.find(candidate => candidate.version === SUPPORTED_ELECTRON_VERSION)
+  if (supported !== undefined) return supported.path
+  const available = [...new Set(candidates.map(candidate => candidate.version))].join(', ') || 'none'
   throw new Error(
-    'dsh-browser-plus: cannot locate the Electron binary. Install electron in the host profile ' +
-    '(e.g. `dsh plugin --profile web add electron`) or set ELECTRON_PATH to the electron executable.',
+    'dsh-browser-plus requires Electron ' + SUPPORTED_ELECTRON_VERSION +
+    ' because Electron 43.x has a compositor fault; found: ' + available +
+    '. Install the plugin optional dependency electron@' + SUPPORTED_ELECTRON_VERSION + ' or set ELECTRON_PATH to that binary.',
   )
 }
 
-/** Extract an electron version like "43.4.0" from a path containing it. */
-function versionOf(path: string): string {
-  const match = /electron@(\d+\.\d+\.\d+)/.exec(path)
-  return match?.[1] ?? '0.0.0'
-}
-
-/** Compare dotted numeric versions; higher wins. */
-function compareVersions(a: string, b: string): number {
-  const pa = a.split('.').map(n => Number(n) || 0)
-  const pb = b.split('.').map(n => Number(n) || 0)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0)
-    if (d !== 0) return d
+function packageVersion(packageJson: string): string | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(packageJson, 'utf8')) as { version?: unknown }
+    return typeof parsed.version === 'string' ? parsed.version : undefined
+  } catch {
+    return undefined
   }
-  return 0
 }
 
+function versionOfElectronExecutable(executable: string): string | undefined {
+  return packageVersion(join(dirname(dirname(executable)), 'package.json')) ?? versionOf(executable)
+}
+
+/** Extract an electron version like "42.9.3" from a pnpm path. */
+function versionOf(path: string): string | undefined {
+  const match = /electron@(\d+\.\d+\.\d+)/.exec(path)
+  return match?.[1]
+}
 /** From an electron package entry file, find the dist executable beside it. */
 function electronExeBeside(entry: string): string | undefined {
   const candidates = [
