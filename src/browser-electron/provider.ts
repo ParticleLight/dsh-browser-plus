@@ -13,21 +13,31 @@ import type {
   BrowserChallenge,
   BrowserContentRequest,
   BrowserContentResult,
+  BrowserControlOwner,
   BrowserDoubleClickRequest,
   BrowserExecuteRequest,
   BrowserExecuteResult,
   BrowserFillRequest,
   BrowserFillResult,
+  BrowserHandoffState,
   BrowserHistoryEntry,
   BrowserHoverRequest,
   BrowserOpenOptions,
   BrowserOpenRequest,
   BrowserPressKeyRequest,
   BrowserProvider,
+  BrowserRefRequest,
+  BrowserScrollIntoViewRequest,
+  BrowserScrollRequest,
+  BrowserScrollResult,
   BrowserSessionId,
+  BrowserSnapshotElement,
   BrowserSnapshotResult,
   BrowserSpaceInfo,
   BrowserTab,
+  BrowserTaskInfo,
+  BrowserTaskStatus,
+  BrowserTaskUpdate,
   BrowserUploadFileRequest,
   BrowserUploadFileResult,
   BrowserWaitForRequest,
@@ -35,7 +45,7 @@ import type {
   ExportedCookie,
 } from '../browser/types.ts'
 import { BrowserError } from '../browser/types.ts'
-import { PAGE_CHROME_SCRIPT } from './page-chrome.ts'
+import { PAGE_CHROME_HOST_ID, PAGE_CHROME_SCRIPT } from './page-chrome.ts'
 
 /**
  * Page-context human-verification (CAPTCHA / bot-detection) detection. Runs
@@ -64,6 +74,9 @@ const CHALLENGE_DETECT_EXPRESSION = `(() => {
   }
   return { blocked: false }
 })()`
+
+/** Short suppression window so CDP input is not misclassified as physical user input. */
+const AGENT_INPUT_SUPPRESSION_MS = 900
 
 /** Stable provider id registered with `ctx.browser`. */
 export const ELECTRON_BROWSER_PROVIDER_ID = 'electron'
@@ -102,6 +115,12 @@ export interface ElectronBrowserViewHost {
   trace?(viewId: string, entry: unknown): void
   /** List browser tasks with their labels. Legacy method name retained for compatibility. */
   listWindows?(): Promise<Array<{ key: string; label: string }>>
+  /** List task summaries when the host exposes a visible workspace. */
+  listTasks?(): Promise<readonly BrowserTaskInfo[]>
+  /** Read one task summary from the visible workspace. */
+  getTask?(key: string): Promise<BrowserTaskInfo | undefined>
+  /** Apply a task status/control update to the visible workspace. */
+  updateTask?(key: string, update: BrowserTaskUpdate): Promise<BrowserTaskInfo | undefined>
 }
 
 /**
@@ -130,10 +149,35 @@ export interface ElectronViewHandle {
   label?(label: string): Promise<void>
 }
 
-/** One tab inside a session: its view plus a stable id. */
+/** Internal selector and fingerprint captured for one snapshot element. */
+interface SnapshotTarget {
+  readonly path: string
+  readonly fingerprint: string
+}
+
+/** One snapshot retained for exact reference operations. */
+interface SnapshotRecord {
+  readonly tabId: string
+  readonly url: string
+  readonly epoch: number
+  readonly targets: ReadonlyMap<number, SnapshotTarget>
+}
+
+/** One tab inside a session: its view plus a stable id and short-lived refs. */
 interface Tab {
   readonly id: string
   readonly handle: ElectronViewHandle
+  navigationEpoch: number
+  readonly snapshots: Map<string, SnapshotRecord>
+}
+
+/** Provider-local fallback state when a host has no visible workspace methods. */
+interface LocalTaskState {
+  status: BrowserTaskStatus
+  control: BrowserControlOwner
+  latestAction?: string
+  error?: string
+  updatedAt: number
 }
 
 /** One live browser session: an ordered list of tabs, one active. */
@@ -271,6 +315,11 @@ function modifierMask(modifiers: readonly ('alt' | 'ctrl' | 'meta' | 'shift')[] 
 }
 /** CDP method for navigation. */
 export const CDP_PAGE_NAVIGATE = 'Page.navigate'
+/** CDP methods used by native browser navigation controls. */
+export const CDP_PAGE_GET_NAVIGATION_HISTORY = 'Page.getNavigationHistory'
+export const CDP_PAGE_NAVIGATE_TO_HISTORY_ENTRY = 'Page.navigateToHistoryEntry'
+export const CDP_PAGE_RELOAD = 'Page.reload'
+export const CDP_PAGE_STOP_LOADING = 'Page.stopLoading'
 
 /** Cap on content returned by a snapshot fetch to keep the wire bounded. */
 const SNAPSHOT_LABEL_MAX = 120
@@ -286,6 +335,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
   readonly id = ELECTRON_BROWSER_PROVIDER_ID
 
   private readonly sessions = new Map<BrowserSessionId, Session>()
+  private readonly taskStates = new Map<string, LocalTaskState>()
   private readonly httpOnly: boolean
   private readonly snapshotMaxElements: number
   private readonly contentMaxChars: number
@@ -316,7 +366,10 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const taskLabel = options?.label ?? ''
     const handle = this.host.createView(taskKey, taskLabel === '' ? undefined : taskLabel)
     const id = `browser:${randomUUID()}`
-    this.sessions.set(id, { id, taskKey, taskLabel, tabs: [{ id: `tab:${randomUUID()}`, handle }], activeIndex: 0, history: [], nextSeq: 1 })
+    this.sessions.set(id, { id, taskKey, taskLabel, tabs: [this.createTab(handle)], activeIndex: 0, history: [], nextSeq: 1 })
+    if (!this.taskStates.has(taskKey)) {
+      this.taskStates.set(taskKey, { status: 'idle', control: 'agent', updatedAt: Date.now() })
+    }
     return Promise.resolve(id)
   }
 
@@ -396,7 +449,8 @@ export class ElectronBrowserProvider implements BrowserProvider {
   /** Navigate the active tab's view to a URL, honoring HTTP(S)-only admission. */
   async navigate(session: BrowserSessionId, request: { readonly url: string }, signal?: AbortSignal): Promise<void> {
     const s = this.session(session)
-    const { handle } = this.activeTab(s)
+    const tab = this.activeTab(s)
+    const { handle } = tab
     const url = request.url
     try {
       if (this.httpOnly) {
@@ -427,6 +481,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
       if (typeof errorText === 'string' && errorText !== '') {
         throw new BrowserError(`browser: navigation to "${url}" failed: ${errorText}`, 'BROWSER_NAVIGATION_FAILED')
       }
+      this.invalidateSnapshots(tab)
       this.record(s, 'navigate', { url }, true)
       this.showActive(s)
       // Page.navigate resolves on commit. Wait best-effort for page load so
@@ -441,6 +496,38 @@ export class ElectronBrowserProvider implements BrowserProvider {
       }
       throw error
     }
+  }
+
+  /** Navigate to the previous history entry when one exists. */
+  async back(session: BrowserSessionId, signal?: AbortSignal): Promise<boolean> {
+    return this.navigateHistory(session, -1, 'back', signal)
+  }
+
+  /** Navigate to the next history entry when one exists. */
+  async forward(session: BrowserSessionId, signal?: AbortSignal): Promise<boolean> {
+    return this.navigateHistory(session, 1, 'forward', signal)
+  }
+
+  /** Reload the active page and restore the browser chrome afterwards. */
+  async reload(session: BrowserSessionId, signal?: AbortSignal): Promise<void> {
+    const s = this.session(session)
+    const tab = this.activeTab(s)
+    signal?.throwIfAborted()
+    await withTimeout(tab.handle.sendCommand(CDP_PAGE_RELOAD, {}), 30_000, signal, 'browser: reload timed out after 30000ms')
+    this.invalidateSnapshots(tab)
+    this.record(s, 'reload', {}, true)
+    this.showActive(s)
+    await waitForDocumentReady(tab.handle, signal)
+    void reinstallPageChrome(tab.handle)
+  }
+
+  /** Stop loading the active page. */
+  async stopLoading(session: BrowserSessionId, signal?: AbortSignal): Promise<void> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    await withTimeout(handle.sendCommand(CDP_PAGE_STOP_LOADING, {}), 10_000, signal, 'browser: stop loading timed out after 10000ms')
+    this.record(s, 'stop', {}, true)
   }
 
   /** Execute JS in the active tab's page context. */
@@ -518,6 +605,31 @@ export class ElectronBrowserProvider implements BrowserProvider {
         if (text) return tag + ':has-text("' + text.replace(/"/g, '\\\\"') + '")'
         return tag
       }
+      const pathOf = (el) => {
+        if (el.id) return '#' + CSS.escape(el.id)
+        const parts = []
+        let node = el
+        while (node && node.nodeType === Node.ELEMENT_NODE) {
+          let part = node.tagName.toLowerCase()
+          const parent = node.parentElement
+          if (parent) {
+            const siblings = [...parent.children].filter(sibling => sibling.tagName === node.tagName)
+            if (siblings.length > 1) part += ':nth-of-type(' + (siblings.indexOf(node) + 1) + ')'
+          }
+          parts.unshift(part)
+          if (node === document.body) break
+          node = parent
+        }
+        return parts.join(' > ')
+      }
+      const fingerprintOf = (el) => [
+        el.tagName,
+        el.getAttribute('type') || '',
+        el.id || '',
+        el.getAttribute('name') || '',
+        el.getAttribute('aria-label') || '',
+        (el.textContent || el.value || '').toString().replace(/\s+/g, ' ').trim().slice(0, 120),
+      ].join('\u001f')
       const url = location.href
       const title = document.title || undefined
       const els = [...document.querySelectorAll('input, textarea, select, button, a[href], [role="button"], [role="searchbox"], [contenteditable="true"]')]
@@ -539,8 +651,10 @@ export class ElectronBrowserProvider implements BrowserProvider {
           ref: out.length + 1,
           kind,
           label,
-          selector: el.id ? '#' + el.id : (el.name ? '[name=' + JSON.stringify(el.name) + ']' : ''),
+          selector: el.id ? '#' + CSS.escape(el.id) : (el.name ? '[name=' + JSON.stringify(el.name) + ']' : ''),
           loc: locatorOf(el),
+          path: pathOf(el),
+          fingerprint: fingerprintOf(el),
           x: Math.round(r.x + r.width / 2),
           y: Math.round(r.y + r.height / 2),
         })
@@ -560,7 +674,9 @@ export class ElectronBrowserProvider implements BrowserProvider {
       `browser: snapshot timed out after ${timeoutMs}ms`,
     )
     if (!result.ok) throw new BrowserError(`browser: snapshot evaluation failed: ${result.exception}`, 'BROWSER_SNAPSHOT_FAILED')
-    let value = result.value as BrowserSnapshotResult
+    type RawSnapshotElement = BrowserSnapshotElement & { readonly path: string; readonly fingerprint: string }
+    type RawSnapshot = Omit<BrowserSnapshotResult, 'snapshotId' | 'elements'> & { readonly elements: readonly RawSnapshotElement[] }
+    let value = result.value as RawSnapshot
     // Framework apps often hydrate controls after the load event. A short
     // bounded retry turns premature empty inventories into useful snapshots.
     for (let attempt = 0; attempt < 5 && value.elements.length === 0 && value.truncated !== true; attempt++) {
@@ -571,9 +687,51 @@ export class ElectronBrowserProvider implements BrowserProvider {
         signal,
         `browser: snapshot timed out after ${timeoutMs}ms`,
       ).catch(() => undefined)
-      if (retry?.ok) value = retry.value as BrowserSnapshotResult
+      if (retry?.ok) value = retry.value as RawSnapshot
     }
-    return value
+    const snapshotId = `snapshot:${randomUUID()}`
+    const targets = new Map<number, SnapshotTarget>()
+    for (const element of value.elements) {
+      targets.set(element.ref, { path: element.path, fingerprint: element.fingerprint })
+    }
+    tab.snapshots.set(snapshotId, { tabId: tab.id, url: value.url, epoch: tab.navigationEpoch, targets })
+    while (tab.snapshots.size > 10) {
+      const oldest = tab.snapshots.keys().next().value as string | undefined
+      if (oldest === undefined) break
+      tab.snapshots.delete(oldest)
+    }
+    return {
+      snapshotId,
+      url: value.url,
+      ...value.title !== undefined ? { title: value.title } : {},
+      elements: value.elements.map(({ path: _path, fingerprint: _fingerprint, ...element }) => element),
+      truncated: value.truncated,
+      ...value.challenge !== undefined ? { challenge: value.challenge } : {},
+      ...value.userControlling !== undefined ? { userControlling: value.userControlling } : {},
+    }
+  }
+
+  /** Click one element that belongs to a retained exact page snapshot. */
+  async clickRef(session: BrowserSessionId, request: BrowserRefRequest, signal?: AbortSignal): Promise<void> {
+    const s = this.session(session)
+    const tab = this.activeTab(s)
+    signal?.throwIfAborted()
+    await this.drainDialog(s, tab.handle)
+    const point = await this.resolveSnapshotTarget(tab, request, 'center', signal)
+    await suppressAutoUserControl(tab.handle, signal)
+    await tab.handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
+    await tab.handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
+    this.record(s, 'clickRef', { snapshotId: request.snapshotId, ref: request.ref }, true)
+  }
+
+  /** Scroll one element that belongs to a retained exact page snapshot into view. */
+  async scrollIntoView(session: BrowserSessionId, request: BrowserScrollIntoViewRequest, signal?: AbortSignal): Promise<BrowserScrollResult> {
+    const s = this.session(session)
+    const tab = this.activeTab(s)
+    signal?.throwIfAborted()
+    const result = await this.resolveSnapshotTarget(tab, request, request.block ?? 'center', signal)
+    this.record(s, 'scrollIntoView', { snapshotId: request.snapshotId, ref: request.ref, block: request.block ?? 'center' }, true)
+    return result
   }
 
   /** Check whether a human-verification challenge is blocking the active tab. */
@@ -657,6 +815,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
     await this.drainDialog(s, handle)
+    await suppressAutoUserControl(handle, signal)
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
     this.record(s, 'click', { x: request.x, y: request.y }, true)
@@ -668,6 +827,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
     await this.drainDialog(s, handle)
+    await suppressAutoUserControl(handle, signal)
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 2 } satisfies CdpMouseParams)
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 2 } satisfies CdpMouseParams)
     this.record(s, 'doubleClick', { x: request.x, y: request.y }, true)
@@ -681,6 +841,38 @@ export class ElectronBrowserProvider implements BrowserProvider {
     await this.drainDialog(s, handle)
     await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: request.x, y: request.y, button: 'none' })
     this.record(s, 'hover', { x: request.x, y: request.y }, true)
+  }
+
+  /** Scroll the active page by CSS-pixel deltas and return the final position. */
+  async scroll(session: BrowserSessionId, request: BrowserScrollRequest, signal?: AbortSignal): Promise<BrowserScrollResult> {
+    const s = this.session(session)
+    const tab = this.activeTab(s)
+    signal?.throwIfAborted()
+    const deltaX = request.deltaX ?? 0
+    const deltaY = request.deltaY ?? 0
+    const hasExplicitDelta = request.deltaX !== undefined || request.deltaY !== undefined
+    const script = `(() => {
+      const deltaX = ${JSON.stringify(deltaX)}
+      const deltaY = ${JSON.stringify(deltaY)}
+      const hasExplicitDelta = ${JSON.stringify(hasExplicitDelta)}
+      const effectiveDeltaY = hasExplicitDelta ? deltaY : Math.max(window.innerHeight * 0.8, 480)
+      window.scrollBy(deltaX, effectiveDeltaY)
+      const root = document.documentElement
+      return {
+        x: window.scrollX,
+        y: window.scrollY,
+        maxX: Math.max(0, root.scrollWidth - window.innerWidth),
+        maxY: Math.max(0, root.scrollHeight - window.innerHeight),
+      }
+    })()`
+    const result = await withTimeout(handleSendEvaluate(tab.handle, script), 15_000, signal, 'browser: scroll timed out')
+    if (!result.ok) throw new BrowserError(`browser: scroll failed: ${result.exception}`, 'BROWSER_SCROLL_FAILED')
+    const value = result.value as Partial<BrowserScrollResult>
+    if (typeof value.x !== 'number' || typeof value.y !== 'number' || typeof value.maxX !== 'number' || typeof value.maxY !== 'number') {
+      throw new BrowserError('browser: scroll returned invalid coordinates', 'BROWSER_SCROLL_FAILED')
+    }
+    this.record(s, 'scroll', { deltaX, deltaY: hasExplicitDelta ? deltaY : 'viewport' }, true)
+    return { x: value.x, y: value.y, maxX: value.maxX, maxY: value.maxY }
   }
 
   /**
@@ -764,6 +956,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
     await this.drainDialog(s, handle)
+    await suppressAutoUserControl(handle, signal)
     await handle.sendCommand('Input.insertText', { text: request.text } satisfies CdpInsertTextParams)
     // Store the full text so replay re-issues the same input; the history
     // tool truncates long values when rendering.
@@ -777,6 +970,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
     await this.drainDialog(s, handle)
+    await suppressAutoUserControl(handle, signal)
     const { key, code, vk } = keyDescriptor(request.key)
     const modifiers = modifierMask(request.modifiers)
     const text = keyText(request.key)
@@ -1100,6 +1294,74 @@ export class ElectronBrowserProvider implements BrowserProvider {
     return host.listWindows()
   }
 
+  /** List browser tasks with live collaboration status. */
+  async listTasks(): Promise<readonly BrowserTaskInfo[]> {
+    if (typeof this.host.listTasks === 'function') {
+      const tasks = await this.host.listTasks()
+      for (const task of tasks) this.rememberHostedTask(task)
+      return tasks
+    }
+    const tasks = new Map<string, BrowserTaskInfo>()
+    for (const session of this.sessions.values()) {
+      const current = tasks.get(session.taskKey)
+      const next = this.localTaskInfo(session)
+      tasks.set(session.taskKey, current === undefined
+        ? next
+        : { ...next, tabs: current.tabs + next.tabs, active: current.active || next.active })
+    }
+    return [...tasks.values()]
+  }
+
+  /** Read the collaboration state for one session's task. */
+  async getTask(session: BrowserSessionId): Promise<BrowserTaskInfo> {
+    const s = this.session(session)
+    const hosted = typeof this.host.getTask === 'function' ? await this.host.getTask(s.taskKey) : undefined
+    if (hosted !== undefined) {
+      this.rememberHostedTask(hosted)
+      return hosted
+    }
+    return this.localTaskInfo(s)
+  }
+
+  /** Apply one visible task state update and mirror it to a supporting host. */
+  async updateTask(session: BrowserSessionId, update: BrowserTaskUpdate): Promise<BrowserTaskInfo> {
+    const s = this.session(session)
+    const previous = this.taskStates.get(s.taskKey) ?? { status: 'idle' as const, control: 'agent' as const, updatedAt: Date.now() }
+    const next: LocalTaskState = {
+      ...previous,
+      ...update.status !== undefined ? { status: update.status } : {},
+      ...update.control !== undefined ? { control: update.control } : {},
+      ...update.latestAction !== undefined ? { latestAction: update.latestAction } : {},
+      ...update.error !== undefined ? { error: update.error.slice(0, 180) } : {},
+      updatedAt: Date.now(),
+    }
+    if (next.status !== 'failed' && update.error === undefined) delete next.error
+    this.taskStates.set(s.taskKey, next)
+    // Only send fields this call intentionally changes. A page-side handoff
+    // can update the host between two Agent operations; replaying a stale
+    // cached control field here would overwrite the newer human choice.
+    const hosted = typeof this.host.updateTask === 'function'
+      ? await this.host.updateTask(s.taskKey, {
+        ...update.status !== undefined ? { status: update.status } : {},
+        ...update.control !== undefined ? { control: update.control } : {},
+        ...update.latestAction !== undefined ? { latestAction: update.latestAction } : {},
+        ...update.error !== undefined ? { error: update.error.slice(0, 180) } : {},
+      })
+      : undefined
+    if (hosted !== undefined) {
+      this.rememberHostedTask(hosted)
+      return hosted
+    }
+    return this.localTaskInfo(s)
+  }
+
+  /** Hand control to the user or return it to Agent-driven actions. */
+  async setHandoff(session: BrowserSessionId, state: BrowserHandoffState): Promise<BrowserTaskInfo> {
+    return this.updateTask(session, state === 'waiting-user'
+      ? { status: 'waiting-user', control: 'human', latestAction: 'waiting for user' }
+      : { status: 'idle', control: 'agent', latestAction: 'agent resumed' })
+  }
+
   /** Append one operation to the session's history. */
   private record(
     s: Session,
@@ -1122,8 +1384,15 @@ export class ElectronBrowserProvider implements BrowserProvider {
     if (s.history.length > 500) s.history.splice(0, s.history.length - 500)
     // Mirror onto the human-facing trail in the shared window (best-effort).
     const tab = s.tabs[s.activeIndex]
+    const state = this.taskStates.get(s.taskKey)
+    if (state !== undefined) {
+      state.latestAction = action
+      state.updatedAt = entry.at
+    }
     try {
       this.host.trace?.(tab?.handle.id ?? 'default', { action, params, ok, at: entry.at })
+      const pending = this.host.updateTask?.(s.taskKey, { latestAction: action })
+      void pending?.catch(() => undefined)
     } catch { /* trail is cosmetic */ }
   }
 
@@ -1188,6 +1457,9 @@ export class ElectronBrowserProvider implements BrowserProvider {
     if (existing !== undefined) {
       this.sessions.delete(session)
       for (const tab of existing.tabs) this.host.destroyView(tab.handle)
+      if (![...this.sessions.values()].some(candidate => candidate.taskKey === existing.taskKey)) {
+        this.taskStates.delete(existing.taskKey)
+      }
     }
     return Promise.resolve()
   }
@@ -1208,10 +1480,153 @@ export class ElectronBrowserProvider implements BrowserProvider {
     return tab
   }
 
+  /** Navigate through the browser history while preserving page readiness behavior. */
+  private async navigateHistory(
+    session: BrowserSessionId,
+    direction: -1 | 1,
+    action: 'back' | 'forward',
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const s = this.session(session)
+    const tab = this.activeTab(s)
+    signal?.throwIfAborted()
+    const history = await withTimeout(
+      tab.handle.sendCommand(CDP_PAGE_GET_NAVIGATION_HISTORY, {}),
+      15_000,
+      signal,
+      'browser: history lookup timed out',
+    )
+    const currentIndex = typeof history.currentIndex === 'number' ? history.currentIndex : -1
+    const entries = Array.isArray(history.entries) ? history.entries as Array<{ id?: unknown }> : []
+    const target = entries[currentIndex + direction]
+    if (target === undefined || typeof target.id !== 'number') {
+      this.record(s, action, { navigated: false }, true)
+      return false
+    }
+    await withTimeout(
+      tab.handle.sendCommand(CDP_PAGE_NAVIGATE_TO_HISTORY_ENTRY, { entryId: target.id }),
+      30_000,
+      signal,
+      `browser: ${action} timed out after 30000ms`,
+    )
+    this.invalidateSnapshots(tab)
+    this.record(s, action, { navigated: true }, true)
+    this.showActive(s)
+    await waitForDocumentReady(tab.handle, signal)
+    void reinstallPageChrome(tab.handle)
+    return true
+  }
+
+  /** Drop every reference that was captured before a document transition. */
+  private invalidateSnapshots(tab: Tab): void {
+    tab.navigationEpoch += 1
+    tab.snapshots.clear()
+  }
+
+  /** Resolve one exact snapshot reference, rejecting any changed or missing target. */
+  private async resolveSnapshotTarget(
+    tab: Tab,
+    request: BrowserRefRequest,
+    block: 'start' | 'center' | 'end' | 'nearest',
+    signal?: AbortSignal,
+  ): Promise<BrowserScrollResult & { readonly x: number; readonly y: number }> {
+    const record = tab.snapshots.get(request.snapshotId)
+    if (record === undefined) {
+      throw new BrowserError(`browser: snapshot "${request.snapshotId}" is not available in this tab`, 'BROWSER_SNAPSHOT_UNKNOWN')
+    }
+    if (record.tabId !== tab.id || record.epoch !== tab.navigationEpoch) {
+      throw new BrowserError(`browser: snapshot "${request.snapshotId}" is stale`, 'BROWSER_SNAPSHOT_STALE')
+    }
+    const target = record.targets.get(request.ref)
+    if (target === undefined) {
+      throw new BrowserError(`browser: snapshot "${request.snapshotId}" has no element ref ${request.ref}`, 'BROWSER_REF_UNKNOWN')
+    }
+    const script = `(() => {
+      if (location.href !== ${JSON.stringify(record.url)}) return { stale: 'url changed' }
+      let el
+      try { el = document.querySelector(${JSON.stringify(target.path)}) } catch { return { stale: 'selector invalid' } }
+      if (!el || el.closest('[data-dsh-browser-chrome]')) return { stale: 'element missing' }
+      const fingerprint = [
+        el.tagName,
+        el.getAttribute('type') || '',
+        el.id || '',
+        el.getAttribute('name') || '',
+        el.getAttribute('aria-label') || '',
+        (el.textContent || el.value || '').toString().replace(/\s+/g, ' ').trim().slice(0, 120),
+      ].join('\u001f')
+      if (fingerprint !== ${JSON.stringify(target.fingerprint)}) return { stale: 'element changed' }
+      el.scrollIntoView({ block: ${JSON.stringify(block)}, inline: 'nearest', behavior: 'auto' })
+      const rect = el.getBoundingClientRect()
+      const style = getComputedStyle(el)
+      if (rect.width < 4 || rect.height < 4 || style.visibility === 'hidden' || style.display === 'none') return { stale: 'element hidden' }
+      const root = document.documentElement
+      return {
+        x: Math.round(rect.x + rect.width / 2),
+        y: Math.round(rect.y + rect.height / 2),
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
+        maxX: Math.max(0, root.scrollWidth - window.innerWidth),
+        maxY: Math.max(0, root.scrollHeight - window.innerHeight),
+      }
+    })()`
+    const result = await withTimeout(
+      handleSendEvaluate(tab.handle, script),
+      15_000,
+      signal,
+      'browser: snapshot reference resolution timed out',
+    )
+    if (!result.ok) {
+      throw new BrowserError(`browser: snapshot reference resolution failed: ${result.exception}`, 'BROWSER_REF_RESOLVE_FAILED')
+    }
+    const value = result.value as { stale?: string; x?: number; y?: number; scrollX?: number; scrollY?: number; maxX?: number; maxY?: number }
+    if (typeof value.stale === 'string'
+      || typeof value.x !== 'number'
+      || typeof value.y !== 'number'
+      || typeof value.scrollX !== 'number'
+      || typeof value.scrollY !== 'number'
+      || typeof value.maxX !== 'number'
+      || typeof value.maxY !== 'number') {
+      throw new BrowserError(`browser: snapshot "${request.snapshotId}" is stale${typeof value.stale === 'string' ? `: ${value.stale}` : ''}`, 'BROWSER_SNAPSHOT_STALE')
+    }
+    return { x: value.x, y: value.y, maxX: value.maxX, maxY: value.maxY }
+  }
+
+  /** Sync provider fallback cache from the host's authoritative workspace state. */
+  private rememberHostedTask(task: BrowserTaskInfo): void {
+    this.taskStates.set(task.key, {
+      status: task.status,
+      control: task.control,
+      ...task.latestAction !== undefined ? { latestAction: task.latestAction } : {},
+      ...task.error !== undefined ? { error: task.error } : {},
+      updatedAt: task.updatedAt,
+    })
+  }
+
+  /** Build the provider-side task summary when a host has no richer workspace. */
+  private localTaskInfo(s: Session): BrowserTaskInfo {
+    const state = this.taskStates.get(s.taskKey) ?? { status: 'idle' as const, control: 'agent' as const, updatedAt: Date.now() }
+    return {
+      key: s.taskKey,
+      label: s.taskLabel,
+      active: this.sessions.size === 1,
+      tabs: s.tabs.length,
+      status: state.status,
+      control: state.control,
+      ...state.latestAction !== undefined ? { latestAction: state.latestAction } : {},
+      updatedAt: state.updatedAt,
+      ...state.error !== undefined ? { error: state.error } : {},
+    }
+  }
+
+  /** Create a tab with its short-lived snapshot reference store. */
+  private createTab(handle: ElectronViewHandle): Tab {
+    return { id: `tab:${randomUUID()}`, handle, navigationEpoch: 0, snapshots: new Map() }
+  }
+
   /** Append a fresh tab and make it active. */
   private newTab(s: Session): void {
     const handle = this.host.createView(s.taskKey, s.taskLabel === '' ? undefined : s.taskLabel)
-    s.tabs.push({ id: `tab:${randomUUID()}`, handle })
+    s.tabs.push(this.createTab(handle))
     s.activeIndex = s.tabs.length - 1
     this.showActive(s)
   }
@@ -1326,6 +1741,18 @@ async function waitForDocumentReady(
   } catch {
     // Readiness is an optimization: never fail a valid navigation for it.
   }
+}
+
+/** Mark a short window in which CDP input must not transfer control to the user. */
+async function suppressAutoUserControl(handle: ElectronViewHandle, signal?: AbortSignal): Promise<void> {
+  const expression = '(() => { const host = document.getElementById(' + JSON.stringify(PAGE_CHROME_HOST_ID)
+    + '); if (!host) return false; host.setAttribute("data-dsh-agent-input-until", String(Date.now() + ' + String(AGENT_INPUT_SUPPRESSION_MS) + ')); return true })()'
+  await withTimeout(
+    handleSendEvaluate(handle, expression, signal),
+    2_000,
+    signal,
+    'browser: agent input suppression timed out',
+  ).catch(() => undefined)
 }
 
 async function handleSendEvaluate(

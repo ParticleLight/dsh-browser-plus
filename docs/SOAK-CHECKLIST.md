@@ -19,7 +19,10 @@
 ## 3. 等待与定位
 - [ ] `browser_wait_for selector="a[href]"` 立即命中(iana.org)
 - [ ] 动态元素:注入延时节点后 `browser_wait_for selector="#late"` 命中
-- [ ] `browser_snapshot` 每行含 `loc=`
+- [ ] `browser_snapshot` 每行含 `loc=`，结果含 `snapshotId`
+- [ ] `browser_click_ref(snapshotId, ref)` 点击快照中的链接或按钮；导航后用旧 snapshotId 再调用应明确提示重新快照
+- [ ] `browser_scroll` 无参数向下滚动；`browser_scroll_into_view(snapshotId, ref)` 将目标滚入视口
+- [ ] `browser_back` / `browser_forward` / `browser_reload` / `browser_stop` 分别与页面工具栏行为一致
 
 ## 4. 共享窗口、任务管理器与 space
 - [ ] 本会话 `browser_open https://www.iana.org/` → 一个可见 `dsh-browser-plus` 窗口和对应任务视图
@@ -27,12 +30,20 @@
 - [ ] `browser_space label="奖励任务"` → 当前浏览器任务在任务管理器中显示该标签，活动时标题为 `dsh-browser-plus — 奖励任务`;history 有 setSpace
 - [ ] `browser_space`(无参)→ 列出全部浏览器任务(key + label);不产生新窗口
 - [ ] 在任务管理器切换两个任务 → 各自 URL/标签正确；隐藏任务的浏览器操作更新自身状态但不抢当前可见页面
+- [ ] Agent 执行长等待时任务卡显示“执行中”；调用 `browser_handoff state=waiting-user` 后显示“等待用户”
+- [ ] 在当前任务卡点击“接管” → 显示“用户接管”，新的 Agent 页面操作被拒绝；点击“交还 Agent”后恢复操作
+- [ ] `browser_tasks` 的状态、控制方、标签页数和最近动作与任务卡一致
 - [ ] 关闭共享窗口后再次 `browser_open` → 窗口重建且不残留
 
-## 5. 稳定性
+## 5. 增量更新与性能
+- [ ] 打开任务和轨迹面板后连续执行 100 次轻量页面操作 → 当前任务轨迹持续追加，其他任务卡不闪烁或重建
+- [ ] 创建至少 3 个任务、每个 2 个标签 → 后台页面不持续刷新缩略图；打开任务面板并切换当前任务后才刷新当前缩略图
+- [ ] 保持任务面板关闭执行操作 → 无可见缩略图捕获；重新打开后当前任务缩略图按需更新
+
+## 6. 稳定性
 - [ ] 连续导航 5 站(example.com → bing.com → w3.org → iana.org → example.com)→ 无白屏,每窗口有且仅有一个视图
 - [ ] 回收 Electron child(Get-CimInstance ... Stop-Process)→ 下一次工具调用自动重启、无残留窗口
 - [ ] `browser_auth action="flush"` → cookies 数量正常(换名安装前迁移用)
 
-## 6. 已知 deferred minors(合并后择机)
+## 7. 已知 deferred minors(合并后择机)
 见 `.superpowers/sdd/2026-08-21-dsh-browser-plus-ego-features/progress.md` 的 "minor (deferred)" 行(全部为非阻塞风格/文档项)。

@@ -40,19 +40,19 @@ dsh plugin --profile web add <本仓库路径>
 
 ```
 1. browser_open 打开 https://example.com
-2. browser_snapshot 查看页面有哪些可交互元素(带编号)
-3. 需要填表时用 browser_fill(按 name/label/placeholder 匹配,一次填多个字段)
-4. 需要截图确认时用 browser_screenshot(可 savePath 存文件)
-5. 遇到验证码(browser_challenge 或快照标注 CHALLENGE)时,停下请用户处理
-6. 每次操作后告知用户你在页面上做了什么
+2. browser_snapshot 查看页面有哪些可交互元素、编号和 snapshotId
+3. 优先 browser_click_ref(snapshotId, ref) 或 browser_scroll_into_view(snapshotId, ref),页面变化后重新快照
+4. 需要填表时用 browser_fill(按 name/label/placeholder 匹配,一次填多个字段)
+5. 后退、前进、刷新、停止和滚动使用 browser_back/browser_forward/browser_reload/browser_stop/browser_scroll
+6. 遇到验证码(browser_challenge 或快照标注 CHALLENGE)时,调用 browser_handoff state=waiting-user,停下等待用户交还任务
 ```
 
 ## 操作纪律
 
-- **优先用 DOM 语义而非坐标**:表单提交优先 `form.requestSubmit()`;点击优先 `element.click()`;坐标点击是最后手段。
-- **选中正确的元素**:页面常有隐藏副本(如移动端按钮),用 `browser_execute` 过滤可见元素(`getBoundingClientRect()` 宽高 > 0、`getComputedStyle` 非 `display:none`),再取坐标。
-- **取坐标后立即点击**:中间不要插入其他操作(填表、滚动会移动元素,旧坐标立即失效)。
-- **点击前验证命中**:`document.elementFromPoint(x, y)` 确认该坐标确实是目标元素,再执行真实点击。
+- **优先用快照引用**:先取得 `snapshotId`,再用 `browser_click_ref` 或 `browser_scroll_into_view`;引用过期时重新快照，而不是猜测同名控件。
+- **常用浏览操作不用写脚本**:后退、前进、刷新、停止和滚动优先使用对应 `browser_*` 工具。
+- **表单优先批量填写**:React/Vue 页面用 `browser_fill`;坐标点击只保留给 canvas、图标等没有语义节点的控件。
+- **browser_execute 是最后手段**:只在新工具无法表达的页面特有操作中使用。
 - **DPR 注意**:CDP 输入使用 CSS 像素;高 DPI 屏上若点击落空,用 `elementFromPoint` 校准,不要盲试坐标。
 
 ## 多任务并行
@@ -64,11 +64,15 @@ dsh plugin --profile web add <本仓库路径>
 
 当前版本使用**一个共享可见浏览器窗口**，每个任务仍有隔离的任务视图、标签与历史。页面任务管理器切换可见任务；后台任务操作只更新自己的视图，不会抢走当前页面。`browser_space label="..."` 为本浏览器任务命名，`browser_space`(无参)列出全部浏览器任务。
 
-任务按钮打开左侧工作区面板，操作轨迹按钮在桌面端打开右侧工作区面板。两个半透明面板彼此独立，可同时保持打开；窄屏上它们垂直堆叠，仍可同时打开。选择一个任务会更新可见任务视图及其操作轨迹；每个任务显示最近一次可见页面缩略图，后台任务保留最后图像，不会被周期定时器强制显示或捕获。
+工具栏默认收在页面上方。鼠标移到页面顶部中间时会出现小圆形下箭头，点击后工具栏从上方滑出；工具栏最右侧的上箭头会收回工具栏，并同时关闭书签、任务与轨迹浮层。任务按钮打开左侧工作区面板，操作轨迹按钮在桌面端打开右侧工作区面板。顶部工具栏最右侧常驻“接管 / 交还 Agent”控件，不必先打开任务面板；任务卡继续显示执行中、等待用户、用户接管、失败和空闲状态。接管期间新的 Agent 页面操作会停止，快照和内容读取仍可用于确认状态。
+
+用户直接点击页面、编辑表单或使用非滚动键盘操作时，会自动切换为用户控制；滚轮、触摸拖动、滚动条操作，以及页面非编辑区的上下翻页键不会触发接管。Agent 自己的 CDP 鼠标和键盘输入带有短暂抑制标记，不会误交还控制权。
+
+任务与轨迹状态采用版本化增量更新：普通操作只更新受影响的任务卡和一条轨迹。缩略图仅在工作区打开时按需刷新当前可见任务，后台任务保留最后图像。
 
 页面原生 `alert/confirm/prompt` 会被**自动接受**(页面永不卡死),对话框内容记录在 `browser_history`(`dialog` 条目)中。
 
-按键、双击、悬停、文件上传、等待元素:见 `browser_press_key` / `browser_double_click` / `browser_hover` / `browser_upload_file` / `browser_wait_for`(完整参考见 [工具参考](tool-reference.md))。
+按键、双击、悬停、文件上传、等待元素、快照引用和原生导航:见 `browser_press_key` / `browser_double_click` / `browser_hover` / `browser_upload_file` / `browser_wait_for` / `browser_click_ref` / `browser_back` 等工具(完整参考见 [工具参考](tool-reference.md))。
 
 登录态(cookie)为所有任务共享;可用 `browser_auth` 导出/恢复,重启后不丢。
 

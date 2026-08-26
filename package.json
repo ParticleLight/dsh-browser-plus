@@ -1,6 +1,6 @@
 {
   "name": "dsh-browser-plus",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Enhanced shared browser for DeepSeek Harness: one visible window with isolated task views, a page task manager, non-stealing background tasks, built-in toolbar and operation trail, and pinned Electron 42.9.3 compositing.",
   "type": "module",
   "main": "lib/index.js",
@@ -33,6 +33,8 @@
     "src",
     "docs",
     "assets",
+    "scripts",
+    "screenshots.json",
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
@@ -43,6 +45,7 @@
     "build": "npm run build:icons && tsc -p tsconfig.json",
     "build:icons": "node scripts/build-icons.mjs",
     "test": "node --test test/*.test.mjs",
+    "smoke:electron-host": "node scripts/smoke-electron-host.mjs",
     "prepack": "npm run build"
   },
   "keywords": [

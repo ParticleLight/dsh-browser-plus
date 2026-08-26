@@ -30,7 +30,8 @@ agent (browser_* 工具)
 
 - 会话 = 有序标签列表 + 历史;每次 `open()` 新建会话(工具层按任务缓存复用);
 - 每个标签对应一个视图(handle);`showActive` 让宿主把活动标签的视图置顶;
-- 页面驱动全部走 CDP:`Page.navigate` / `Runtime.evaluate` / `Input.dispatchMouseEvent` / `Input.insertText` / `Page.captureScreenshot`(兜底);
+- 页面驱动全部走 CDP:`Page.navigate` / history navigation / `Page.reload` / `Page.stopLoading` / `Runtime.evaluate` / `Input.dispatchMouseEvent` / `Input.insertText` / `Page.captureScreenshot`(兜底);
+- 每个 tab 保留最近 10 个短生命周期快照引用;`browser_click_ref` 与 `browser_scroll_into_view` 用内部 CSS 路径、元素指纹、URL 和文档代次验证目标，变化后明确要求重新快照;
 - **人类工具栏是页面注入 chrome**:通过 `Page.addScriptToEvaluateOnNewDocument` 在顶层文档挂载 closed Shadow DOM,不创建第二个 `WebContentsView`;
 - **可见性不重挂**: `showView` 只切换 `setVisible`，导航、加载、标题和 resize 路径不得执行 `removeChildView` / `addChildView`;
 - **截图优先走宿主原生 `capturePage`**(新增 `capture` 通道):CDP `captureScreenshot` 在窗口存在多个(隐藏)视图时会挂起,原生捕获对可见视图快速可靠,失败时自动回退 CDP(临时摘除其他视图保证单视图状态);
@@ -39,9 +40,11 @@ agent (browser_* 工具)
 
 ### 工具层(`src/tool-browser/`)
 
-20 个 `browser_*` 工具,按**调用方任务**(`exec.agent.id`)维护独立浏览器会话:
+35 个 `browser_*` 工具,按**调用方任务**(`exec.agent.id`)维护独立浏览器会话:
 
 - 会话缓存 `sessionsByTask`:同一任务复用同一会话,并发首开去重;
+- 变更型调用经过每任务 FIFO 操作通道;相同 in-flight snapshot/content/无落盘截图会合并，避免重复 CDP 与渲染工作;
+- `browser_tasks` 与 `browser_handoff` 暴露运行、等待用户、用户接管、失败和空闲状态;用户接管后新的变更型 Agent 调用会等待交还;
 - `browser_reset_session` 关闭本任务会话并遗忘映射(即使 close 抛错也清除,下次调用重建);
 - `browser_restrict` 维护模块级白名单,守卫所有非只读工具;
 - 输出 schema 与返回值严格一致(DSH 运行时会校验,`additionalProperties: false` 下多一个字段都会报错)。
@@ -62,8 +65,8 @@ RemoteElectronViewHost  ──TCP JSON-RPC──▶  host-main.js
 - **Electron 定位**:优先 package-local 的精确 `42.9.3` optional dependency；其次只接受经 package metadata 验证为 `42.9.3` 的 `ELECTRON_PATH`、DSH 锚点或 pnpm store 候选；找不到即失败，绝不回退到 43.x。
 - **稳健性**:子进程/套接字都有 `error` 监听(否则未捕获事件会炸掉整个 DSH 进程);子进程退出自动重启;物化失败可重试;下载有 256MB 上限与 60s 超时;cookie 导出/恢复有 30s 超时;
 - **视图可见性**:所有任务键(DSH 会话)共用一个 `BrowserWindow`，每个任务有隔离视图；页面任务管理器选择可见任务，`showView` 对后台任务只更新其活动视图，不改变用户当前选择。切换仅用 `setVisible`，绝不 remove/re-add（capture 的 CDP 兜底仍只临时 detach/restore 同窗口兄弟视图）；
-- **任务状态传递**:宿主以一个原子消息发送所有任务摘要，以及当前选中任务的活动视图操作轨迹；摘要中的 URL 只保留 origin，避免泄露完整路径与查询参数；
-- **任务缩略图**:缩略图使用原生 `capturePage` 生成 JPEG data URL，最长边限制为 288px、质量 58、上限 180 KiB。仅可见任务的捕获会去抖并以 best-effort 执行；捕获流程不得改变视图可见性、焦点或层级，后台任务保留最后成功图像。
+- **任务状态传递**:页面首次挂载、导航重装 chrome 或任务切换时接收完整 bootstrap；常规状态、任务卡、面板和轨迹变化使用带 epoch/revision 的增量 patch。摘要中的 URL 只保留 origin，避免泄露完整路径与查询参数；
+- **任务缩略图**:缩略图使用原生 `capturePage` 生成 JPEG data URL，最长边限制为 288px、质量 58、上限 180 KiB。仅在任务面板打开时为可见任务按需捕获，单飞、最短 2 秒间隔、32 项缓存；后台任务保留最后成功图像。
 - **孤儿防护**:父进程断开时子进程自动退出,不留僵尸窗口;
 - **cookie 落盘**:子进程使用独立 userData 目录(`<DSH_HOME>/dsh-browser-plus-host`),登录态跨重启保留(另有 `browser_auth` 手动导出/恢复)。
 

@@ -8,9 +8,9 @@
  */
 import { Context, Service } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import type { BrowserClickRequest, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserDownloadRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserNavigateRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserScreenshotRequest, BrowserScreenshotResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTypeRequest, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, BrowserChallenge, ExportedCookie } from './types.ts';
+import type { BrowserClickRequest, BrowserContentRequest, BrowserHandoffState, BrowserContentResult, BrowserDoubleClickRequest, BrowserDownloadRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserNavigateRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScreenshotRequest, BrowserScreenshotResult, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTaskInfo, BrowserTaskUpdate, BrowserTab, BrowserTypeRequest, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, BrowserChallenge, ExportedCookie } from './types.ts';
 export { BrowserError, } from './types.ts';
-export type { BrowserChallenge, BrowserClickRequest, BrowserContentFormat, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserDownloadRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillField, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserNavigateRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserScreenshotRequest, BrowserScreenshotResult, BrowserSessionId, BrowserSnapshotElement, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTypeRequest, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie, } from './types.ts';
+export type { BrowserChallenge, BrowserClickRequest, BrowserContentFormat, BrowserControlOwner, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserDownloadRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillField, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserHoverRequest, BrowserNavigateRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScreenshotRequest, BrowserScreenshotResult, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotElement, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTaskInfo, BrowserTaskStatus, BrowserTaskUpdate, BrowserTab, BrowserTypeRequest, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie, } from './types.ts';
 declare module '@deepseek-ai/cordis' {
     interface Context {
         browser: BrowserRuntime;
@@ -66,10 +66,22 @@ export declare class BrowserRuntime extends Service {
     reset(session: BrowserSessionId): Promise<void>;
     /** Navigate the session's page through the selected provider. */
     navigate(session: BrowserSessionId, request: BrowserNavigateRequest, signal?: AbortSignal): Promise<void>;
+    /** Navigate to the previous history entry through the selected provider. */
+    back(session: BrowserSessionId, signal?: AbortSignal): Promise<boolean>;
+    /** Navigate to the next history entry through the selected provider. */
+    forward(session: BrowserSessionId, signal?: AbortSignal): Promise<boolean>;
+    /** Reload the active page through the selected provider. */
+    reload(session: BrowserSessionId, signal?: AbortSignal): Promise<void>;
+    /** Stop loading the active page through the selected provider. */
+    stopLoading(session: BrowserSessionId, signal?: AbortSignal): Promise<void>;
     /** Execute JS in the session's page context through the selected provider. */
     execute(session: BrowserSessionId, request: BrowserExecuteRequest, signal?: AbortSignal): Promise<BrowserExecuteResult>;
     /** Produce an AI-friendly snapshot of the session's page. */
     snapshot(session: BrowserSessionId, signal?: AbortSignal): Promise<BrowserSnapshotResult>;
+    /** Click one element referenced by an exact snapshot. */
+    clickRef(session: BrowserSessionId, request: BrowserRefRequest, signal?: AbortSignal): Promise<void>;
+    /** Scroll one element referenced by an exact snapshot into view. */
+    scrollIntoView(session: BrowserSessionId, request: BrowserScrollIntoViewRequest, signal?: AbortSignal): Promise<BrowserScrollResult>;
     /** Fetch page content in a requested format. */
     content(session: BrowserSessionId, request: BrowserContentRequest, signal?: AbortSignal): Promise<BrowserContentResult>;
     /** Click at viewport coordinates through the selected provider. */
@@ -78,6 +90,8 @@ export declare class BrowserRuntime extends Service {
     doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void>;
     /** Move the pointer to viewport coordinates through the selected provider. */
     hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void>;
+    /** Scroll the active page through the selected provider. */
+    scroll(session: BrowserSessionId, request: BrowserScrollRequest, signal?: AbortSignal): Promise<BrowserScrollResult>;
     /** Attach a local file to a file input through the selected provider. */
     uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult>;
     /** Wait for an element through the selected provider (bounded polling). */
@@ -108,6 +122,14 @@ export declare class BrowserRuntime extends Service {
     setSpace(session: BrowserSessionId, label: string): Promise<void>;
     /** List browser tasks (legacy spaces) with labels through the selected provider. */
     listSpaces(): Promise<readonly BrowserSpaceInfo[]>;
+    /** List browser tasks with live collaboration status through the provider. */
+    listTasks(): Promise<readonly BrowserTaskInfo[]>;
+    /** Read one session's task collaboration state through the provider. */
+    getTask(session: BrowserSessionId): Promise<BrowserTaskInfo>;
+    /** Update one session's visible task state through the provider. */
+    updateTask(session: BrowserSessionId, update: BrowserTaskUpdate): Promise<BrowserTaskInfo>;
+    /** Mark one session as waiting for the user or returned to Agent control. */
+    setHandoff(session: BrowserSessionId, state: BrowserHandoffState): Promise<BrowserTaskInfo>;
     /** Close the session through the selected provider. Idempotent; a missing
      *  provider is treated as already-closed so teardown paths stay no-ops. */
     close(session: BrowserSessionId): Promise<void>;

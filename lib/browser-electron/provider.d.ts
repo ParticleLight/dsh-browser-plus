@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser-plus/browser-electron
  */
-import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -46,6 +46,12 @@ export interface ElectronBrowserViewHost {
         key: string;
         label: string;
     }>>;
+    /** List task summaries when the host exposes a visible workspace. */
+    listTasks?(): Promise<readonly BrowserTaskInfo[]>;
+    /** Read one task summary from the visible workspace. */
+    getTask?(key: string): Promise<BrowserTaskInfo | undefined>;
+    /** Apply a task status/control update to the visible workspace. */
+    updateTask?(key: string, update: BrowserTaskUpdate): Promise<BrowserTaskInfo | undefined>;
 }
 /**
  * A CDP-capable view handle. This is the subset of Electron's
@@ -115,6 +121,11 @@ export declare const CDP_RUNTIME_EVALUATE = "Runtime.evaluate";
 export declare const CDP_INPUT_DISPATCH_KEY_EVENT = "Input.dispatchKeyEvent";
 /** CDP method for navigation. */
 export declare const CDP_PAGE_NAVIGATE = "Page.navigate";
+/** CDP methods used by native browser navigation controls. */
+export declare const CDP_PAGE_GET_NAVIGATION_HISTORY = "Page.getNavigationHistory";
+export declare const CDP_PAGE_NAVIGATE_TO_HISTORY_ENTRY = "Page.navigateToHistoryEntry";
+export declare const CDP_PAGE_RELOAD = "Page.reload";
+export declare const CDP_PAGE_STOP_LOADING = "Page.stopLoading";
 /**
  * Browser provider over Electron views. Sessions hold an ordered list of
  * tabs; each tab is one view created by the host. The active tab receives
@@ -126,6 +137,7 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     private readonly host;
     readonly id = "electron";
     private readonly sessions;
+    private readonly taskStates;
     private readonly httpOnly;
     private readonly snapshotMaxElements;
     private readonly contentMaxChars;
@@ -154,10 +166,22 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     navigate(session: BrowserSessionId, request: {
         readonly url: string;
     }, signal?: AbortSignal): Promise<void>;
+    /** Navigate to the previous history entry when one exists. */
+    back(session: BrowserSessionId, signal?: AbortSignal): Promise<boolean>;
+    /** Navigate to the next history entry when one exists. */
+    forward(session: BrowserSessionId, signal?: AbortSignal): Promise<boolean>;
+    /** Reload the active page and restore the browser chrome afterwards. */
+    reload(session: BrowserSessionId, signal?: AbortSignal): Promise<void>;
+    /** Stop loading the active page. */
+    stopLoading(session: BrowserSessionId, signal?: AbortSignal): Promise<void>;
     /** Execute JS in the active tab's page context. */
     execute(session: BrowserSessionId, request: BrowserExecuteRequest, signal?: AbortSignal): Promise<BrowserExecuteResult>;
     /** Produce an AI-friendly snapshot of the active tab. */
     snapshot(session: BrowserSessionId, signal?: AbortSignal): Promise<BrowserSnapshotResult>;
+    /** Click one element that belongs to a retained exact page snapshot. */
+    clickRef(session: BrowserSessionId, request: BrowserRefRequest, signal?: AbortSignal): Promise<void>;
+    /** Scroll one element that belongs to a retained exact page snapshot into view. */
+    scrollIntoView(session: BrowserSessionId, request: BrowserScrollIntoViewRequest, signal?: AbortSignal): Promise<BrowserScrollResult>;
     /** Check whether a human-verification challenge is blocking the active tab. */
     detectChallenge(session: BrowserSessionId, signal?: AbortSignal): Promise<BrowserChallenge>;
     /** Fetch page content in a requested format. */
@@ -171,6 +195,8 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void>;
     /** Move the pointer to viewport coordinates (hover; no click). */
     hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void>;
+    /** Scroll the active page by CSS-pixel deltas and return the final position. */
+    scroll(session: BrowserSessionId, request: BrowserScrollRequest, signal?: AbortSignal): Promise<BrowserScrollResult>;
     /**
      * Attach a local file to the first matching file input. Uses the CDP DOM
      * domain (nodeId path), which — unlike a synthetic change event — makes the
@@ -235,6 +261,14 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     setSpace(session: BrowserSessionId, label: string): Promise<void>;
     /** List every browser task (space) with its label. */
     listSpaces(): Promise<readonly BrowserSpaceInfo[]>;
+    /** List browser tasks with live collaboration status. */
+    listTasks(): Promise<readonly BrowserTaskInfo[]>;
+    /** Read the collaboration state for one session's task. */
+    getTask(session: BrowserSessionId): Promise<BrowserTaskInfo>;
+    /** Apply one visible task state update and mirror it to a supporting host. */
+    updateTask(session: BrowserSessionId, update: BrowserTaskUpdate): Promise<BrowserTaskInfo>;
+    /** Hand control to the user or return it to Agent-driven actions. */
+    setHandoff(session: BrowserSessionId, state: BrowserHandoffState): Promise<BrowserTaskInfo>;
     /** Append one operation to the session's history. */
     private record;
     /** Return the session's chronological operation log (newest last). */
@@ -253,6 +287,18 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     private session;
     /** The active tab of a session. */
     private activeTab;
+    /** Navigate through the browser history while preserving page readiness behavior. */
+    private navigateHistory;
+    /** Drop every reference that was captured before a document transition. */
+    private invalidateSnapshots;
+    /** Resolve one exact snapshot reference, rejecting any changed or missing target. */
+    private resolveSnapshotTarget;
+    /** Sync provider fallback cache from the host's authoritative workspace state. */
+    private rememberHostedTask;
+    /** Build the provider-side task summary when a host has no richer workspace. */
+    private localTaskInfo;
+    /** Create a tab with its short-lived snapshot reference store. */
+    private createTab;
     /** Append a fresh tab and make it active. */
     private newTab;
     /** Notify the host of the active tab; it preserves the human-selected task view. */

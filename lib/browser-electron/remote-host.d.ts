@@ -16,7 +16,7 @@
  * @module dsh-browser-plus/browser-electron/remote-host
  */
 import type { ElectronBrowserViewHost, ElectronViewHandle } from './provider.ts';
-import type { ExportedCookie } from '../browser/types.ts';
+import type { BrowserTaskInfo, BrowserTaskUpdate, ExportedCookie } from '../browser/types.ts';
 /** Select the one Electron version this plugin supports; exported for behavior tests. */
 export declare function selectSupportedElectronPath(candidates: ReadonlyArray<{
     version: string;
@@ -47,9 +47,9 @@ declare class ElectronChildClient {
     /** Accept the child's connection (called by the server). */
     attach(socket: import('node:net').Socket): void;
     private onData;
-    /** Send one command and await the reply. */
-    call<T = unknown>(op: string, payload?: Record<string, unknown>): Promise<T>;
-    /** Terminate the child. */
+    /** Send one bounded command and await the reply. */
+    call<T = unknown>(op: string, payload?: Record<string, unknown>, timeoutMs?: number): Promise<T>;
+    /** Terminate the child and its loopback connection. */
     kill(): void;
 }
 /** One view in the child: its id, used for every command. */
@@ -105,6 +105,12 @@ export declare class RemoteElectronViewHost implements ElectronBrowserViewHost {
         key: string;
         label: string;
     }>>;
+    /** List task summaries from the self-hosted visible workspace. */
+    listTasks(): Promise<readonly BrowserTaskInfo[]>;
+    /** Read one task summary from the self-hosted visible workspace. */
+    getTask(key: string): Promise<BrowserTaskInfo | undefined>;
+    /** Update one task summary in the self-hosted visible workspace. */
+    updateTask(key: string, task: BrowserTaskUpdate): Promise<BrowserTaskInfo | undefined>;
     /** Shut the child and the RPC server down. */
     dispose(): void;
 }

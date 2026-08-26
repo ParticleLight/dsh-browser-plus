@@ -12,8 +12,8 @@
 
 - **真实可见**：Electron `WebContentsView`，不是 headless relay。
 - **任务隔离**：所有 DSH session 共享一个可见窗口，但各自保留隔离的任务视图、标签与历史；页面任务管理器切换可见视图，`browser_space` 命名浏览器任务。
-- **人机协作**：页面工具栏、书签、任务工作区与操作轨迹都在真实页面上运行。
-- **玻璃工作区**：任务与操作轨迹是彼此独立的半透明玻璃面板，可同时打开；选择任务会切换可见任务视图及其操作轨迹。每项任务显示最近一次可见页面缩略图；后台任务保留最后图像，周期定时器不会强制显示或捕获它们。
+- **人机协作**：工具栏默认隐入页面上方，顶部中间悬停后可展开；书签、任务工作区与操作轨迹都在真实页面上运行，用户可在工具栏最右侧接管或显式交还给 Agent。
+- **玻璃工作区**：任务与操作轨迹是彼此独立的半透明玻璃面板，可同时打开；每项任务显示执行中、等待用户、用户接管、失败或空闲状态。缩略图仅在任务面板打开时为当前可见任务按需刷新，后台任务保留最后图像。
 
 ![dsh-browser-plus 任务工作区](assets/readme-glass-workspace.png)
 
@@ -34,12 +34,14 @@ dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 | 场景 | 工具 |
 | --- | --- |
 | 打开与读取 | `browser_open`、`browser_snapshot`、`browser_content`、`browser_screenshot` |
+| 语义导航 | `browser_back`、`browser_forward`、`browser_reload`、`browser_stop`、`browser_scroll` |
+| 快照引用 | `browser_click_ref`、`browser_scroll_into_view` |
 | 页面交互 | `browser_click`、`browser_press_key`、`browser_double_click`、`browser_hover`、`browser_type` |
 | 表单与文件 | `browser_fill`、`browser_upload_file`、`browser_wait_for` |
-| 任务与标签 | `browser_list_tabs`、`browser_switch_tab`、`browser_close_tab`、`browser_space` |
+| 任务与交接 | `browser_tasks`、`browser_handoff`、`browser_list_tabs`、`browser_switch_tab`、`browser_close_tab`、`browser_space` |
 | 登录与恢复 | `browser_auth`、`browser_reset_session`、`browser_history` |
 
-快照元素带有 `loc=`，能可靠回到同一个控件；页面级脚本会自动过滤浏览器自身 chrome。
+快照返回短生命周期的 `snapshotId` 与元素引用；优先用 `browser_click_ref` 或 `browser_scroll_into_view` 操作，页面变化后重新快照。页面级脚本会自动过滤浏览器自身 chrome。
 
 ## 工作方式
 
@@ -51,7 +53,7 @@ browser_* tools
   -> host-main.js (BrowserWindow + WebContentsView)
 ```
 
-页面 chrome 和任务管理器通过 closed Shadow DOM 注入，而不是第二个 Electron view；后台任务更新自己的隔离视图，不会抢走用户当前可见页面。
+页面 chrome 和任务管理器通过 closed Shadow DOM 注入，而不是第二个 Electron view；任务状态与轨迹以版本化增量消息同步，后台任务更新自己的隔离视图，不会抢走用户当前可见页面。
 
 `alert`、`confirm`、`prompt` 会自动接受，避免页面卡死；下一次页面操作会把详情记到 `browser_history` 的 `dialog` 条目。
 
@@ -69,7 +71,8 @@ browser_* tools
 ```sh
 npm install
 npm run build
-node --test test/host-composition.test.mjs test/page-chrome.test.mjs test/provider-actions.test.mjs
+npm test
+npm run smoke:electron-host # 需要本地 DSH Web 已启动；验证真实 Electron Host 导航与页面交接
 ```
 
 贡献方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。更完整的使用说明在 [docs](docs/README.md)。

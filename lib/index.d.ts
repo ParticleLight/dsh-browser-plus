@@ -9,7 +9,7 @@
  * @module dsh-browser-plus
  */
 export { BrowserError } from './browser/types.ts';
-export type { BrowserChallenge, BrowserClickRequest, BrowserContentFormat, BrowserContentRequest, BrowserContentResult, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillField, BrowserFillRequest, BrowserFillResult, BrowserNavigateRequest, BrowserOpenRequest, BrowserProvider, BrowserScreenshotRequest, BrowserScreenshotResult, BrowserSessionId, BrowserSnapshotElement, BrowserSnapshotResult, BrowserTab, BrowserTypeRequest, ExportedCookie, } from './browser/types.ts';
+export type { BrowserChallenge, BrowserClickRequest, BrowserContentFormat, BrowserControlOwner, BrowserContentRequest, BrowserContentResult, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillField, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserNavigateRequest, BrowserOpenRequest, BrowserProvider, BrowserRefRequest, BrowserScreenshotRequest, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserScreenshotResult, BrowserSessionId, BrowserSnapshotElement, BrowserSnapshotResult, BrowserTab, BrowserTaskInfo, BrowserTaskStatus, BrowserTaskUpdate, BrowserTypeRequest, ExportedCookie, } from './browser/types.ts';
 export { BrowserRuntime } from './browser/runtime.ts';
 export { ElectronBrowserProvider } from './browser-electron/provider.ts';
 export type { ElectronBrowserViewHost, ElectronViewHandle } from './browser-electron/provider.ts';

@@ -71,6 +71,40 @@ export interface BrowserHoverRequest {
   readonly y: number
 }
 
+/** Scroll the active page by a CSS-pixel delta. */
+export interface BrowserScrollRequest {
+  /** Horizontal delta in CSS pixels. Default 0. */
+  readonly deltaX?: number
+  /** Vertical delta in CSS pixels. Default one viewport height downward. */
+  readonly deltaY?: number
+}
+
+/** Final page scroll position after a scroll operation. */
+export interface BrowserScrollResult {
+  /** Horizontal scroll offset in CSS pixels. */
+  readonly x: number
+  /** Vertical scroll offset in CSS pixels. */
+  readonly y: number
+  /** Maximum horizontal scroll offset in CSS pixels. */
+  readonly maxX: number
+  /** Maximum vertical scroll offset in CSS pixels. */
+  readonly maxY: number
+}
+
+/** One element reference from a specific browser snapshot. */
+export interface BrowserRefRequest {
+  /** Opaque id returned by browser_open or browser_snapshot. */
+  readonly snapshotId: string
+  /** Element reference number from that snapshot. */
+  readonly ref: number
+}
+
+/** Scroll one referenced element into the visible viewport. */
+export interface BrowserScrollIntoViewRequest extends BrowserRefRequest {
+  /** Vertical alignment for the referenced element. Default center. */
+  readonly block?: 'start' | 'center' | 'end' | 'nearest'
+}
+
 /** Set a file input's value from a local path. */
 export interface BrowserUploadFileRequest {
   /** Absolute path of the file to attach. */
@@ -240,6 +274,8 @@ export interface BrowserSnapshotElement {
  * elements plus page facts. Not raw HTML — the model dialogues with this.
  */
 export interface BrowserSnapshotResult {
+  /** Opaque id that binds the element references to this exact page snapshot. */
+  readonly snapshotId: string
   /** Final page URL. */
   readonly url: string
   /** Page title, if any. */
@@ -333,6 +369,41 @@ export interface BrowserSpaceInfo {
   readonly label: string
 }
 
+/** Visible activity state for a browser task. */
+export type BrowserTaskStatus = 'idle' | 'running' | 'waiting-user' | 'failed'
+
+/** Which collaborator currently owns page-changing actions. */
+export type BrowserControlOwner = 'agent' | 'human'
+
+/** Intentional Agent-to-human handoff mode. */
+export type BrowserHandoffState = 'waiting-user' | 'agent'
+
+/** Compact task information shared by browser tools and the visible workspace. */
+export interface BrowserTaskInfo extends BrowserSpaceInfo {
+  /** Whether this task is currently visible in the shared browser window. */
+  readonly active: boolean
+  /** Number of tabs in the task's session. */
+  readonly tabs: number
+  /** Current visible activity state. */
+  readonly status: BrowserTaskStatus
+  /** Who currently owns page-changing actions. */
+  readonly control: BrowserControlOwner
+  /** Latest completed or in-progress operation, when known. */
+  readonly latestAction?: string
+  /** Epoch milliseconds of the last task-state change. */
+  readonly updatedAt: number
+  /** Short display-safe failure detail, when the task failed. */
+  readonly error?: string
+}
+
+/** Partial task-state update produced by the tool and provider layers. */
+export interface BrowserTaskUpdate {
+  readonly status?: BrowserTaskStatus
+  readonly control?: BrowserControlOwner
+  readonly latestAction?: string
+  readonly error?: string
+}
+
 /**
  * A browser-capable backend. Registered with `ctx.browser.registerBrowserProvider`.
  * `id` is a stable string, unique across the seam.
@@ -359,10 +430,22 @@ export interface BrowserProvider {
   reset(session: BrowserSessionId): Promise<void>
   /** Navigate the active tab. Honor `signal` for cancellation. */
   navigate(session: BrowserSessionId, request: BrowserNavigateRequest, signal?: AbortSignal): Promise<void>
+  /** Navigate to the previous history entry when one exists. */
+  back(session: BrowserSessionId, signal?: AbortSignal): Promise<boolean>
+  /** Navigate to the next history entry when one exists. */
+  forward(session: BrowserSessionId, signal?: AbortSignal): Promise<boolean>
+  /** Reload the active page. */
+  reload(session: BrowserSessionId, signal?: AbortSignal): Promise<void>
+  /** Stop loading the active page. */
+  stopLoading(session: BrowserSessionId, signal?: AbortSignal): Promise<void>
   /** Execute JS in the active tab's page context. */
   execute(session: BrowserSessionId, request: BrowserExecuteRequest, signal?: AbortSignal): Promise<BrowserExecuteResult>
   /** Produce an AI-friendly snapshot of the active tab. */
   snapshot(session: BrowserSessionId, signal?: AbortSignal): Promise<BrowserSnapshotResult>
+  /** Click one element referenced by an exact snapshot. */
+  clickRef(session: BrowserSessionId, request: BrowserRefRequest, signal?: AbortSignal): Promise<void>
+  /** Scroll one element referenced by an exact snapshot into view. */
+  scrollIntoView(session: BrowserSessionId, request: BrowserScrollIntoViewRequest, signal?: AbortSignal): Promise<BrowserScrollResult>
   /** Check whether a human-verification challenge is blocking the active tab. */
   detectChallenge(session: BrowserSessionId, signal?: AbortSignal): Promise<BrowserChallenge>
   /** Fetch page content in a requested format. */
@@ -377,6 +460,8 @@ export interface BrowserProvider {
   doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void>
   /** Move the pointer to viewport coordinates (hover). Honor `signal` for cancellation. */
   hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void>
+  /** Scroll the active page by CSS-pixel deltas. */
+  scroll(session: BrowserSessionId, request: BrowserScrollRequest, signal?: AbortSignal): Promise<BrowserScrollResult>
   /** Attach a local file to a file input. Honor `signal` for cancellation. */
   uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult>
   /** Wait until an element matching the selector exists (and optionally is visible). Honor `signal` for cancellation. */
@@ -399,6 +484,14 @@ export interface BrowserProvider {
   setSpace(session: BrowserSessionId, label: string): Promise<void>
   /** List browser tasks (legacy spaces) with their labels. */
   listSpaces(): Promise<readonly BrowserSpaceInfo[]>
+  /** List browser tasks with live collaboration status. */
+  listTasks(): Promise<readonly BrowserTaskInfo[]>
+  /** Read the collaboration state of this session's task. */
+  getTask(session: BrowserSessionId): Promise<BrowserTaskInfo>
+  /** Apply a visible activity/control update to this session's task. */
+  updateTask(session: BrowserSessionId, update: BrowserTaskUpdate): Promise<BrowserTaskInfo>
+  /** Mark this task as waiting for the user or returned to Agent control. */
+  setHandoff(session: BrowserSessionId, state: BrowserHandoffState): Promise<BrowserTaskInfo>
   /** Close the session and destroy its backing surface. Idempotent. */
   close(session: BrowserSessionId): Promise<void>
 }

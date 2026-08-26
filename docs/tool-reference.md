@@ -1,13 +1,18 @@
 # 工具参考
 
-全部 26 个 `browser_*` 工具。守卫列:✅ 表示该动作受 `browser_restrict` 白名单约束;只读工具永不拦截。
+全部 35 个 `browser_*` 工具。守卫列:✅ 表示该动作受 `browser_restrict` 白名单约束;只读工具永不拦截。
 
 ## 页面与导航
 
 | 工具 | 参数 | 输出 | 守卫 | 说明 |
 | --- | --- | --- | --- | --- |
-| `browser_open` | `url`(必填), `newTab?` | 快照(url/title/elements/truncated/challenge) | ✅ | 打开 URL,返回带编号元素的快照;`newTab: true` 在新标签打开 |
-| `browser_snapshot` | – | 快照 | – | 交互元素(输入框/按钮/链接)编号清单,供定位与点击 |
+| `browser_open` | `url`(必填), `newTab?` | 快照(snapshotId/url/title/elements/truncated/challenge) | ✅ | 打开 URL,返回带编号元素和短生命周期 `snapshotId`;`newTab: true` 在新标签打开 |
+| `browser_snapshot` | – | 快照 | – | 交互元素(输入框/按钮/链接)编号清单和 `snapshotId`,供精确定位 |
+| `browser_back` | – | `{ navigated }` | ✅ | 返回上一条历史;没有上一页时返回 `false` |
+| `browser_forward` | – | `{ navigated }` | ✅ | 前进到下一条历史;没有下一页时返回 `false` |
+| `browser_reload` | – | `{ reloaded }` | ✅ | 刷新当前页 |
+| `browser_stop` | – | `{ stopped }` | ✅ | 停止当前页加载 |
+| `browser_scroll` | `deltaX?`, `deltaY?` | `{ x,y,maxX,maxY }` | ✅ | 按 CSS 像素滚动;无参数时向下一个视口 |
 | `browser_wait_for` | `selector`(必填), `timeoutMs?`, `visible?` | `{ found, selector, tag, text? }` | ✅ | 等待 CSS 选择器匹配的元素出现且可见(250ms 轮询,默认 15s 超时);SPA 动态内容交互前使用 |
 | `browser_content` | `format`(html/markdown/txt/json,必填), `selector?`, `maxChars?`, `timeoutMs?` | `{ content, truncated }` | – | 抓取页面内容;`selector` 限定区域 |
 | `browser_challenge` | – | `{ blocked, kind?, reason?, hint? }` | – | 检测人机验证(CAPTCHA/Cloudflare/reCAPTCHA/hCaptcha/Turnstile);阻塞时请用户处理 |
@@ -16,7 +21,9 @@
 
 | 工具 | 参数 | 输出 | 守卫 | 说明 |
 | --- | --- | --- | --- | --- |
-| `browser_execute` | `script`(必填), `args?` | `{ ok, value? / exception? }` | ✅ | 在页面执行 JS;脚本以 `return` 开头或作为表达式;`args` 以 `arguments[0..n]` 传入 |
+| `browser_click_ref` | `snapshotId`, `ref`(必填) | `{ clicked }` | ✅ | 以快照引用进行真实 CDP 点击;页面变化后返回过期引用错误并要求重新快照 |
+| `browser_scroll_into_view` | `snapshotId`, `ref`, `block?` | `{ scrolled,x,y,maxX,maxY }` | ✅ | 将快照引用元素滚入可见区域 |
+| `browser_execute` | `script`(必填), `args?` | `{ ok, value? / exception? }` | ✅ | 仅在引用、表单和原生浏览工具无法表达时执行页面 JS |
 | `browser_click` | `x`, `y`(必填) | `{ clicked }` | ✅ | 视口坐标点击(配合截图做视觉定位) |
 | `browser_double_click` | `x`, `y`(必填) | `{ clicked }` | ✅ | 视口坐标双击(选中文本、展开忽略单击的 UI) |
 | `browser_hover` | `x`, `y`(必填) | `{ hovered }` | ✅ | 视口坐标悬停不点击(触发 hover 态、tooltip、下拉菜单) |
@@ -35,6 +42,8 @@
 | `browser_reset` | – | `{ reset }` | ✅ | 关闭本任务所有标签,回到一个空白标签 |
 | `browser_session` | – | `{ session, tabs[] }` | – | 查看本任务的浏览器会话与标签 |
 | `browser_space` | `label?` | `{ label? / spaces[] }` | – | 命名本浏览器任务或列出浏览器任务；页面任务管理器控制哪个隔离任务视图显示在共享窗口中 |
+| `browser_tasks` | – | `{ tasks[] }` | – | 查看每个任务的状态、控制方、标签页数、最近动作和错误摘要 |
+| `browser_handoff` | `state`(`waiting-user` / `agent`) | 当前任务状态 | – | 让 Agent 等待用户操作，或在用户交还后恢复 Agent 控制 |
 | `browser_reset_session` | – | `{ reset }` | ✅ | 关闭并重建本任务的浏览器会话(崩溃/卡死后恢复) |
 
 ## 历史与下载
@@ -62,7 +71,7 @@
 
 **调研一个网站**
 ```
-browser_open https://site → browser_content format=markdown → browser_snapshot → 逐页浏览
+browser_open https://site → browser_content format=markdown → browser_snapshot → browser_click_ref(snapshotId, ref) → 逐页浏览
 ```
 
 **登录并下载文件**
@@ -83,6 +92,6 @@ browser_reset_session → browser_open(重新开始)
 
 **遇到验证码**
 ```
-browser_challenge → 阻塞 → 提示用户:"页面出现人机验证,请在共享浏览器窗口完成,完成后告诉我" →
+browser_challenge → browser_handoff state=waiting-user → 用户在共享窗口完成验证并交还 Agent →
 browser_snapshot 复查
 ```

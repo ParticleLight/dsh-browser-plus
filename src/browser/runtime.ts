@@ -12,6 +12,7 @@ import z from '@deepseek-ai/schemastery'
 import type {
   BrowserClickRequest,
   BrowserContentRequest,
+  BrowserHandoffState,
   BrowserContentResult,
   BrowserDoubleClickRequest,
   BrowserDownloadRequest,
@@ -26,11 +27,17 @@ import type {
   BrowserOpenRequest,
   BrowserPressKeyRequest,
   BrowserProvider,
+  BrowserRefRequest,
   BrowserScreenshotRequest,
   BrowserScreenshotResult,
+  BrowserScrollIntoViewRequest,
+  BrowserScrollRequest,
+  BrowserScrollResult,
   BrowserSessionId,
   BrowserSnapshotResult,
   BrowserSpaceInfo,
+  BrowserTaskInfo,
+  BrowserTaskUpdate,
   BrowserTab,
   BrowserTypeRequest,
   BrowserUploadFileRequest,
@@ -49,6 +56,7 @@ export type {
   BrowserChallenge,
   BrowserClickRequest,
   BrowserContentFormat,
+  BrowserControlOwner,
   BrowserContentRequest,
   BrowserContentResult,
   BrowserDoubleClickRequest,
@@ -58,6 +66,7 @@ export type {
   BrowserFillField,
   BrowserFillRequest,
   BrowserFillResult,
+  BrowserHandoffState,
   BrowserHistoryEntry,
   BrowserHoverRequest,
   BrowserNavigateRequest,
@@ -65,12 +74,19 @@ export type {
   BrowserOpenRequest,
   BrowserPressKeyRequest,
   BrowserProvider,
+  BrowserRefRequest,
   BrowserScreenshotRequest,
   BrowserScreenshotResult,
+  BrowserScrollIntoViewRequest,
+  BrowserScrollRequest,
+  BrowserScrollResult,
   BrowserSessionId,
   BrowserSnapshotElement,
   BrowserSnapshotResult,
   BrowserSpaceInfo,
+  BrowserTaskInfo,
+  BrowserTaskStatus,
+  BrowserTaskUpdate,
   BrowserTab,
   BrowserTypeRequest,
   BrowserUploadFileRequest,
@@ -203,6 +219,26 @@ export class BrowserRuntime extends Service {
     return this.resolveProvider().navigate(session, request, signal)
   }
 
+  /** Navigate to the previous history entry through the selected provider. */
+  async back(session: BrowserSessionId, signal?: AbortSignal): Promise<boolean> {
+    return this.resolveProvider().back(session, signal)
+  }
+
+  /** Navigate to the next history entry through the selected provider. */
+  async forward(session: BrowserSessionId, signal?: AbortSignal): Promise<boolean> {
+    return this.resolveProvider().forward(session, signal)
+  }
+
+  /** Reload the active page through the selected provider. */
+  async reload(session: BrowserSessionId, signal?: AbortSignal): Promise<void> {
+    return this.resolveProvider().reload(session, signal)
+  }
+
+  /** Stop loading the active page through the selected provider. */
+  async stopLoading(session: BrowserSessionId, signal?: AbortSignal): Promise<void> {
+    return this.resolveProvider().stopLoading(session, signal)
+  }
+
   /** Execute JS in the session's page context through the selected provider. */
   async execute(session: BrowserSessionId, request: BrowserExecuteRequest, signal?: AbortSignal): Promise<BrowserExecuteResult> {
     return this.resolveProvider().execute(session, request, signal)
@@ -211,6 +247,16 @@ export class BrowserRuntime extends Service {
   /** Produce an AI-friendly snapshot of the session's page. */
   async snapshot(session: BrowserSessionId, signal?: AbortSignal): Promise<BrowserSnapshotResult> {
     return this.resolveProvider().snapshot(session, signal)
+  }
+
+  /** Click one element referenced by an exact snapshot. */
+  async clickRef(session: BrowserSessionId, request: BrowserRefRequest, signal?: AbortSignal): Promise<void> {
+    return this.resolveProvider().clickRef(session, request, signal)
+  }
+
+  /** Scroll one element referenced by an exact snapshot into view. */
+  async scrollIntoView(session: BrowserSessionId, request: BrowserScrollIntoViewRequest, signal?: AbortSignal): Promise<BrowserScrollResult> {
+    return this.resolveProvider().scrollIntoView(session, request, signal)
   }
 
   /** Fetch page content in a requested format. */
@@ -231,6 +277,11 @@ export class BrowserRuntime extends Service {
   /** Move the pointer to viewport coordinates through the selected provider. */
   async hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void> {
     return this.resolveProvider().hover(session, request, signal)
+  }
+
+  /** Scroll the active page through the selected provider. */
+  async scroll(session: BrowserSessionId, request: BrowserScrollRequest, signal?: AbortSignal): Promise<BrowserScrollResult> {
+    return this.resolveProvider().scroll(session, request, signal)
   }
 
   /** Attach a local file to a file input through the selected provider. */
@@ -301,6 +352,26 @@ export class BrowserRuntime extends Service {
   /** List browser tasks (legacy spaces) with labels through the selected provider. */
   async listSpaces(): Promise<readonly BrowserSpaceInfo[]> {
     return this.resolveProvider().listSpaces()
+  }
+
+  /** List browser tasks with live collaboration status through the provider. */
+  async listTasks(): Promise<readonly BrowserTaskInfo[]> {
+    return this.resolveProvider().listTasks()
+  }
+
+  /** Read one session's task collaboration state through the provider. */
+  async getTask(session: BrowserSessionId): Promise<BrowserTaskInfo> {
+    return this.resolveProvider().getTask(session)
+  }
+
+  /** Update one session's visible task state through the provider. */
+  async updateTask(session: BrowserSessionId, update: BrowserTaskUpdate): Promise<BrowserTaskInfo> {
+    return this.resolveProvider().updateTask(session, update)
+  }
+
+  /** Mark one session as waiting for the user or returned to Agent control. */
+  async setHandoff(session: BrowserSessionId, state: BrowserHandoffState): Promise<BrowserTaskInfo> {
+    return this.resolveProvider().setHandoff(session, state)
   }
 
   /** Close the session through the selected provider. Idempotent; a missing

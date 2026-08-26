@@ -38,7 +38,7 @@ browser_auth action="restore" cookies=<步骤1保存的JSON>
 
 ## 变更对使用者可见的部分
 
-- 工具新增:`browser_press_key`、`browser_double_click`、`browser_hover`、`browser_upload_file`、`browser_wait_for`、`browser_space`(共 26 个 `browser_*` 工具)。
+- 当前共 35 个 `browser_*` 工具；除输入、文件和任务工具外，新增语义导航、滚动、快照引用、任务状态与显式人机交接。
 - **一个共享可见浏览器窗口**，每个 DSH 任务保持隔离视图、标签与历史；页面任务管理器切换任务，后台任务操作不会抢走当前页面。`browser_space label="..."` 命名浏览器任务，空参列出任务。
 - JS 对话框自动 accept,记录见 `browser_history`(action `dialog`)。
 - Electron 锁定 **42.9.3**(43.4.1 组合器故障,勿升)。

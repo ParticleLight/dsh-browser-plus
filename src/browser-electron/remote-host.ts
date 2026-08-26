@@ -23,13 +23,17 @@ import { join } from 'node:path'
 import { createServer, type Server, type Socket } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import type { ElectronBrowserViewHost, ElectronViewHandle } from './provider.ts'
-import type { ExportedCookie } from '../browser/types.ts'
+import type { BrowserTaskInfo, BrowserTaskUpdate, ExportedCookie } from '../browser/types.ts'
 
 /** How long to wait for the child to signal readiness before failing. */
 const READY_TIMEOUT_MS = 20_000
 
 /** Safety cap on a single RPC reply line (base64 downloads are the big ones). */
 const MAX_RPC_BUFFER_BYTES = 512 * 1024 * 1024
+/** Bounded RPC budgets prevent a dead child from wedging model-facing tools. */
+const RPC_QUERY_TIMEOUT_MS = 8_000
+const RPC_COMMAND_TIMEOUT_MS = 35_000
+const RPC_TRANSFER_TIMEOUT_MS = 120_000
 
 /**
  * A recycled Electron child can report document-ready before its compositor
@@ -166,6 +170,7 @@ function dirname(p: string): string {
 interface Pending {
   resolve(result: unknown): void
   reject(err: Error): void
+  readonly timer: ReturnType<typeof setTimeout>
 }
 
 /**
@@ -286,15 +291,35 @@ class ElectronChildClient {
     }
   }
 
-  /** Send one command and await the reply. */
-  call<T = unknown>(op: string, payload: Record<string, unknown> = {}): Promise<T> {
+  /** Send one bounded command and await the reply. */
+  call<T = unknown>(op: string, payload: Record<string, unknown> = {}, timeoutMs = RPC_COMMAND_TIMEOUT_MS): Promise<T> {
     if (this.dead) {
       return Promise.reject(new Error('dsh-browser-plus: browser host is not running'))
     }
     const id = this.nextId++
     const line = JSON.stringify({ id, op, ...payload })
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject })
+      const settle = <TValue>(callback: (value: TValue) => void, value: TValue): void => {
+        clearTimeout(timer)
+        callback(value)
+      }
+      const timer = setTimeout(() => {
+        const pending = this.pending.get(id)
+        if (pending === undefined) return
+        this.pending.delete(id)
+        this.outbox = this.outbox.filter(queued => queued !== line)
+        const error = new Error('dsh-browser-plus: RPC ' + op + ' timed out after ' + String(timeoutMs) + 'ms')
+        pending.reject(error)
+        // A child that stopped answering cannot safely serve later operations.
+        // Tear it down so the next call follows the existing self-heal path.
+        this.fail(error)
+        try { this.child.kill() } catch { /* already exited */ }
+      }, timeoutMs)
+      this.pending.set(id, {
+        timer,
+        resolve: result => settle(resolve, result as T),
+        reject: error => settle(reject, error),
+      })
       if (this.connected && this.socket !== undefined) {
         this.socket.write(line + '\n')
       } else {
@@ -304,10 +329,10 @@ class ElectronChildClient {
     })
   }
 
-  /** Terminate the child. */
+  /** Terminate the child and its loopback connection. */
   kill(): void {
     try { this.socket?.destroy() } catch { /* already closed */ }
-    this.child.kill()
+    try { this.child.kill() } catch { /* already exited */ }
   }
 }
 
@@ -320,40 +345,40 @@ class RemoteView implements ElectronViewHandle {
       viewId: this.id,
       method,
       params: params ?? {},
-    })
+    }, RPC_COMMAND_TIMEOUT_MS)
   }
 
   /** Ask the child to download a URL to a local file (keeps cookies/login). */
   async download(url: string, savePath: string): Promise<void> {
-    const result = await this.client.call<{ base64: string }>('download', { viewId: this.id, url, savePath })
+    const result = await this.client.call<{ base64: string }>('download', { viewId: this.id, url, savePath }, RPC_TRANSFER_TIMEOUT_MS)
     writeFileSync(savePath, Buffer.from(result.base64, 'base64'))
   }
 
   /** Native capturePage snapshot of the view (PNG base64 + size). */
   capture(): Promise<{ base64: string; width: number; height: number }> {
-    return this.client.call<{ base64: string; width: number; height: number }>('capture', { viewId: this.id })
+    return this.client.call<{ base64: string; width: number; height: number }>('capture', { viewId: this.id }, RPC_TRANSFER_TIMEOUT_MS)
   }
 
   /** Export the session's cookies (login state). */
   flushAuth(): Promise<ExportedCookie[]> {
-    return this.client.call<{ cookies: ExportedCookie[] }>('flushAuth', { viewId: this.id }).then(r => r.cookies)
+    return this.client.call<{ cookies: ExportedCookie[] }>('flushAuth', { viewId: this.id }, RPC_COMMAND_TIMEOUT_MS).then(r => r.cookies)
   }
 
   /** Import cookies into the session (restore login state). */
   restoreAuth(cookies: ExportedCookie[]): Promise<number> {
-    return this.client.call<{ restored: number }>('restoreAuth', { viewId: this.id, cookies }).then(r => r.restored)
+    return this.client.call<{ restored: number }>('restoreAuth', { viewId: this.id, cookies }, RPC_COMMAND_TIMEOUT_MS).then(r => r.restored)
   }
 
   /** Read (and clear) the most recent auto-accepted JS dialog for the view. */
   async clearDialog(): Promise<unknown> {
     // client.call resolves the host's reply result directly (no wrapper), so
     // the dialog object arrives as-is; a null reply means nothing was raised.
-    return this.client.call<unknown>('drainDialog', { viewId: this.id })
+    return this.client.call<unknown>('drainDialog', { viewId: this.id }, RPC_QUERY_TIMEOUT_MS)
   }
 
   /** Set this view's browser-task label; selected task controls the shared title. */
   async label(label: string): Promise<void> {
-    await this.client.call('label', { viewId: this.id, label })
+    await this.client.call('label', { viewId: this.id, label }, RPC_COMMAND_TIMEOUT_MS)
   }
 }
 
@@ -417,7 +442,7 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
       this.pendingSocket = undefined
     }
     // Wait for the child's connection + readiness ping.
-    await withTimeout(this.client.call('ping'), READY_TIMEOUT_MS, 'browser host did not become ready')
+    await withTimeout(this.client.call('ping', {}, RPC_QUERY_TIMEOUT_MS), READY_TIMEOUT_MS, 'browser host did not become ready')
   }
 
   /** The child died: tear down so the next use starts a fresh child. */
@@ -488,8 +513,35 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
     await this.ready()
     const client = this.client
     if (client === undefined) throw new Error('browser host unavailable')
-    const r = await client.call<{ windows: Array<{ key: string; label: string }> }>('listWindows')
+    const r = await client.call<{ windows: Array<{ key: string; label: string }> }>('listWindows', {}, RPC_QUERY_TIMEOUT_MS)
     return r.windows
+  }
+
+  /** List task summaries from the self-hosted visible workspace. */
+  async listTasks(): Promise<readonly BrowserTaskInfo[]> {
+    await this.ready()
+    const client = this.client
+    if (client === undefined) throw new Error('browser host unavailable')
+    const result = await client.call<{ tasks: BrowserTaskInfo[] }>('listTasks', {}, RPC_QUERY_TIMEOUT_MS)
+    return result.tasks
+  }
+
+  /** Read one task summary from the self-hosted visible workspace. */
+  async getTask(key: string): Promise<BrowserTaskInfo | undefined> {
+    await this.ready()
+    const client = this.client
+    if (client === undefined) throw new Error('browser host unavailable')
+    const result = await client.call<{ task: BrowserTaskInfo | null }>('getTask', { key }, RPC_QUERY_TIMEOUT_MS)
+    return result.task ?? undefined
+  }
+
+  /** Update one task summary in the self-hosted visible workspace. */
+  async updateTask(key: string, task: BrowserTaskUpdate): Promise<BrowserTaskInfo | undefined> {
+    await this.ready()
+    const client = this.client
+    if (client === undefined) throw new Error('browser host unavailable')
+    const result = await client.call<{ task: BrowserTaskInfo | null }>('updateTask', { key, task }, RPC_QUERY_TIMEOUT_MS)
+    return result.task ?? undefined
   }
 
   /** Shut the child and the RPC server down. */

@@ -25,6 +25,7 @@ import { taskSummaryUrl } from './task-summary.js'
 import { taskThumbnailDataUrl } from './task-thumbnail.js'
 import { exportCookiesForAuth } from './auth-cookies.js'
 import { resolveBrowserIconPath } from './icon.js'
+import { createBootstrap, createPatch, type ChromePatchOperation, type ChromeTaskSummary, type ChromeTrailEntry, type ChromeWorkspaceState } from './chrome-state.js'
 
 // Isolate this host's profile from the DSH app's default Electron userData:
 // several Electron instances sharing Roaming\Electron fight over the GPU
@@ -62,8 +63,14 @@ const dialogLogs = new Map<string, unknown>()
 /** Display label and current tab for each isolated browser task. */
 const taskLabels = new Map<string, string>()
 const activeViewByTask = new Map<string, string>()
+const taskViewIds = new Map<string, Set<string>>()
 const taskThumbnails = new Map<string, string>()
+const taskThumbnailVersions = new Map<string, number>()
+const taskStates = new Map<string, HostTaskState>()
 const thumbnailTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const thumbnailDirty = new Set<string>()
+let thumbnailCaptureInFlight = false
+const thumbnailLastCapturedAt = new Map<string, number>()
 
 /** The task the human currently sees in the one shared native window. */
 let visibleTaskKey: string | undefined
@@ -100,7 +107,13 @@ function makeWindow(): BrowserWindow {
     for (const timer of thumbnailTimers.values()) clearTimeout(timer)
     thumbnailTimers.clear()
     taskThumbnails.clear()
+    taskThumbnailVersions.clear()
+    thumbnailDirty.clear()
+    thumbnailLastCapturedAt.clear()
+    thumbnailCaptureInFlight = false
     activeViewByTask.clear()
+    taskViewIds.clear()
+    taskStates.clear()
     taskLabels.clear()
     views.clear()
     traces.clear()
@@ -134,14 +147,24 @@ function syncVisibleTaskVisibility(): void {
   const target = viewId === undefined ? undefined : views.get(viewId)
   for (const entry of views.values()) {
     try {
-      if (entry === target) entry.webContentsView.setVisible(true)
+      const active = entry === target
+      if (active) entry.webContentsView.setVisible(true)
       else entry.webContentsView.setVisible(false)
+      void entry.webContentsView.webContents.executeJavaScript(';window.__dshChromeActive = ' + String(active) + ';try { window.__dshChromeSetActive?.(' + String(active) + ') } catch {}').catch(() => undefined)
     } catch { /* destroyed */ }
   }
 }
 interface TaskTraceSummary {
   readonly action: string
   readonly at: number
+}
+
+interface HostTaskState {
+  status: 'idle' | 'running' | 'waiting-user' | 'failed'
+  control: 'agent' | 'human'
+  latestAction?: string
+  error?: string
+  updatedAt: number
 }
 
 interface TaskSummary {
@@ -151,8 +174,32 @@ interface TaskSummary {
   readonly background: boolean
   readonly url: string
   readonly tabs: number
+  readonly status: 'idle' | 'running' | 'waiting-user' | 'failed'
+  readonly control: 'agent' | 'human'
+  readonly updatedAt: number
   readonly latest?: TaskTraceSummary
+  readonly error?: string
   readonly thumbnail?: string
+  readonly thumbnailVersion: number
+}
+
+function ensureTaskState(key: string): HostTaskState {
+  const existing = taskStates.get(key)
+  if (existing !== undefined) return existing
+  const state: HostTaskState = { status: 'idle', control: 'agent', updatedAt: Date.now() }
+  taskStates.set(key, state)
+  return state
+}
+
+function updateTaskState(key: string, update: { status?: unknown; control?: unknown; latestAction?: unknown; error?: unknown }): HostTaskState {
+  const state = ensureTaskState(key)
+  if (update.status === 'idle' || update.status === 'running' || update.status === 'waiting-user' || update.status === 'failed') state.status = update.status
+  if (update.control === 'agent' || update.control === 'human') state.control = update.control
+  if (typeof update.latestAction === 'string') state.latestAction = update.latestAction.slice(0, 120)
+  if (typeof update.error === 'string') state.error = update.error.slice(0, 180)
+  else if (state.status !== 'failed') delete state.error
+  state.updatedAt = Date.now()
+  return state
 }
 
 function summarizeLatestTrace(entry: unknown): TaskTraceSummary | undefined {
@@ -169,6 +216,7 @@ function taskSummaries(): TaskSummary[] {
     if (activeView === undefined) return []
     const latest = summarizeLatestTrace((traces.get(viewId) ?? []).at(-1))
     const thumbnail = taskThumbnails.get(key)
+    const state = ensureTaskState(key)
     let url = ''
     try { url = activeView.webContentsView.webContents.getURL() } catch { /* closing */ }
     return [{
@@ -177,71 +225,163 @@ function taskSummaries(): TaskSummary[] {
       active: key === visibleTaskKey,
       background: key !== visibleTaskKey,
       url: taskSummaryUrl(url),
-      tabs: [...views.values()].filter(view => view.taskKey === key).length,
+      tabs: taskViewIds.get(key)?.size ?? 0,
+      status: state.status,
+      control: state.control,
+      updatedAt: state.updatedAt,
       ...(latest === undefined ? {} : { latest: latest }),
+      ...(state.error !== undefined ? { error: state.error } : {}),
       ...(thumbnail === undefined ? {} : { thumbnail: thumbnail }),
+      thumbnailVersion: taskThumbnailVersions.get(key) ?? 0,
     }]
   })
 }
 
-function activeTraceForTask(taskKey: string | undefined): unknown[] {
+let chromeEpoch = 1
+let chromeRevision = 0
+let pendingChromeOperations: ChromePatchOperation[] = []
+let chromePatchTimer: ReturnType<typeof setTimeout> | undefined
+
+function activeTraceForTask(taskKey: string | undefined): ChromeTrailEntry[] {
   const viewId = taskKey === undefined ? undefined : activeViewByTask.get(taskKey)
-  return viewId === undefined ? [] : traces.get(viewId) ?? []
+  const entries = viewId === undefined ? [] : traces.get(viewId) ?? []
+  return entries.flatMap(entry => {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return []
+    const record = entry as Record<string, unknown>
+    if (typeof record.action !== 'string' || typeof record.at !== 'number') return []
+    return [{
+      action: record.action,
+      ...typeof record.params === 'object' && record.params !== null && !Array.isArray(record.params) ? { params: record.params as Record<string, unknown> } : {},
+      ...typeof record.ok === 'boolean' ? { ok: record.ok } : {},
+      at: record.at,
+    }]
+  })
 }
 
-function chromeStateScript(selectedTaskKey = visibleTaskKey): string {
-  const trail = JSON.stringify(activeTraceForTask(selectedTaskKey))
-  const tasks = JSON.stringify(taskSummaries())
-  const panels = JSON.stringify(workspacePanels)
-  return ';window.__dshTrail = ' + trail
-    + '; window.__dshTasks = ' + tasks
-    + '; window.__dshWorkspacePanels = ' + panels
-    + '; try { window.__dshTrailRender?.() } catch {}'
-    + '; try { window.__dshTaskRender?.() } catch {}'
-    + '; try { window.__dshWorkspaceRender?.() } catch {}'
+function chromeWorkspaceState(selectedTaskKey = visibleTaskKey): ChromeWorkspaceState {
+  return {
+    epoch: chromeEpoch,
+    revision: chromeRevision,
+    ...selectedTaskKey !== undefined ? { selectedTaskKey } : {},
+    panels: workspacePanels,
+    tasks: taskSummaries() as ChromeTaskSummary[],
+    trail: activeTraceForTask(selectedTaskKey),
+  }
 }
 
-function pushChromeState(target: WebContentsView, selectedTaskKey = visibleTaskKey): void {
+function chromeBootstrapScript(selectedTaskKey = visibleTaskKey): string {
+  const bootstrap = createBootstrap(chromeWorkspaceState(selectedTaskKey))
+  const json = JSON.stringify(bootstrap)
+  return ';window.__dshChromeBootstrap = ' + json
+    + ';window.__dshTrail = window.__dshChromeBootstrap.trail'
+    + ';window.__dshTasks = window.__dshChromeBootstrap.tasks'
+    + ';window.__dshWorkspacePanels = window.__dshChromeBootstrap.panels'
+    + ';try { window.__dshChromeApply?.(window.__dshChromeBootstrap) } catch {}'
+    + ';try { window.__dshTrailRender?.() } catch {}'
+    + ';try { window.__dshTaskRender?.() } catch {}'
+    + ';try { window.__dshWorkspaceRender?.() } catch {}'
+}
+
+function chromePatchScript(operations: readonly ChromePatchOperation[]): string {
+  const patch = createPatch(chromeEpoch, ++chromeRevision, operations)
+  return ';window.__dshChromePatch = ' + JSON.stringify(patch)
+    + ';try { window.__dshChromeApply?.(window.__dshChromePatch) } catch {}'
+}
+
+function pushChromeBootstrap(target: WebContentsView, selectedTaskKey = visibleTaskKey): void {
   try {
-    void target.webContents.executeJavaScript(chromeStateScript(selectedTaskKey)).catch(() => undefined)
+    void target.webContents.executeJavaScript(chromeBootstrapScript(selectedTaskKey)).catch(() => undefined)
   } catch { /* closing */ }
 }
 
-function pushTaskState(target: WebContentsView, selectedTaskKey: string | undefined): void {
-  pushChromeState(target, selectedTaskKey)
+function resetChromeDelivery(): void {
+  chromeEpoch += 1
+  chromeRevision = 0
+  pendingChromeOperations = []
+  if (chromePatchTimer !== undefined) {
+    clearTimeout(chromePatchTimer)
+    chromePatchTimer = undefined
+  }
 }
 
 function pushVisibleChromeState(): void {
+  resetChromeDelivery()
   const viewId = visibleTaskKey === undefined ? undefined : activeViewByTask.get(visibleTaskKey)
   const target = viewId === undefined ? undefined : views.get(viewId)
-  if (target !== undefined) pushTaskState(target.webContentsView, visibleTaskKey)
+  if (target !== undefined) pushChromeBootstrap(target.webContentsView, visibleTaskKey)
+}
+
+function flushChromePatches(): void {
+  chromePatchTimer = undefined
+  const operations = pendingChromeOperations
+  pendingChromeOperations = []
+  if (operations.length === 0) return
+  const viewId = visibleTaskKey === undefined ? undefined : activeViewByTask.get(visibleTaskKey)
+  const target = viewId === undefined ? undefined : views.get(viewId)
+  if (target === undefined) return
+  try {
+    void target.webContentsView.webContents.executeJavaScript(chromePatchScript(operations)).catch(() => undefined)
+  } catch { /* closing */ }
+}
+
+function queueChromePatch(...operations: ChromePatchOperation[]): void {
+  pendingChromeOperations.push(...operations)
+  if (chromePatchTimer !== undefined) return
+  chromePatchTimer = setTimeout(flushChromePatches, 24)
 }
 
 function scheduleVisibleTaskThumbnail(taskKey: string, delayMs = 360): void {
   if (taskKey !== visibleTaskKey) return
+  thumbnailDirty.add(taskKey)
+  // A closed task panel does not need fresh pixels. Keep a dirty marker so the
+  // next panel open or task switch refreshes just the selected task.
+  if (!workspacePanels.tasks) return
   const existing = thumbnailTimers.get(taskKey)
   if (existing !== undefined) clearTimeout(existing)
+  const sinceLast = Date.now() - (thumbnailLastCapturedAt.get(taskKey) ?? 0)
+  const effectiveDelay = Math.max(delayMs, Math.max(0, 2_000 - sinceLast))
   const timer = setTimeout(() => {
     thumbnailTimers.delete(taskKey)
     void refreshVisibleTaskThumbnail(taskKey)
-  }, delayMs)
+  }, effectiveDelay)
   thumbnailTimers.set(taskKey, timer)
 }
 
 async function refreshVisibleTaskThumbnail(taskKey: string): Promise<void> {
-  if (taskKey !== visibleTaskKey) return
+  if (taskKey !== visibleTaskKey || !workspacePanels.tasks || thumbnailCaptureInFlight) return
   const viewId = activeViewByTask.get(taskKey)
   const entry = viewId === undefined ? undefined : views.get(viewId)
   if (entry === undefined) return
+  thumbnailCaptureInFlight = true
   try {
     const image = await entry.webContentsView.webContents.capturePage()
-    if (taskKey !== visibleTaskKey || activeViewByTask.get(taskKey) !== viewId) return
+    if (taskKey !== visibleTaskKey || activeViewByTask.get(taskKey) !== viewId || !workspacePanels.tasks) return
     const thumbnail = taskThumbnailDataUrl(image)
     if (thumbnail === undefined) return
+    thumbnailLastCapturedAt.set(taskKey, Date.now())
+    thumbnailDirty.delete(taskKey)
+    if (taskThumbnails.get(taskKey) === thumbnail) return
+    taskThumbnails.delete(taskKey)
     taskThumbnails.set(taskKey, thumbnail)
-    pushVisibleChromeState()
+    const version = (taskThumbnailVersions.get(taskKey) ?? 0) + 1
+    taskThumbnailVersions.set(taskKey, version)
+    while (taskThumbnails.size > 32) {
+      const oldest = [...taskThumbnails.keys()].find(key => key !== visibleTaskKey)
+      if (oldest === undefined) break
+      taskThumbnails.delete(oldest)
+      taskThumbnailVersions.delete(oldest)
+    }
+    const task = taskSummaries().find(candidate => candidate.key === taskKey)
+    const operations: ChromePatchOperation[] = [{ op: 'task.thumbnail', key: taskKey, version, dataUrl: thumbnail }]
+    if (task !== undefined) operations.push({ op: 'task.upsert', task })
+    queueChromePatch(...operations)
   } catch {
     // Thumbnails are cosmetic; capture or JPEG encoding failures are ignored.
+  } finally {
+    thumbnailCaptureInFlight = false
+    if (thumbnailDirty.has(taskKey) && taskKey === visibleTaskKey && workspacePanels.tasks) {
+      scheduleVisibleTaskThumbnail(taskKey, 200)
+    }
   }
 }
 
@@ -268,7 +408,10 @@ function installPageChrome(view: WebContentsView, viewId: string): void {
   // committed navigation so the toolbar follows each document.
   const apply = (): void => {
     try {
-      void view.webContents.executeJavaScript(source + chromeStateScript()).catch(() => undefined)
+      const pageTaskKey = views.get(viewId)?.taskKey
+      const active = pageTaskKey !== undefined && pageTaskKey === visibleTaskKey
+      if (active) resetChromeDelivery()
+      void view.webContents.executeJavaScript(source + ';window.__dshChromeActive = ' + String(active) + ';try { window.__dshChromeSetActive?.(' + String(active) + ') } catch {};' + chromeBootstrapScript()).catch(() => undefined)
     } catch {
       // Chrome is cosmetic; never fail a page for it.
     }
@@ -290,7 +433,7 @@ function reply(id: number, payload: Record<string, unknown>): void {
 }
 
 /** Handle one command. */
-async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string }): Promise<void> {
+async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string; task?: Record<string, unknown> }): Promise<void> {
   try {
     switch (op) {
       case 'ping':
@@ -305,9 +448,18 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (list.length > 500) list.splice(0, list.length - 500)
         traces.set(viewId, list)
         const entryView = views.get(viewId)
-        pushVisibleChromeState()
-        if (entryView !== undefined && entryView.taskKey === visibleTaskKey && activeViewByTask.get(entryView.taskKey) === viewId) {
-          scheduleVisibleTaskThumbnail(entryView.taskKey)
+        if (entryView !== undefined) {
+          const latest = summarizeLatestTrace(entry)
+          if (latest !== undefined) updateTaskState(entryView.taskKey, { latestAction: latest.action })
+          const task = taskSummaries().find(candidate => candidate.key === entryView.taskKey)
+          const operations: ChromePatchOperation[] = []
+          if (task !== undefined) operations.push({ op: 'task.upsert', task })
+          if (entryView.taskKey === visibleTaskKey && activeViewByTask.get(entryView.taskKey) === viewId) {
+            const trail = activeTraceForTask(entryView.taskKey).at(-1)
+            if (trail !== undefined) operations.push({ op: 'trail.append', taskKey: entryView.taskKey, entry: trail })
+            scheduleVisibleTaskThumbnail(entryView.taskKey)
+          }
+          if (operations.length > 0) queueChromePatch(...operations)
         }
         reply(msg.id, { ok: true })
         return
@@ -333,11 +485,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // Attach the debugger BEFORE the view can be seen: an attach failure
         // then leaves nothing in the window (no visible ghost view).
         view.webContents.debugger.attach(CDP_VERSION)
-        // Enable event domains so JS dialogs are observable; both are
-        // fire-and-forget — a failure must never block first paint.
-        try { void view.webContents.debugger.sendCommand('Page.enable').catch(() => undefined) } catch { /* closed */ }
-        try { void view.webContents.debugger.sendCommand('DOM.enable').catch(() => undefined) } catch { /* closed */ }
-        try { void view.webContents.debugger.sendCommand('Runtime.addBinding', { name: '__dshBrowserTaskAction' }).catch(() => undefined) } catch { /* closed */ }
+        // Register the listener before enabling domains. Runtime.addBinding
+        // exposes a callable function in the page, while Runtime.bindingCalled
+        // is the only channel back to this host for workspace controls.
         // JS dialogs (alert/confirm/prompt) would freeze the page until
         // answered. Auto-accept immediately so automation never stalls, and
         // stash the detail for the provider to surface via drainDialog.
@@ -346,14 +496,26 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             const binding = (params ?? {}) as { name?: unknown; payload?: unknown }
             if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
               try {
-                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tasks?: unknown; trail?: unknown }
+                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tasks?: unknown; trail?: unknown; control?: unknown }
                 if (action.type === 'switch-task' && typeof action.taskKey === 'string' && activeViewByTask.has(action.taskKey)) {
                   switchVisibleTask(action.taskKey)
+                } else if (action.type === 'request-chrome-bootstrap') {
+                  if (views.get(viewId)?.taskKey === visibleTaskKey) pushVisibleChromeState()
                 } else if (action.type === 'set-workspace-panels'
                   && typeof action.tasks === 'boolean'
                   && typeof action.trail === 'boolean') {
                   workspacePanels = { tasks: action.tasks, trail: action.trail }
-                  pushVisibleChromeState()
+                  if (workspacePanels.tasks && visibleTaskKey !== undefined) scheduleVisibleTaskThumbnail(visibleTaskKey)
+                  queueChromePatch({ op: 'panels.set', panels: workspacePanels })
+                } else if (action.type === 'set-control-owner'
+                  && typeof action.taskKey === 'string'
+                  && (action.control === 'agent' || action.control === 'human')
+                  && activeViewByTask.has(action.taskKey)) {
+                  updateTaskState(action.taskKey, action.control === 'human'
+                    ? { control: 'human', status: 'waiting-user', latestAction: 'human took control' }
+                    : { control: 'agent', status: 'idle', latestAction: 'agent resumed' })
+                  const task = taskSummaries().find(candidate => candidate.key === action.taskKey)
+                  if (task !== undefined) queueChromePatch({ op: 'task.upsert', task })
                 }
               } catch { /* malformed page action */ }
             }
@@ -371,6 +533,13 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             void view.webContents.debugger.sendCommand('Page.handleJavaScriptDialog', { accept: true }).catch(() => undefined)
           } catch { /* closing */ }
         })
+        // Keep protocol-domain setup non-blocking. Electron 42 can leave a
+        // later Page.navigate unresolved when domain setup is awaited during
+        // WebContentsView creation. Runtime.addBinding itself installs the
+        // page callback and emits bindingCalled through Electron's debugger.
+        try { void view.webContents.debugger.sendCommand('Page.enable').catch(() => undefined) } catch { /* closed */ }
+        try { void view.webContents.debugger.sendCommand('DOM.enable').catch(() => undefined) } catch { /* closed */ }
+        try { void view.webContents.debugger.sendCommand('Runtime.addBinding', { name: '__dshBrowserTaskAction' }).catch(() => undefined) } catch { /* closed */ }
         // Keep window.open / target=_blank navigations inside this shared view
         // instead of spawning a second native window. Only HTTP(S) targets are admitted.
         view.webContents.setWindowOpenHandler(({ url }) => {
@@ -383,6 +552,10 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         view.setVisible(false)
         win.contentView.addChildView(view)
         views.set(viewId, { webContentsView: view, taskKey })
+        const viewIds = taskViewIds.get(taskKey) ?? new Set<string>()
+        viewIds.add(viewId)
+        taskViewIds.set(taskKey, viewIds)
+        ensureTaskState(taskKey)
         const activeViewChanged = activeViewByTask.get(taskKey) !== viewId
         activeViewByTask.set(taskKey, viewId)
         if (activeViewChanged) taskThumbnails.delete(taskKey)
@@ -401,6 +574,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (entry !== undefined) {
           const wasActive = activeViewByTask.get(entry.taskKey) === viewId
           views.delete(viewId)
+          const viewIds = taskViewIds.get(entry.taskKey)
+          viewIds?.delete(viewId)
+          if (viewIds !== undefined && viewIds.size === 0) taskViewIds.delete(entry.taskKey)
           dialogLogs.delete(viewId)
           traces.delete(viewId)
           try { window?.contentView.removeChildView(entry.webContentsView) } catch { /* already removed */ }
@@ -412,6 +588,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             else {
               activeViewByTask.delete(entry.taskKey)
               taskLabels.delete(entry.taskKey)
+              taskStates.delete(entry.taskKey)
             }
           }
           if (replacementView === undefined) {
@@ -419,6 +596,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             if (thumbnailTimer !== undefined) clearTimeout(thumbnailTimer)
             thumbnailTimers.delete(entry.taskKey)
             taskThumbnails.delete(entry.taskKey)
+            taskThumbnailVersions.delete(entry.taskKey)
+            thumbnailDirty.delete(entry.taskKey)
+            thumbnailLastCapturedAt.delete(entry.taskKey)
           }
           if (visibleTaskKey === entry.taskKey) {
             if (activeViewByTask.has(entry.taskKey)) switchVisibleTask(entry.taskKey)
@@ -471,6 +651,26 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
       case 'listWindows': {
         const windows = [...activeViewByTask.keys()].map(key => ({ key, label: taskLabels.get(key) ?? '' }))
         reply(msg.id, { ok: true, result: { windows } })
+        return
+      }
+      case 'listTasks': {
+        reply(msg.id, { ok: true, result: { tasks: taskSummaries() } })
+        return
+      }
+      case 'getTask': {
+        const key = msg.key
+        if (typeof key !== 'string') throw new Error('getTask missing key')
+        const task = taskSummaries().find(candidate => candidate.key === key)
+        reply(msg.id, { ok: true, result: { task: task ?? null } })
+        return
+      }
+      case 'updateTask': {
+        const key = msg.key
+        if (typeof key !== 'string' || msg.task === undefined) throw new Error('updateTask missing key or task')
+        updateTaskState(key, msg.task)
+        const task = taskSummaries().find(candidate => candidate.key === key)
+        if (task !== undefined) queueChromePatch({ op: 'task.upsert', task })
+        reply(msg.id, { ok: true, result: { task: task ?? null } })
         return
       }
       case 'command': {
@@ -652,7 +852,7 @@ void app.whenReady().then(() => {
   rl.on('line', line => {
     const text = line.trim()
     if (text === '') return
-    let msg: { id: number; op?: string; viewId?: string; method?: string; params?: Record<string, unknown>; url?: string; savePath?: string; cookies?: unknown[]; key?: string; label?: string }
+    let msg: { id: number; op?: string; viewId?: string; method?: string; params?: Record<string, unknown>; url?: string; savePath?: string; cookies?: unknown[]; key?: string; label?: string; task?: Record<string, unknown> }
     try {
       msg = JSON.parse(text) as typeof msg
     } catch {

@@ -182,7 +182,13 @@ test('recovered remote views settle the compositor before capture operations', a
 
 test('host binds page task actions and pushes safe task state', async () => {
   const source = await readFile(hostPath, 'utf8')
-  assert.match(source, /Runtime\.addBinding/)
+  assert.match(source, /void view\.webContents\.debugger\.sendCommand\('Page\.enable'\)/)
+  assert.match(source, /void view\.webContents\.debugger\.sendCommand\('DOM\.enable'\)/)
+  assert.match(source, /void view\.webContents\.debugger\.sendCommand\('Runtime\.addBinding'/)
+  const listenerIndex = source.indexOf("debugger.on('message'")
+  const bindingIndex = source.indexOf("void view.webContents.debugger.sendCommand('Runtime.addBinding'")
+  assert.ok(listenerIndex >= 0 && listenerIndex < bindingIndex, 'install the message listener before registering the binding')
+  assert.doesNotMatch(source, /await view\.webContents\.debugger\.sendCommand\('Runtime\.enable'\)/)
   assert.match(source, /__dshBrowserTaskAction/)
   assert.match(source, /Runtime\.bindingCalled/)
   assert.match(source, /function taskSummaries/)
@@ -194,10 +200,12 @@ test('host binds page task actions and pushes safe task state', async () => {
   assert.match(source, /JSON\.parse\(binding\.payload\)/)
   assert.match(source, /activeViewByTask\.has\(action\.taskKey\)/)
   const summaryStart = source.indexOf('function taskSummaries')
-  const summaryEnd = source.indexOf('function pushTaskState', summaryStart)
+  const summaryEnd = source.indexOf('function activeTraceForTask', summaryStart)
   const summaryBlock = source.slice(summaryStart, summaryEnd)
   assert.doesNotMatch(summaryBlock, /params/)
   assert.doesNotMatch(source, /latest: list\.at\(-1\)/)
+  assert.match(source, /createBootstrap/)
+  assert.match(source, /createPatch/)
 })
 
 test('browser_space is documented as a task label, not a separate window', async () => {
@@ -233,7 +241,7 @@ test('task summaries redact paths and query strings before page injection', asyn
   const source = await readFile(hostPath, 'utf8')
   assert.match(source, /taskSummaryUrl/)
   const start = source.indexOf('function taskSummaries')
-  const end = source.indexOf('function pushTaskState', start)
+  const end = source.indexOf('function activeTraceForTask', start)
   assert.ok(start >= 0 && end > start, 'task summary block exists')
   assert.match(source.slice(start, end), /url: taskSummaryUrl\(url\)/)
 })
@@ -256,16 +264,18 @@ test('host captures thumbnails only for the visible task', async () => {
   assert.doesNotMatch(source, /setInterval\(.*thumbnail/)
 })
 
-test('host persists task/trail panel open state and re-broadcasts it', async () => {
+test('host persists task/trail panel state through bootstrap and patch messages', async () => {
   const source = await readFile(hostPath, 'utf8')
   assert.match(source, /workspacePanels/)
-  const chromeStart = source.indexOf('function chromeStateScript')
-  assert.ok(chromeStart >= 0, 'chromeStateScript exists')
-  const chromeBlock = source.slice(chromeStart, chromeStart + 900)
+  const chromeStart = source.indexOf('function chromeBootstrapScript')
+  assert.ok(chromeStart >= 0, 'chromeBootstrapScript exists')
+  const chromeBlock = source.slice(chromeStart, chromeStart + 1500)
   assert.match(chromeBlock, /window\.__dshWorkspacePanels =/)
   assert.match(chromeBlock, /window\.__dshTrailRender\?\.\(\)/)
   assert.match(chromeBlock, /window\.__dshTaskRender\?\.\(\)/)
   assert.match(chromeBlock, /window\.__dshWorkspaceRender\?\.\(\)/)
+  assert.match(source, /function chromePatchScript/)
+  assert.match(source, /queueChromePatch/)
 })
 
 test('host applies set-workspace-panels only when both panel flags are booleans', async () => {
@@ -277,7 +287,7 @@ test('host applies set-workspace-panels only when both panel flags are booleans'
   assert.match(bindingBlock, /typeof action\.tasks === 'boolean'/)
   assert.match(bindingBlock, /typeof action\.trail === 'boolean'/)
   assert.match(bindingBlock, /workspacePanels = \{ tasks: action\.tasks, trail: action\.trail \}/)
-  assert.match(bindingBlock, /pushVisibleChromeState\(\)/)
+  assert.match(bindingBlock, /queueChromePatch/)
 })
 
 test('host resets workspace panel state when the shared window closes', async () => {

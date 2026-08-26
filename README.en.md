@@ -12,8 +12,8 @@ Browser automation should not disappear into a process the user cannot inspect. 
 
 - **Visible by default**: a real Electron `WebContentsView`, not a headless relay.
 - **Task isolation**: all DSH sessions share one visible window while keeping isolated task views, tabs, and history; the page task manager switches the visible view, and `browser_space` names browser tasks.
-- **Human handoff**: page chrome, bookmarks, the task workspace, operation trail, and user activity detection live on the real page.
-- **Glass workspace**: task and operation trail are independent translucent glass panels that can stay open together; selecting a task changes the visible task view and its operation trail. Each task shows its most recent visible-page thumbnail; background tasks retain their last image and are never force-shown or captured by a periodic timer.
+- **Human handoff**: page chrome, bookmarks, the task workspace, operation trail, and user activity detection live on the real page; a user can take control of the active task and explicitly return it to the agent.
+- **Glass workspace**: task and operation trail are independent translucent glass panels that can stay open together. Each task exposes running, waiting-user, human-control, failed, or idle state. Thumbnails refresh on demand only while the task panel is open; background tasks retain their last image.
 
 ![dsh-browser-plus task workspace](assets/readme-glass-workspace.png)
 
@@ -34,12 +34,14 @@ If another browser bundle is already installed, read the [migration guide](docs/
 | Scenario | Tools |
 | --- | --- |
 | Open and inspect | `browser_open`, `browser_snapshot`, `browser_content`, `browser_screenshot` |
+| Native navigation | `browser_back`, `browser_forward`, `browser_reload`, `browser_stop`, `browser_scroll` |
+| Snapshot references | `browser_click_ref`, `browser_scroll_into_view` |
 | Page interaction | `browser_click`, `browser_press_key`, `browser_double_click`, `browser_hover`, `browser_type` |
 | Forms and files | `browser_fill`, `browser_upload_file`, `browser_wait_for` |
-| Tasks and tabs | `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab`, `browser_space` |
+| Tasks and handoff | `browser_tasks`, `browser_handoff`, `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab`, `browser_space` |
 | Auth and recovery | `browser_auth`, `browser_reset_session`, `browser_history` |
 
-Snapshot elements expose `loc=` for reliable retargeting, and page-level scripts automatically ignore the browser's own chrome.
+Snapshots expose a short-lived `snapshotId` plus element references. Prefer reference tools and take a fresh snapshot after the page changes; page-level scripts automatically ignore the browser's own chrome.
 
 ## How it works
 
@@ -51,7 +53,7 @@ browser_* tools
   -> host-main.js (BrowserWindow + WebContentsView)
 ```
 
-The chrome and task manager are injected through a closed Shadow DOM rather than a second Electron view. Background task updates stay in their isolated views and do not steal the user's visible page.
+The chrome and task manager are injected through a closed Shadow DOM rather than a second Electron view. Versioned incremental workspace updates keep task and trail rendering light while background task updates stay isolated and do not steal the user's visible page.
 
 `alert`, `confirm`, and `prompt` are auto-accepted so pages do not block. The next page operation records the detail as a `dialog` item in `browser_history`.
 
@@ -69,7 +71,8 @@ See [SOAK-CHECKLIST](docs/SOAK-CHECKLIST.md) for the complete runtime verificati
 ```sh
 npm install
 npm run build
-node --test test/host-composition.test.mjs test/page-chrome.test.mjs test/provider-actions.test.mjs
+npm test
+npm run smoke:electron-host # requires a local DSH Web instance; validates real Electron Host navigation and page handoff
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution rules and [docs](docs/README.md) for the full documentation set.
