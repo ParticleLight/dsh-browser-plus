@@ -206,6 +206,24 @@ test('new tabs retain their session task key and label', async () => {
   ])
 })
 
+test('keyed open recovers the existing session and its tabs', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open({ key: 'task-recover', label: 'Recover' })
+  await provider.openUrl(session, { url: 'https://example.com/', newTab: true })
+  const before = await provider.listTabs(session)
+  assert.equal(before.length, 2)
+
+  const recovered = await provider.open({ key: 'task-recover' })
+  assert.equal(recovered, session)
+  assert.deepEqual((await provider.listTabs(recovered)).map(tab => tab.id), before.map(tab => tab.id))
+
+  await provider.switchTab(recovered, before[0].id)
+  await provider.closeTab(recovered, before[1].id)
+  assert.equal((await provider.listTabs(recovered)).length, 1)
+  assert.equal(host.createViewArgs.length, 2, 'recovery must not create a second task session')
+})
+
 test('waitForElement times out with BROWSER_WAIT_TIMEOUT', async () => {
   const host = new FakeHost()
   const provider = new ElectronBrowserProvider(host)

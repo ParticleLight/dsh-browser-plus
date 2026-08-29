@@ -335,6 +335,8 @@ export class ElectronBrowserProvider implements BrowserProvider {
   readonly id = ELECTRON_BROWSER_PROVIDER_ID
 
   private readonly sessions = new Map<BrowserSessionId, Session>()
+  /** Stable task-key index so callers can recover a session after tool-layer state loss. */
+  private readonly sessionsByTask = new Map<string, BrowserSessionId>()
   private readonly taskStates = new Map<string, LocalTaskState>()
   private readonly httpOnly: boolean
   private readonly snapshotMaxElements: number
@@ -355,22 +357,33 @@ export class ElectronBrowserProvider implements BrowserProvider {
   }
 
   /**
-   * Open a NEW browser session with its own backing view. Every call mints a
-   * fresh session id; per-task reuse is owned by the caller (the tool layer
-   * caches one session per DSH task). Sessions keep isolated tabs, active tab,
-   * and history while the host keeps one human-selected task view visible in
-   * the shared BrowserWindow.
+   * Open or recover the browser session for a task key. The tool layer normally
+   * caches this id, but the Provider is authoritative so a scoped tool reload or
+   * a lost cache cannot create a second task session with a different tab set.
+   * Sessions keep isolated tabs, active tab, and history while the host keeps one
+   * human-selected task view visible in the shared BrowserWindow.
    */
-  open(options?: BrowserOpenOptions): Promise<BrowserSessionId> {
+  async open(options?: BrowserOpenOptions): Promise<BrowserSessionId> {
     const taskKey = options?.key ?? 'default'
     const taskLabel = options?.label ?? ''
+    const existing = this.sessionForTask(taskKey)
+    if (existing !== undefined) {
+      if (taskLabel !== '' && existing.taskLabel !== taskLabel) {
+        existing.taskLabel = taskLabel
+        const active = existing.tabs[existing.activeIndex]?.handle
+        const labelable = active as { label?(label: string): Promise<void> } | undefined
+        if (typeof labelable?.label === 'function') await labelable.label(taskLabel).catch(() => undefined)
+      }
+      return existing.id
+    }
     const handle = this.host.createView(taskKey, taskLabel === '' ? undefined : taskLabel)
     const id = `browser:${randomUUID()}`
     this.sessions.set(id, { id, taskKey, taskLabel, tabs: [this.createTab(handle)], activeIndex: 0, history: [], nextSeq: 1 })
+    this.sessionsByTask.set(taskKey, id)
     if (!this.taskStates.has(taskKey)) {
       this.taskStates.set(taskKey, { status: 'idle', control: 'agent', updatedAt: Date.now() })
     }
-    return Promise.resolve(id)
+    return id
   }
 
   /** Open a URL in the active tab (default) or a new tab. */
@@ -1457,11 +1470,33 @@ export class ElectronBrowserProvider implements BrowserProvider {
     if (existing !== undefined) {
       this.sessions.delete(session)
       for (const tab of existing.tabs) this.host.destroyView(tab.handle)
-      if (![...this.sessions.values()].some(candidate => candidate.taskKey === existing.taskKey)) {
+      const replacement = [...this.sessions.values()].find(candidate => candidate.taskKey === existing.taskKey)
+      if (this.sessionsByTask.get(existing.taskKey) === session) {
+        if (replacement === undefined) this.sessionsByTask.delete(existing.taskKey)
+        else this.sessionsByTask.set(existing.taskKey, replacement.id)
+      }
+      if (replacement === undefined) {
         this.taskStates.delete(existing.taskKey)
       }
     }
     return Promise.resolve()
+  }
+
+  /** Recover the live session associated with a stable task key. */
+  private sessionForTask(taskKey: string): Session | undefined {
+    const indexed = this.sessionsByTask.get(taskKey)
+    if (indexed !== undefined) {
+      const session = this.sessions.get(indexed)
+      if (session !== undefined) return session
+      this.sessionsByTask.delete(taskKey)
+    }
+    for (const session of this.sessions.values()) {
+      if (session.taskKey === taskKey) {
+        this.sessionsByTask.set(taskKey, session.id)
+        return session
+      }
+    }
+    return undefined
   }
 
   /** Look up a session or throw the unknown-session error. */

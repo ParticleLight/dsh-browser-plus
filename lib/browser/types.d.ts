@@ -322,9 +322,9 @@ export interface BrowserOpenRequest {
     /** Open in a new tab (parallel). Default false (reuse the active tab). */
     readonly newTab?: boolean;
 }
-/** Options for opening a new browser session. */
+/** Options for opening or recovering a browser task session. */
 export interface BrowserOpenOptions {
-    /** Stable browser-task key; views remain isolated but share one visible window. */
+    /** Stable browser-task key; keyed providers may recover the existing session for this task. */
     readonly key?: string;
     /** Optional display name shown in the task manager and active window title. */
     readonly label?: string;
@@ -375,8 +375,9 @@ export interface BrowserProvider {
     /** Cheap local usability check; must not make network calls. */
     available(): boolean;
     /**
-     * Open a new session. The provider mints the session id and prepares its
-     * backing surface (a view, a headless page, and so on). Sessions are isolated from
+     * Open or recover a session. The provider mints the session id and prepares its
+     * backing surface (a view, a headless page, and so on); keyed providers may return
+     * the existing session for the same stable task key. Sessions are isolated from
      * each other; a session must not be visible to any other session's caller.
      */
     open(options?: BrowserOpenOptions): Promise<BrowserSessionId>;

@@ -137,6 +137,8 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     private readonly host;
     readonly id = "electron";
     private readonly sessions;
+    /** Stable task-key index so callers can recover a session after tool-layer state loss. */
+    private readonly sessionsByTask;
     private readonly taskStates;
     private readonly httpOnly;
     private readonly snapshotMaxElements;
@@ -145,11 +147,11 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     /** Usable whenever the host can create views (always in the desktop shell). */
     available(): boolean;
     /**
-     * Open a NEW browser session with its own backing view. Every call mints a
-     * fresh session id; per-task reuse is owned by the caller (the tool layer
-     * caches one session per DSH task). Sessions keep isolated tabs, active tab,
-     * and history while the host keeps one human-selected task view visible in
-     * the shared BrowserWindow.
+     * Open or recover the browser session for a task key. The tool layer normally
+     * caches this id, but the Provider is authoritative so a scoped tool reload or
+     * a lost cache cannot create a second task session with a different tab set.
+     * Sessions keep isolated tabs, active tab, and history while the host keeps one
+     * human-selected task view visible in the shared BrowserWindow.
      */
     open(options?: BrowserOpenOptions): Promise<BrowserSessionId>;
     /** Open a URL in the active tab (default) or a new tab. */
@@ -283,6 +285,8 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     replay(session: BrowserSessionId, seq: number): Promise<void>;
     /** Close the session and destroy all its views. Idempotent. */
     close(session: BrowserSessionId): Promise<void>;
+    /** Recover the live session associated with a stable task key. */
+    private sessionForTask;
     /** Look up a session or throw the unknown-session error. */
     private session;
     /** The active tab of a session. */

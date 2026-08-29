@@ -1,6 +1,6 @@
 {
   "name": "dsh-browser-plus",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Enhanced shared browser for DeepSeek Harness: one visible window with isolated task views, a page task manager, non-stealing background tasks, built-in toolbar and operation trail, and pinned Electron 42.9.3 compositing.",
   "type": "module",
   "main": "lib/index.js",

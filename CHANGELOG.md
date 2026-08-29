@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.1 (2026-08-26)
+
+- **多标签会话恢复**: keyed browser sessions are recovered when the tool-layer session cache is lost, so the first direct switch or close operation still targets the existing tabs.
+
 ## v0.4.0 (2026-08-26)
 
 - **显式人机交接**: 任务卡显示运行、等待用户、用户接管、失败和空闲状态；用户可在页面中接管/交还任务，`browser_tasks` 与 `browser_handoff` 暴露同一状态。

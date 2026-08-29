@@ -138,6 +138,7 @@ function taskKey(exec: { agent?: { id?: string } } | undefined): string {
 
 /**
  * Resolve the calling task's browser session, opening one on first use.
+ * The Provider also recovers a keyed session if this tool-layer cache was lost.
  * Concurrent first calls for the same key share a single open.
  * @param browser - the seam service.
  * @param key - the task key (see {@link taskKey}).
