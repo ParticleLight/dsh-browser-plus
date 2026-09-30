@@ -33,6 +33,7 @@ dsh plugin --profile web add <本仓库路径>
 | `browser-electron` | `httpOnly` | 布尔 | `true` | 仅允许 HTTP(S) 导航;`file:`/`data:` 等拒绝 |
 | `browser-electron` | `writeRoots` | 字符串数组 | `[工作目录, 系统临时目录]` | `browser_screenshot`/`browser_download` 允许写入的绝对目录;越界拒绝 |
 | `browser-electron` | `readRoots` | 字符串数组 | 同 `writeRoots` | `browser_upload_file` 允许读取的绝对目录;越界拒绝 |
+| `browser-electron` | `chromeWorld` | `main` / `isolated` | `main` | 注入 chrome 所在的 JS 世界。`isolated` 让页面读不到任务状态与 binding token,但每个文档多一个 CDP context——**需先在真实窗口验证工具栏**(见 SOAK 第 8 节) |
 | `browser-electron` | `snapshotMaxElements` | 数字 | `60` | 快照最多收录的交互元素数 |
 | `browser-electron` | `contentMaxChars` | 数字 | `100000` | 内容抓取默认字符上限 |
 | `tool-browser` | `timeoutMs` | 数字 | `60000` | 工具协作超时(ms) |

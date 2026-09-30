@@ -46,6 +46,14 @@ export interface Config {
    * same default as writeRoots (the workspace and the OS temp directory).
    */
   readonly readRoots?: string[]
+  /**
+   * Which JavaScript world the injected page chrome lives in. `main` (default)
+   * is the proven path; `isolated` keeps the chrome's task state and its
+   * binding token out of the page's own context, at the cost of an extra CDP
+   * context per document. Opt in only after confirming the toolbar in a real
+   * window (see docs/SOAK-CHECKLIST.md).
+   */
+  readonly chromeWorld?: 'main' | 'isolated'
 }
 
 export const Config: z<Config> = z.object({
@@ -54,13 +62,15 @@ export const Config: z<Config> = z.object({
   httpOnly: z.boolean().default(true),
   writeRoots: z.array(z.string()),
   readRoots: z.array(z.string()),
+  chromeWorld: z.union(['main', 'isolated'] as const).default('main'),
 })
 
 /** Register the Electron browser provider with `ctx.browser`. */
 export function apply(ctx: Context & { browser: BrowserRuntime }, config: Config): void {
   // External host (desktop shell) wins; otherwise self-host. The self-hosted
   // child is disposed with the fiber, mirroring the shell's lifetime.
-  const host: ElectronBrowserViewHost = config.viewHost ?? new RemoteElectronViewHost(defaultHostMainPath())
+  const host: ElectronBrowserViewHost = config.viewHost
+    ?? new RemoteElectronViewHost(defaultHostMainPath(), { chromeWorld: config.chromeWorld })
   // Own the disposer on THIS plugin's fiber: registerBrowserProvider's effect
   // is bound to the seam's own fiber (the browser row), so a reload of this
   // row would otherwise collide with the still-registered provider

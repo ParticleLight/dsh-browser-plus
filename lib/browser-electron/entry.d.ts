@@ -36,6 +36,14 @@ export interface Config {
      * same default as writeRoots (the workspace and the OS temp directory).
      */
     readonly readRoots?: string[];
+    /**
+     * Which JavaScript world the injected page chrome lives in. `main` (default)
+     * is the proven path; `isolated` keeps the chrome's task state and its
+     * binding token out of the page's own context, at the cost of an extra CDP
+     * context per document. Opt in only after confirming the toolbar in a real
+     * window (see docs/SOAK-CHECKLIST.md).
+     */
+    readonly chromeWorld?: 'main' | 'isolated';
 }
 export declare const Config: z<Config>;
 /** Register the Electron browser provider with `ctx.browser`. */

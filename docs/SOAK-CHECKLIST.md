@@ -48,3 +48,14 @@
 
 ## 7. 已知 deferred minors(合并后择机)
 见 `.superpowers/sdd/2026-08-21-dsh-browser-plus-ego-features/progress.md` 的 "minor (deferred)" 行(全部为非阻塞风格/文档项)。
+## 8. chrome 隔离世界(可选,默认关)
+
+仅在把 `browser-electron.chromeWorld` 设为 `isolated` 后执行。这一步会改变工具栏的注入世界,必须逐项人工确认后才可切换默认值:
+
+- [ ] `browser_open https://example.com` → 工具栏正常显示,顶部中央悬停可展开
+- [ ] 点击「接管」→ 状态变为等待用户;点击「交还 Agent」→ 恢复(隔离世界内 binding 仍能触发 set-control-owner)
+- [ ] 打开任务面板与轨迹面板 → 任务卡、缩略图、操作轨迹正常渲染与追加
+- [ ] 在页面控制台执行 `[typeof window.__dshTasks, typeof window.__dshTrail, typeof window.__dshBrowserTaskAction]` → 三项**全部为 undefined**
+- [ ] 切换任务后,旧视图的 chrome 停表(无残留定时器);切回后工具栏与面板状态正确
+- [ ] 连续导航 5 站 → 无白屏、工具栏每次都重新出现(每次导航会新建一个隔离世界)
+- [ ] 回收 Electron child → 下一次调用自愈后工具栏仍正常

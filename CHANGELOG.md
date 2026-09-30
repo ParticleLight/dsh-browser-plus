@@ -2,6 +2,7 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **可选:把注入 chrome 移进隔离世界**(`browser-electron.chromeWorld: isolated`,**默认仍是 main**)。开启后 chrome 经 `Page.createIsolatedWorld` 注入自己的 JS 世界,`Runtime.addBinding` 也用 `executionContextName` 限定在其中——被访问页面**读不到** `window.__dshTasks` / `window.__dshTrail` / `window.__dshBrowserTaskAction`,连「提前 hook JSON.stringify 偷 binding token」这条残留路径也一并消失。四条注入路径(挂载、bootstrap、patch、active 标记)统一走 `runChromeScript`,导航时丢弃旧 world 以便为新文档重建。**默认未切换**:该改动重写工具栏注入路径,必须在真实窗口按 `docs/SOAK-CHECKLIST.md` 第 8 节逐项验证后再考虑改默认值。
 - **下载改由子进程直接落盘**:此前子进程把整包 base64 塞进一行 JSON 回传,父进程再解码写盘——64MiB 的下载在 host→parent→disk 路径上要复制约 8 份(含 RPC 行缓冲)。现在子进程自己写文件、只回 `{ bytes }`,下载体**完全不再经过 RPC socket**,峰值内存与 `MAX_RPC_BUFFER_BYTES` 的压力同时消失。
 - **测试 seam 移出声明的 API 面**:`tsconfig` 打开 `stripInternal`,`internals` 与 `DeferredRemoteView` 不再出现在 `lib/*.d.ts` 里(运行时导出保留,定点测试照常可用)。
 - **chrome 重装改由宿主执行**:provider 在导航后注入的是**无 token** 的 `PAGE_CHROME_SCRIPT`,而只有宿主持有每视图 token——一旦宿主自身的注入失败,退化的那份会让工具栏按钮静默失效。新增可选的 `reinstallChrome()` seam:自托管宿主经 RPC 重装 token 版,不提供该能力的宿主(桌面外壳)仍走原回退。

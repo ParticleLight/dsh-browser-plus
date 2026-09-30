@@ -97,3 +97,20 @@ test('a download is written by the child and reported as a byte count', async ()
   const downloadBlock = remote.slice(downloadStart, remote.indexOf('\n  }', downloadStart))
   assert.doesNotMatch(downloadBlock, /writeFileSync/, 'the parent no longer buffers and writes it')
 })
+test('every chrome injection goes through the world-aware helper', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  const direct = source.match(/executeJavaScript\(/g) ?? []
+  assert.equal(direct.length, 1, 'only runChromeScript touches executeJavaScript directly')
+  assert.match(source, /function runChromeScript\(view: WebContentsView, snippet: string\)/)
+  assert.match(source, /Page\.createIsolatedWorld/, 'isolated mode creates its own world')
+  assert.match(source, /executionContextName: CHROME_WORLD_NAME/, 'and scopes the binding to it')
+  assert.match(source, /if \(CHROME_WORLD === 'main'\) \{/, 'main mode keeps the old binding registration')
+  assert.match(source, /chromeContexts\.delete\(view\)/, 'a new document drops the stale world')
+})
+
+test('the chrome world travels to the child as an argument', async () => {
+  const source = await readFile(remotePath, 'utf8')
+  assert.match(source, /'--chrome-world', 'isolated'/, 'the child is told which world to use')
+  assert.match(source, /this\.chromeWorld === 'isolated'/, 'and only for the opt-in mode')
+  assert.match(source, /chromeWorld\?: 'main' \| 'isolated'/, 'the option is typed')
+})

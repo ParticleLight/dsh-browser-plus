@@ -53,6 +53,7 @@ export declare function isBrowserHostDead(error: unknown): boolean;
  */
 export declare class RemoteElectronViewHost implements ElectronBrowserViewHost {
     private readonly hostMainPath;
+    private readonly options;
     private client;
     private server;
     private pendingSocket;
@@ -61,7 +62,15 @@ export declare class RemoteElectronViewHost implements ElectronBrowserViewHost {
     private disposed;
     /** Cached local-backend probe; locating Electron walks the filesystem. */
     private availableProbe;
-    constructor(hostMainPath: string);
+    /**
+     * @param hostMainPath - the child entry script.
+     * @param options - `chromeWorld: 'isolated'` runs the injected chrome in its
+     *   own JavaScript world, so visited pages cannot read its state or its
+     *   binding token. Defaults to the proven main-world path.
+     */
+    constructor(hostMainPath: string, options?: {
+        readonly chromeWorld?: 'main' | 'isolated';
+    });
     /**
      * Cheap local usability probe, consulted by the provider's `available()`.
      * Without it the provider reports itself usable unconditionally, so a missing

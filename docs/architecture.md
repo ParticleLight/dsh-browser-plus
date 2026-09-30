@@ -37,6 +37,7 @@ agent (browser_* 工具)
 - **截图优先走宿主原生 `capturePage`**(新增 `capture` 通道):CDP `captureScreenshot` 在窗口存在多个(隐藏)视图时会挂起,原生捕获对可见视图快速可靠,失败时自动回退 CDP(临时摘除其他视图保证单视图状态);
 - **写入路径受白名单约束**:`browser_screenshot` 与 `browser_download` 落盘前经 `resolveWritePath()`(解析最深已存在祖先的真实路径,防 `..` 与符号链接逃逸),只允许 `browser-electron.writeRoots`(默认工作目录 + 系统临时目录)之内的路径;`browser_download` 复用 `admitUrl()`,与导航同一套 URL 准入;
 - **读取路径同样受白名单约束**:`browser_upload_file` 在触碰 DOM 之前经 `resolveReadPath()` 校验(文件必须存在、按真实路径比对,链接逃逸会被拒),只允许 `browser-electron.readRoots`(默认同 `writeRoots`)之内的文件;
+- **chrome 所在的世界可切换**:默认注入页面主世界;`browser-electron.chromeWorld: isolated` 时 chrome 改注入自己的隔离世界(`Page.createIsolatedWorld`),任务状态与 binding token 都不再落在页面可读的上下文里(binding 用 `executionContextName` 限定在该世界)。默认仍为 `main`,切换前需按 SOAK 第 8 节在真实窗口验证;
 - **注入 chrome 的信任边界**:页面可见的轨迹经 `redactTraceParams()` 白名单脱敏(`type`→字符数、`execute`→丢弃脚本、URL→origin、路径→basename),被访问页面无法从轨迹里读走此前输入的文本或脚本;`Runtime.addBinding('__dshBrowserTaskAction')` 的每个 payload 必须携带 `createView` 生成的每视图随机 token,否则忽略,页面脚本无法伪造任务切换或控制权变更;
 - 所有 CDP 调用都有超时兜底(`withTimeout`),避免卡死工具调用;
 - 历史记录单调递增的 seq,截断(500 条)后不回绕;失败导航只记一条。

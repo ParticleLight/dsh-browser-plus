@@ -74,6 +74,62 @@ const views = new Map<string, HostView>()
  */
 const chromeTokens = new WeakMap<WebContentsView, string>()
 
+/**
+ * Which world the injected chrome lives in. 'main' is the proven default; the
+ * child is told to use an isolated world via --chrome-world.
+ */
+const CHROME_WORLD: 'main' | 'isolated' = (() => {
+  const index = process.argv.indexOf('--chrome-world')
+  return index >= 0 && process.argv[index + 1] === 'isolated' ? 'isolated' : 'main'
+})()
+
+/** Name of the isolated world that owns the chrome in isolated mode. */
+const CHROME_WORLD_NAME = 'dshChrome'
+
+/** Isolated-world execution context for a view's current document. */
+const chromeContexts = new WeakMap<WebContentsView, number>()
+
+/**
+ * Resolve the view's chrome context, creating the isolated world on demand. The
+ * context belongs to one document, so navigation drops it (see installPageChrome).
+ */
+async function ensureChromeContext(view: WebContentsView): Promise<number | undefined> {
+  const cached = chromeContexts.get(view)
+  if (cached !== undefined) return cached
+  const tree = await view.webContents.debugger.sendCommand('Page.getFrameTree')
+  const frameId = (tree as { frameTree?: { frame?: { id?: string } } }).frameTree?.frame?.id
+  if (frameId === undefined) return undefined
+  const world = await view.webContents.debugger.sendCommand('Page.createIsolatedWorld', { frameId, worldName: CHROME_WORLD_NAME })
+  const contextId = (world as { executionContextId?: number }).executionContextId
+  if (typeof contextId !== 'number') return undefined
+  chromeContexts.set(view, contextId)
+  // Scoped to this world, so page script never holds a callable it could forge
+  // task actions through.
+  await view.webContents.debugger.sendCommand('Runtime.addBinding', { name: '__dshBrowserTaskAction', executionContextName: CHROME_WORLD_NAME }).catch(() => undefined)
+  return contextId
+}
+
+/**
+ * Run one chrome snippet in whichever world the chrome lives in. In isolated
+ * mode nothing the chrome stores — task labels, the trail, the binding token —
+ * is reachable from the page's own JavaScript context.
+ */
+function runChromeScript(view: WebContentsView, snippet: string): void {
+  if (CHROME_WORLD === 'main') {
+    try {
+      void view.webContents.executeJavaScript(snippet).catch(() => undefined)
+    } catch { /* closing */ }
+    return
+  }
+  void (async () => {
+    try {
+      const contextId = await ensureChromeContext(view)
+      if (contextId === undefined) return
+      await view.webContents.debugger.sendCommand('Runtime.evaluate', { expression: snippet, contextId, returnByValue: true })
+    } catch { /* chrome is cosmetic */ }
+  })()
+}
+
 /** Operation trail per view, newest last, bounded. */
 const traces = new Map<string, unknown[]>()
 
@@ -177,7 +233,7 @@ function syncVisibleTaskVisibility(): void {
       // every view on each task switch, and the IPC is the expensive part.
       if (chromeActiveApplied.get(entry.webContentsView) === active) continue
       chromeActiveApplied.set(entry.webContentsView, active)
-      void entry.webContentsView.webContents.executeJavaScript(';window.__dshChromeActive = ' + String(active) + ';try { window.__dshChromeSetActive?.(' + String(active) + ') } catch {}').catch(() => undefined)
+      runChromeScript(entry.webContentsView, ';window.__dshChromeActive = ' + String(active) + ';try { window.__dshChromeSetActive?.(' + String(active) + ') } catch {}')
     } catch { /* destroyed */ }
   }
 }
@@ -383,9 +439,7 @@ function chromePatchScript(operations: readonly ChromePatchOperation[]): string 
 }
 
 function pushChromeBootstrap(target: WebContentsView, selectedTaskKey = visibleTaskKey): void {
-  try {
-    void target.webContents.executeJavaScript(chromeBootstrapScript(selectedTaskKey)).catch(() => undefined)
-  } catch { /* closing */ }
+  runChromeScript(target, chromeBootstrapScript(selectedTaskKey))
 }
 
 function resetChromeDelivery(): void {
@@ -413,9 +467,7 @@ function flushChromePatches(): void {
   const viewId = visibleTaskKey === undefined ? undefined : activeViewByTask.get(visibleTaskKey)
   const target = viewId === undefined ? undefined : views.get(viewId)
   if (target === undefined) return
-  try {
-    void target.webContentsView.webContents.executeJavaScript(chromePatchScript(operations)).catch(() => undefined)
-  } catch { /* closing */ }
+  runChromeScript(target.webContentsView, chromePatchScript(operations))
 }
 
 function queueChromePatch(...operations: ChromePatchOperation[]): void {
@@ -527,7 +579,7 @@ function applyPageChrome(view: WebContentsView, viewId: string): void {
     const pageTaskKey = views.get(viewId)?.taskKey
     const active = pageTaskKey !== undefined && activeViewByTask.get(pageTaskKey) === viewId
     if (active) resetChromeDelivery()
-    void view.webContents.executeJavaScript(source + ';window.__dshChromeActive = ' + String(active) + ';try { window.__dshChromeSetActive?.(' + String(active) + ') } catch {};' + chromeBootstrapScript()).catch(() => undefined)
+    runChromeScript(view, source + ';window.__dshChromeActive = ' + String(active) + ';try { window.__dshChromeSetActive?.(' + String(active) + ') } catch {};' + chromeBootstrapScript())
   } catch {
     // Chrome is cosmetic; never fail a page for it.
   }
@@ -540,7 +592,12 @@ function installPageChrome(view: WebContentsView, viewId: string): void {
   // Electron's native executeJavaScript waits for a committed document, unlike
   // a CDP evaluate issued before commit, which can hang. Re-run on every
   // committed navigation so the toolbar follows each document.
-  const apply = (): void => applyPageChrome(view, viewId)
+  const apply = (): void => {
+    // A committed document has a new execution context, so the chrome's world
+    // must be created for it rather than reused from the previous one.
+    chromeContexts.delete(view)
+    applyPageChrome(view, viewId)
+  }
   view.webContents.on('did-navigate', apply)
   view.webContents.on('did-navigate-in-page', apply)
   apply()
@@ -680,7 +737,10 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // page callback and emits bindingCalled through Electron's debugger.
         try { void view.webContents.debugger.sendCommand('Page.enable').catch(() => undefined) } catch { /* closed */ }
         try { void view.webContents.debugger.sendCommand('DOM.enable').catch(() => undefined) } catch { /* closed */ }
-        try { void view.webContents.debugger.sendCommand('Runtime.addBinding', { name: '__dshBrowserTaskAction' }).catch(() => undefined) } catch { /* closed */ }
+        // Isolated mode registers the binding against its own world instead.
+        if (CHROME_WORLD === 'main') {
+          try { void view.webContents.debugger.sendCommand('Runtime.addBinding', { name: '__dshBrowserTaskAction' }).catch(() => undefined) } catch { /* closed */ }
+        }
         // Keep window.open / target=_blank navigations inside this shared view
         // instead of spawning a second native window. Only HTTP(S) targets are admitted.
         view.webContents.setWindowOpenHandler(({ url }) => {

@@ -64,6 +64,12 @@ test('without a view host the plugin self-hosts and owns the lifecycle', () => {
   assert.equal(disposed, true, 'the self-hosted child is shut down with the fiber')
 })
 
+test('the chrome world reaches the self-hosted child', () => {
+  const { ctx, registered } = fakeContext()
+  apply(ctx, { chromeWorld: 'isolated' })
+  assert.equal(registered[0].host.options.chromeWorld, 'isolated')
+})
+
 test('config reaches the provider', () => {
   const { ctx, registered } = fakeContext()
   apply(ctx, { viewHost: externalHost(), httpOnly: false, writeRoots: ['/tmp/w'], readRoots: ['/tmp/r'] })

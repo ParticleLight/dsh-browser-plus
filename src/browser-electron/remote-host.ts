@@ -251,6 +251,7 @@ interface Pending {
 class ElectronChildClient {
   private readonly child: ChildProcessByStdio<null, import('node:stream').Readable, import('node:stream').Readable>
   private readonly pending = new Map<number, Pending>()
+  private readonly chromeWorld: 'main' | 'isolated' | undefined
   private nextId = 1
   private buffer = ''
   private socket: import('node:net').Socket | undefined
@@ -263,7 +264,9 @@ class ElectronChildClient {
     private readonly hostMainPath: string,
     private readonly port: number,
     private readonly onExit?: () => void,
+    chromeWorld?: 'main' | 'isolated',
   ) {
+    this.chromeWorld = chromeWorld
     const electron = resolveElectronPath()
     process.stderr.write(`[dsh-browser-plus host] spawning electron: ${electron}\n`)
     // ELECTRON_RUN_AS_NODE (even an empty string) makes Electron run as plain
@@ -272,7 +275,9 @@ class ElectronChildClient {
     const env: Record<string, string | undefined> = { ...process.env }
     delete env.ELECTRON_RUN_AS_NODE
     delete env.NODE_OPTIONS
-    this.child = spawn(electron, [hostMainPath, '--rpc-port', String(port)], {
+    // The chrome's world is the child's choice, so it travels as an argument.
+    const chromeWorldArgs = this.chromeWorld === 'isolated' ? ['--chrome-world', 'isolated'] : []
+    this.child = spawn(electron, [hostMainPath, '--rpc-port', String(port), ...chromeWorldArgs], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: false,
       env,
@@ -494,7 +499,16 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
   /** Cached local-backend probe; locating Electron walks the filesystem. */
   private availableProbe: boolean | undefined
 
-  constructor(private readonly hostMainPath: string) {}
+  /**
+   * @param hostMainPath - the child entry script.
+   * @param options - `chromeWorld: 'isolated'` runs the injected chrome in its
+   *   own JavaScript world, so visited pages cannot read its state or its
+   *   binding token. Defaults to the proven main-world path.
+   */
+  constructor(
+    private readonly hostMainPath: string,
+    private readonly options: { readonly chromeWorld?: 'main' | 'isolated' } = {},
+  ) {}
 
   /**
    * Cheap local usability probe, consulted by the provider's `available()`.
@@ -553,7 +567,7 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
     const address = server.address()
     const port = typeof address === 'object' && address !== null ? address.port : 0
     this.server = server
-    this.client = new ElectronChildClient(this.hostMainPath, port, () => this.onChildExit())
+    this.client = new ElectronChildClient(this.hostMainPath, port, () => this.onChildExit(), this.options.chromeWorld)
     if (this.pendingSocket !== undefined) {
       this.client.attach(this.pendingSocket)
       this.pendingSocket = undefined
