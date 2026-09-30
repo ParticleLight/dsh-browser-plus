@@ -206,6 +206,16 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     /** Close every tab and reset to one blank tab. */
     reset(session: BrowserSessionId): Promise<void>;
     /**
+     * Dispatch one input command under the same hang guard as the CDP reads. A
+     * renderer blocked in synchronous JS never acknowledges, so an unbounded await
+     * here would hang the tool call until the caller's budget expired.
+     * @param handle - the view to dispatch into.
+     * @param method - the CDP input method.
+     * @param params - its parameters.
+     * @param signal - optional caller signal.
+     */
+    private dispatchInput;
+    /**
      * Admit one URL for a provider-driven fetch (navigation or download).
      * The whole check is gated by `httpOnly`: when it is disabled, callers are
      * trusted with any scheme. When it is enabled, only HTTP(S) is admitted and

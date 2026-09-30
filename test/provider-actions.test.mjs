@@ -304,6 +304,22 @@ test('pressKey types punctuation, including inside modifier combos', async () =>
   assert.equal(keys[2].params.text, '/')
 })
 
+test('a timed-out operation carries a stable code', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  // A renderer that never answers: the evaluation must surface as a timeout.
+  host.views[0].sendCommand = () => new Promise(() => {})
+  await assert.rejects(
+    () => provider.content(session, { format: 'txt', timeoutMs: 30 }),
+    error => {
+      assert.equal(error.code, 'BROWSER_OPERATION_TIMEOUT')
+      assert.match(error.message, /timed out/)
+      return true
+    },
+  )
+})
+
 test('waitForElement fails fast on an invalid selector instead of burning the budget', async () => {
   const host = new FakeHost()
   const provider = new ElectronBrowserProvider(host)

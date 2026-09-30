@@ -382,6 +382,12 @@ export const CDP_PAGE_STOP_LOADING = 'Page.stopLoading'
 /** Cap on content returned by a snapshot fetch to keep the wire bounded. */
 const SNAPSHOT_LABEL_MAX = 120
 
+/** An input dispatch must not outlive this: a blocked renderer never acknowledges. */
+const INPUT_DISPATCH_TIMEOUT_MS = 15_000
+
+/** Total budget for the snapshot's empty-inventory retries. */
+const SNAPSHOT_RETRY_BUDGET_MS = 3_000
+
 /**
  * Browser provider over Electron views. Sessions hold an ordered list of
  * tabs; each tab is one view created by the host. The active tab receives
@@ -533,6 +539,29 @@ export class ElectronBrowserProvider implements BrowserProvider {
     s.activeIndex = 0
     this.showActive(s)
     return Promise.resolve()
+  }
+
+  /**
+   * Dispatch one input command under the same hang guard as the CDP reads. A
+   * renderer blocked in synchronous JS never acknowledges, so an unbounded await
+   * here would hang the tool call until the caller's budget expired.
+   * @param handle - the view to dispatch into.
+   * @param method - the CDP input method.
+   * @param params - its parameters.
+   * @param signal - optional caller signal.
+   */
+  private dispatchInput(
+    handle: ElectronViewHandle,
+    method: string,
+    params: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    return withTimeout(
+      handle.sendCommand(method, params),
+      INPUT_DISPATCH_TIMEOUT_MS,
+      signal,
+      `browser: ${method} timed out after ${INPUT_DISPATCH_TIMEOUT_MS}ms`,
+    ).then(() => undefined)
   }
 
   /**
@@ -783,14 +812,24 @@ export class ElectronBrowserProvider implements BrowserProvider {
     let value = result.value as RawSnapshot
     // Framework apps often hydrate controls after the load event. A short
     // bounded retry turns premature empty inventories into useful snapshots.
+    // The phase is budgeted because each attempt may itself wait the evaluation
+    // timeout, and an aborted call must surface rather than be retried on.
+    const retryDeadline = Date.now() + SNAPSHOT_RETRY_BUDGET_MS
     for (let attempt = 0; attempt < 5 && value.elements.length === 0 && value.truncated !== true; attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 400))
+      const remaining = retryDeadline - Date.now()
+      if (remaining <= 0) break
+      signal?.throwIfAborted()
+      await new Promise(resolve => setTimeout(resolve, Math.min(400, remaining)))
+      if (signal?.aborted === true) break
       const retry = await withTimeout(
-        handleSendEvaluate(tab.handle, script),
-        timeoutMs,
+        handleSendEvaluate(tab.handle, script, signal),
+        Math.min(timeoutMs, Math.max(retryDeadline - Date.now(), 500)),
         signal,
         `browser: snapshot timed out after ${timeoutMs}ms`,
-      ).catch(() => undefined)
+      ).catch((error: unknown) => {
+        if (signal?.aborted === true) throw error
+        return undefined
+      })
       if (retry?.ok) value = retry.value as RawSnapshot
     }
     const snapshotId = `snapshot:${randomUUID()}`
@@ -823,8 +862,8 @@ export class ElectronBrowserProvider implements BrowserProvider {
     await this.drainDialog(s, tab.handle)
     const point = await this.resolveSnapshotTarget(tab, request, 'center', signal)
     await suppressAutoUserControl(tab.handle, signal)
-    await tab.handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
-    await tab.handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
+    await this.dispatchInput(tab.handle, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams, signal)
+    await this.dispatchInput(tab.handle, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams, signal)
     this.record(s, 'clickRef', { snapshotId: request.snapshotId, ref: request.ref }, true)
   }
 
@@ -928,8 +967,8 @@ export class ElectronBrowserProvider implements BrowserProvider {
     signal?.throwIfAborted()
     await this.drainDialog(s, handle)
     await suppressAutoUserControl(handle, signal)
-    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
-    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams)
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams, signal)
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams, signal)
     this.record(s, 'click', { x: request.x, y: request.y }, true)
   }
 
@@ -940,8 +979,8 @@ export class ElectronBrowserProvider implements BrowserProvider {
     signal?.throwIfAborted()
     await this.drainDialog(s, handle)
     await suppressAutoUserControl(handle, signal)
-    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 2 } satisfies CdpMouseParams)
-    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 2 } satisfies CdpMouseParams)
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: request.x, y: request.y, button: 'left', clickCount: 2 } satisfies CdpMouseParams, signal)
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: request.x, y: request.y, button: 'left', clickCount: 2 } satisfies CdpMouseParams, signal)
     this.record(s, 'doubleClick', { x: request.x, y: request.y }, true)
   }
 
@@ -951,7 +990,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
     await this.drainDialog(s, handle)
-    await handle.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: request.x, y: request.y, button: 'none' })
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: request.x, y: request.y, button: 'none' }, signal)
     this.record(s, 'hover', { x: request.x, y: request.y }, true)
   }
 
@@ -1083,7 +1122,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     signal?.throwIfAborted()
     await this.drainDialog(s, handle)
     await suppressAutoUserControl(handle, signal)
-    await handle.sendCommand('Input.insertText', { text: request.text } satisfies CdpInsertTextParams)
+    await this.dispatchInput(handle, 'Input.insertText', { text: request.text } satisfies CdpInsertTextParams, signal)
     // Store the full text so replay re-issues the same input; the history
     // tool truncates long values when rendering.
     this.record(s, 'type', { text: request.text }, true)
@@ -1102,8 +1141,8 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const text = keyText(request.key)
     const down: Record<string, unknown> = { type: text === null ? 'rawKeyDown' : 'keyDown', key, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers }
     if (text !== null) { down.text = text; down.unmodifiedText = text }
-    await handle.sendCommand(CDP_INPUT_DISPATCH_KEY_EVENT, down)
-    await handle.sendCommand(CDP_INPUT_DISPATCH_KEY_EVENT, { type: 'keyUp', key, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers })
+    await this.dispatchInput(handle, CDP_INPUT_DISPATCH_KEY_EVENT, down, signal)
+    await this.dispatchInput(handle, CDP_INPUT_DISPATCH_KEY_EVENT, { type: 'keyUp', key, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers }, signal)
     this.record(s, 'pressKey', { key: request.key, ...(request.modifiers !== undefined && request.modifiers.length > 0 ? { modifiers: request.modifiers } : {}) }, true)
   }
 
@@ -1882,7 +1921,9 @@ function withTimeout<T>(
       // A fired timeout must also release the abort listener; { once: true }
       // only releases it on the next abort, which may never come.
       if (signal !== undefined) signal.removeEventListener('abort', onAbort)
-      const error = new Error(message)
+      // A stable code lets callers branch on a timeout; the name is preserved for
+      // the one call site that already matched on it.
+      const error = new BrowserError(message, 'BROWSER_OPERATION_TIMEOUT')
       error.name = 'TimeoutError'
       reject(error)
     }, ms)

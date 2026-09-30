@@ -2,6 +2,9 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **输入派发补上超时兜底**:`click`/`clickRef`/`doubleClick`/`hover`/`type`/`pressKey` 的 8 处 `Input.*` 派发此前是裸 `await`,页面主线程被同步 JS 阻塞时会一直挂到工具预算耗尽;现在与其它 CDP 调用一样有 15s 上限并响应调用方 signal。
+- **超时错误带稳定 code**:`withTimeout` 现在抛 `BROWSER_OPERATION_TIMEOUT`(保留 `TimeoutError` 名称),此前只有 `execute`/`waitForElement` 两处归一化,其余超时是裸 Error,无法按 code 分支。
+- **快照重试有总预算且尊重取消**:空清单重试此前最多 5 次、每次可等满求值超时(理论上约 182s,远超 60s 工具预算),且 `.catch(() => undefined)` 会吞掉 abort 继续重试。现在整段重试有 3s 预算,abort 会立即中止并上抛。
 - **`browser_fill` 不再静默假成功**:checkbox/radio 点击后回读 `checked`,未变更(disabled 或被处理器取消)报 `ok:false`;input/textarea 在请求了非空值却得到空值时报错;`submit` 改为锚定**实际填入成功**的最后一个字段所在表单(此前取第一个能解析到的字段),并在 `requestSubmit()` 因 HTML5 约束校验不通过而**不提交**时如实返回 `submitted:false`(此前一律报 true)。
 - **`browser_content format=json` 不再恒返回 `{}`**:DOM 元素没有自有可枚举属性,`JSON.stringify(document.body)` 永远是 `{}`。现在返回有界的结构视图(标签/id/class/子节点/叶子文本),若文本本身就是 JSON 则原样透传。
 - **`browser_press_key` 支持标点**:此前只认字母数字与功能键,`Ctrl+-`、`Ctrl+/`、`,`、`.`、`[`、`]` 等一律抛 `BROWSER_KEY_UNKNOWN`,而工具描述却写「single characters」。现在按 US 布局补全可打印 ASCII。
