@@ -2,6 +2,9 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **新增 CI**:`.github/workflows/ci.yml` 在 push/PR 上跑 `npm ci --omit=optional` + `npm test`,并额外用 `git diff --exit-code -- lib` 校验**已提交的 `lib/`** 与 `src/` 一致——这正是 `pretest` 会掩盖的那类漂移(改了 src、本地重建了 lib,却没提交重建结果)。
+- **新增 ESLint 最小集**:只启用类型感知的 `no-floating-promises` / `no-misused-promises` 与两条一致性规则,不引入格式化以免搅动现有风格。首次运行即发现一处真实缺陷:`setWindowOpenHandler` 里的 `loadURL()` 未被 await 也未挂 rejection handler,失败时会产生未处理拒绝。
+- **`CHANGELOG.md` 现在会进 npm tarball**(此前 `files` 未列)。
 - **缩略图捕获加超时**:`capturePage()` 在合成器卡住时可能永不 settle,而 `finally` 不会执行 → 单飞标志永远为 true,此后缩略图静默停更。现在 5s 超时按失败处理。
 - **减少跨进程 IPC**:`syncVisibleTaskVisibility` 此前对**每个** view(含其它任务的隐藏页与后台标签)各发一次 `executeJavaScript`;现在只对 active 状态真正变化的 view 发送。
 - **`installPageChrome` 的 active 判定改用 viewId**:此前只比 taskKey,导致可见任务的**后台标签页**导航时被当成「正在显示」,会启动其页面定时器并顶掉真正可见视图的 chrome epoch。

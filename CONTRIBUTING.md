@@ -9,6 +9,7 @@ npm install
 npm run build
 npm test          # 先自动 tsc(pretest),再跑 test/*.test.mjs
 npm run test:only # 跳过构建,仅跑测试(要求 lib/ 已是最新)
+npm run lint      # ESLint(类型感知的最小集)
 ```
 
 ## 约定

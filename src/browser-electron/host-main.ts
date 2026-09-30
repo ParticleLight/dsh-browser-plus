@@ -679,7 +679,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // instead of spawning a second native window. Only HTTP(S) targets are admitted.
         view.webContents.setWindowOpenHandler(({ url }) => {
           try {
-            if (/^https?:\/\//i.test(url)) view.webContents.loadURL(url)
+            // loadURL returns a promise; an unhandled rejection here would crash
+            // the host, so it is ignored exactly like the domain setup above.
+            if (/^https?:\/\//i.test(url)) void view.webContents.loadURL(url).catch(() => undefined)
           } catch { /* closing */ }
           return { action: 'deny' }
         })

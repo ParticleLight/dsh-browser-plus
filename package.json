@@ -38,6 +38,7 @@
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
+    "CHANGELOG.md",
     "LICENSE",
     "NOTICE.md"
   ],
@@ -47,6 +48,7 @@
     "pretest": "tsc -p tsconfig.json",
     "test": "node --test test/*.test.mjs",
     "test:only": "node --test test/*.test.mjs",
+    "lint": "eslint src",
     "smoke:electron-host": "node scripts/smoke-electron-host.mjs",
     "prepack": "npm run build"
   },
@@ -78,7 +80,9 @@
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^22.0.0",
-    "typescript": "^5.5.0"
+    "eslint": "^10.11.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.71.0"
   },
   "dsh": {
     "bundle": {

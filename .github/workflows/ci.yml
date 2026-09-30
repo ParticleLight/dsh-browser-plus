@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Electron is an optional dependency and no test spawns it, so the
+      # production-only install keeps the job fast.
+      - name: Install
+        run: npm ci --omit=optional
+
+      # pretest compiles src/ into lib/ before the suite runs, so a stale build
+      # can no longer make a broken src/ look green.
+      - name: Test
+        run: npm test
+
+      # lib/ is committed. This catches the case pretest hides: src changed,
+      # lib was regenerated locally, but the regenerated output was never
+      # committed.
+      - name: lib/ must match src/
+        run: git diff --exit-code -- lib
