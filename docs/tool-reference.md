@@ -52,7 +52,7 @@
 | --- | --- | --- | --- | --- |
 | `browser_history` | – | `{ entries[] }` | – | 操作日志(最新在后),含 seq/action/ok/params/result/error |
 | `browser_replay` | `seq`(必填) | `{ replayed }` | ✅ | 按序号回放某一步(navigate/execute/click/type) |
-| `browser_download` | `url`(必填), `savePath`(必填) | `{ path }` | ✅ | 带会话 cookie 下载到本地(上限 256MB,受 CORS 约束) |
+| `browser_download` | `url`(必填), `savePath`(必填) | `{ path }` | ✅ | 带会话 cookie 下载到本地(上限 64MB,受 CORS 约束);`savePath` 受 `writeRoots` 限制,URL 与导航共用 HTTP(S) 准入(拒绝内嵌凭据) |
 
 ## 登录态与安全
 
@@ -65,7 +65,7 @@
 
 | 工具 | 参数 | 输出 | 守卫 | 说明 |
 | --- | --- | --- | --- | --- |
-| `browser_screenshot` | `fullPage?`, `savePath?` | `{ dataUrl, path? }` | – | PNG 截图;`savePath` 落盘供视觉模型读取 |
+| `browser_screenshot` | `fullPage?`, `savePath?` | `{ dataUrl, path? }` | – | PNG 截图;`savePath` 落盘供视觉模型读取,且必须落在 `browser-electron.writeRoots` 之内 |
 
 ## 常用组合
 

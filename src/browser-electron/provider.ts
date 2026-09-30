@@ -46,6 +46,7 @@ import type {
 } from '../browser/types.ts'
 import { BrowserError } from '../browser/types.ts'
 import { PAGE_CHROME_HOST_ID, PAGE_CHROME_SCRIPT } from './page-chrome.ts'
+import { defaultWriteRoots, resolveWritePath } from './write-guard.ts'
 
 /**
  * Page-context human-verification (CAPTCHA / bot-detection) detection. Runs
@@ -113,6 +114,16 @@ export interface ElectronBrowserViewHost {
    * @param entry - the trail entry ({ action, params, ok, at }).
    */
   trace?(viewId: string, entry: unknown): void
+  /**
+   * Cheap local usability probe for this host. MUST NOT make network calls and
+   * MUST NOT throw (a throw is reported as unavailable). Optional: a host that
+   * omits it is assumed usable, which keeps a desktop shell's shell-owned
+   * viewHost and test fakes working. A self-hosted host reports false when the
+   * pinned Electron binary cannot be resolved, so the seam can pick another
+   * provider (BROWSER_PROVIDER_UNAVAILABLE / BROWSER_PROVIDER_AMBIGUOUS)
+   * instead of failing later on the first open().
+   */
+  isAvailable?(): boolean
   /** List browser tasks with their labels. Legacy method name retained for compatibility. */
   listWindows?(): Promise<Array<{ key: string; label: string }>>
   /** List task summaries when the host exposes a visible workspace. */
@@ -201,6 +212,12 @@ export interface ElectronBrowserProviderConfig {
   readonly snapshotMaxElements?: number
   /** Maximum content characters before truncation when no maxChars is given. Default 100_000. */
   readonly contentMaxChars?: number
+  /**
+   * Absolute directories a screenshot or download may write into. Defaults to
+   * the workspace and the OS temp directory ({@link defaultWriteRoots}); an
+   * empty list denies every write.
+   */
+  readonly writeRoots?: readonly string[]
 }
 
 /**
@@ -341,6 +358,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
   private readonly httpOnly: boolean
   private readonly snapshotMaxElements: number
   private readonly contentMaxChars: number
+  private readonly writeRoots: readonly string[]
 
   constructor(
     private readonly host: ElectronBrowserViewHost,
@@ -349,11 +367,26 @@ export class ElectronBrowserProvider implements BrowserProvider {
     this.httpOnly = config.httpOnly ?? true
     this.snapshotMaxElements = config.snapshotMaxElements ?? 60
     this.contentMaxChars = config.contentMaxChars ?? 100_000
+    this.writeRoots = config.writeRoots ?? defaultWriteRoots()
   }
 
-  /** Usable whenever the host can create views (always in the desktop shell). */
+  /**
+   * Usable whenever the host can create views. A host that exposes a local
+   * {@link ElectronBrowserViewHost.isAvailable} probe is believed; a host that
+   * omits it (a desktop shell's known-good viewHost, or a test fake) is assumed
+   * usable. The probe is cheap and local, so this stays callable from the seam's
+   * provider-selection path; the host owns any caching it needs.
+   */
   available(): boolean {
-    return true
+    const probe = this.host.isAvailable
+    if (typeof probe !== 'function') return true
+    try {
+      return probe.call(this.host) === true
+    } catch {
+      // A probe that throws (e.g. a binary resolver error) means "not usable";
+      // provider selection must never surface that error itself.
+      return false
+    }
   }
 
   /**
@@ -459,6 +492,31 @@ export class ElectronBrowserProvider implements BrowserProvider {
     return Promise.resolve()
   }
 
+  /**
+   * Admit one URL for a provider-driven fetch (navigation or download).
+   * The whole check is gated by `httpOnly`: when it is disabled, callers are
+   * trusted with any scheme. When it is enabled, only HTTP(S) is admitted and
+   * URL-embedded credentials are refused, so a target can never be reached
+   * with in-URL auth.
+   * @param url - the candidate URL.
+   * @param subject - the operation name used in the error text.
+   */
+  private admitUrl(url: string, subject: 'navigation' | 'download'): void {
+    if (!this.httpOnly) return
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      throw new BrowserError(`browser: refusing ${subject} to unparseable URL "${url}"`, 'BROWSER_NAVIGATION_BLOCKED')
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new BrowserError(`browser: refusing ${subject} to non-HTTP(S) URL "${url}"`, 'BROWSER_NAVIGATION_BLOCKED')
+    }
+    if (parsed.username !== '' || parsed.password !== '') {
+      throw new BrowserError(`browser: refusing ${subject} to a URL with embedded credentials`, 'BROWSER_NAVIGATION_BLOCKED')
+    }
+  }
+
   /** Navigate the active tab's view to a URL, honoring HTTP(S)-only admission. */
   async navigate(session: BrowserSessionId, request: { readonly url: string }, signal?: AbortSignal): Promise<void> {
     const s = this.session(session)
@@ -466,17 +524,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const { handle } = tab
     const url = request.url
     try {
-      if (this.httpOnly) {
-        let parsed: URL
-        try {
-          parsed = new URL(url)
-        } catch {
-          throw new BrowserError(`browser: refusing navigation to unparseable URL "${url}"`, 'BROWSER_NAVIGATION_BLOCKED')
-        }
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-          throw new BrowserError(`browser: refusing navigation to non-HTTP(S) URL "${url}"`, 'BROWSER_NAVIGATION_BLOCKED')
-        }
-      }
+      this.admitUrl(url, 'navigation')
       signal?.throwIfAborted()
       // Page.navigate can hang on an unreachable/slow host; bound it like the
       // evaluate paths so a wedged navigation surfaces as an error instead of
@@ -783,26 +831,10 @@ export class ElectronBrowserProvider implements BrowserProvider {
       if (fmt === 'txt') content = root.innerText || ''
       else if (fmt === 'html') content = root.outerHTML || ''
       else if (fmt === 'json') content = JSON.stringify(root)
-      else {
-        // markdown: headings, paragraphs, links, lists (best-effort)
-        const parts = []
-        const walk = (node) => {
-          if (node.nodeType === Node.TEXT_NODE) { const t = (node.textContent || '').trim(); if (t) parts.push(t); return }
-          if (node.nodeType !== Node.ELEMENT_NODE) return
-          const tag = node.tagName.toLowerCase()
-          if (tag === 'script' || tag === 'style' || tag === 'noscript') return
-          if (tag === 'h1' || tag === 'h2' || tag === 'h3' || tag === 'h4') parts.push('\\n' + '#'.repeat(Number(tag[1])) + ' ' + (node.textContent || '').trim() + '\\n')
-          else if (tag === 'a') { const t = (node.textContent || '').trim(); if (t) parts.push('[' + t + '](' + (node.href || '') + ')') }
-          else if (tag === 'li') parts.push('  - ' + (node.textContent || '').trim())
-          else if (tag === 'p' || tag === 'div' || tag === 'section' || tag === 'article') { const t = (node.textContent || '').trim(); if (t) parts.push(t + '\\n') }
-          else { for (const child of node.childNodes) walk(child) }
-        }
-        if (root.nodeType === Node.TEXT_NODE) walk(root)
-        else for (const child of root.childNodes) walk(child)
-        // Join without a separator: each part already carries its own trailing
-        // newline, so a space join would smear headings/links into run-on text.
-        content = parts.join('')
-      }
+      // markdown: headings, links, lists, paragraphs (best-effort). The
+      // renderer is embedded from its own source, so the function under test
+      // is byte-for-byte the one that runs in the page.
+      else content = (${renderMarkdown.toString()})(root)
       const truncated = content.length > ${String(maxChars)}
       return { ok: true, content: content.slice(0, ${String(maxChars)}), truncated }
     })()`
@@ -899,19 +931,26 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const { handle } = this.activeTab(s)
     signal?.throwIfAborted()
     await this.drainDialog(s, handle)
+    // Same input semantics as click/type: do not let the page hand control to
+    // the human while an agent-driven file selection is in flight.
+    await suppressAutoUserControl(handle, signal)
     const selector = request.selector ?? 'input[type="file"]'
-    const doc = await handle.sendCommand('DOM.getDocument', {})
-    const root = (doc as { root?: { nodeId?: number } }).root
-    const rootId = root?.nodeId
-    if (rootId === undefined) {
-      throw new BrowserError('browser: could not resolve the document node', 'BROWSER_UPLOAD_FAILED')
-    }
-    const query = await handle.sendCommand('DOM.querySelector', { nodeId: rootId, selector })
-    const nodeId = (query as { nodeId?: number }).nodeId
-    if (nodeId === undefined || nodeId === 0) {
-      throw new BrowserError(`browser: no file input matches "${selector}"`, 'BROWSER_UPLOAD_NO_INPUT')
-    }
-    await handle.sendCommand('DOM.setFileInputFiles', { files: [request.filePath], nodeId })
+    // Bound the whole DOM sequence: a wedged renderer must not hang the tool.
+    const timeoutMs = 30_000
+    await withTimeout((async () => {
+      const doc = await handle.sendCommand('DOM.getDocument', {})
+      const root = (doc as { root?: { nodeId?: number } }).root
+      const rootId = root?.nodeId
+      if (rootId === undefined) {
+        throw new BrowserError('browser: could not resolve the document node', 'BROWSER_UPLOAD_FAILED')
+      }
+      const query = await handle.sendCommand('DOM.querySelector', { nodeId: rootId, selector })
+      const nodeId = (query as { nodeId?: number }).nodeId
+      if (nodeId === undefined || nodeId === 0) {
+        throw new BrowserError(`browser: no file input matches "${selector}"`, 'BROWSER_UPLOAD_NO_INPUT')
+      }
+      await handle.sendCommand('DOM.setFileInputFiles', { files: [request.filePath], nodeId })
+    })(), timeoutMs, signal, `browser: upload timed out after ${timeoutMs}ms`)
     this.record(s, 'uploadFile', { filePath: request.filePath, selector }, true, { result: '1 file attached' })
     return { path: request.filePath }
   }
@@ -1160,11 +1199,16 @@ export class ElectronBrowserProvider implements BrowserProvider {
     if (typeof downloadable.download !== 'function') {
       throw new BrowserError('browser: download is only available on the self-hosted browser', 'BROWSER_DOWNLOAD_UNSUPPORTED')
     }
+    // A download reaches the network with the session's cookies, so it passes
+    // the same URL admission as navigation, and may only write inside the
+    // configured roots.
+    this.admitUrl(request.url, 'download')
+    const target = resolveWritePath(request.savePath, this.writeRoots)
     // The child fetches in-page with awaitPromise; a slow/hung network can
     // block it well past the tool budget, so bound it like every other call.
     const timeoutMs = 60_000
     await withTimeout(
-      downloadable.download(request.url, request.savePath),
+      downloadable.download(request.url, target),
       timeoutMs,
       signal,
       `browser: download timed out after ${timeoutMs}ms`,
@@ -1258,8 +1302,10 @@ export class ElectronBrowserProvider implements BrowserProvider {
   /** Build the data URL and optionally write the PNG to disk. */
   private saveScreenshot(base64: string, savePath?: string): { dataUrl: string; path?: string } {
     if (savePath !== undefined) {
+      // Admit before writing so a denied path never touches disk.
+      const target = resolveWritePath(savePath, this.writeRoots)
       try {
-        writeFileSync(savePath, Buffer.from(base64, 'base64'))
+        writeFileSync(target, Buffer.from(base64, 'base64'))
         return { dataUrl: `data:image/png;base64,${base64}`, path: savePath }
       } catch (error) {
         // Report the write problem but keep the capture usable.
@@ -1788,6 +1834,107 @@ async function suppressAutoUserControl(handle: ElectronViewHandle, signal?: Abor
     signal,
     'browser: agent input suppression timed out',
   ).catch(() => undefined)
+}
+
+/**
+ * Minimal DOM shape {@link renderMarkdown} reads; a real DOM node fits it.
+ */
+export interface MarkdownNode {
+  readonly nodeType?: number
+  readonly tagName?: string | null
+  readonly textContent?: string | null
+  readonly childNodes?: ArrayLike<MarkdownNode> | null
+  readonly href?: string | null
+  readonly src?: string | null
+  readonly alt?: string | null
+}
+
+/**
+ * Best-effort markdown rendering of a DOM subtree, used by
+ * {@link ElectronBrowserProvider.content} for `format: 'markdown'`.
+ *
+ * Deliberately self-contained (no closures over module state, no imports):
+ * the provider embeds this function's source in the page with
+ * `Function.prototype.toString`, so the tests exercise the very code the page
+ * runs.
+ *
+ * Block containers (div/p/section/article/li/headings/...) recurse into their
+ * children and are joined with newlines, while adjacent inline runs are
+ * concatenated — text split by <b>/<span> stays one paragraph, and a container
+ * never emits its own `textContent` on top of its children (the old walker did,
+ * which flattened real pages — everything is wrapped in divs — to plain text).
+ * @param root - the subtree root (an element, or a text node).
+ * @returns the markdown text.
+ */
+export function renderMarkdown(root: MarkdownNode): string {
+  const BLOCK_TAGS = new Set([
+    'address', 'article', 'aside', 'blockquote', 'dd', 'details', 'dialog',
+    'div', 'dl', 'dt', 'fieldset', 'figcaption', 'figure', 'footer', 'form',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hgroup', 'hr', 'li',
+    'main', 'nav', 'ol', 'p', 'pre', 'section', 'summary', 'table',
+    'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
+  ])
+  const SKIP_TAGS = new Set(['script', 'style', 'noscript', 'template'])
+  const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim()
+  const childrenOf = (node: MarkdownNode): MarkdownNode[] => {
+    const list = node.childNodes
+    if (list === undefined || list === null) return []
+    const out: MarkdownNode[] = []
+    for (let index = 0; index < list.length; index++) out.push(list[index])
+    return out
+  }
+  /** Inline rendering: concatenates descendants, keeping links/images inline. */
+  const inline = (node: MarkdownNode): string => {
+    // Whitespace is collapsed but NOT trimmed: trimming here would eat the space
+    // that separates two inline runs ('Hello ' + <b>world</b>).
+    if (node.nodeType === 3) return (node.textContent ?? '').replace(/\s+/g, ' ')
+    if (node.nodeType !== 1) return ''
+    const tag = (node.tagName ?? '').toLowerCase()
+    if (SKIP_TAGS.has(tag)) return ''
+    if (tag === 'br') return '\n'
+    if (tag === 'img') return node.src ? '![' + collapse(node.alt ?? '') + '](' + node.src + ')' : ''
+    if (tag === 'a') {
+      const text = collapse(inlineChildren(node))
+      return text === '' ? '' : '[' + text + '](' + (node.href ?? '') + ')'
+    }
+    return inlineChildren(node)
+  }
+  const inlineChildren = (node: MarkdownNode): string => childrenOf(node).map(inline).join('')
+  /** Render one child as a block piece (own line) or an inline piece (merged). */
+  const renderBlock = (node: MarkdownNode): { text: string; block: boolean } => {
+    if (node.nodeType === 3) return { text: inline(node), block: false }
+    if (node.nodeType !== 1) return { text: '', block: false }
+    const tag = (node.tagName ?? '').toLowerCase()
+    if (SKIP_TAGS.has(tag)) return { text: '', block: false }
+    if (tag === 'br') return { text: '\n', block: false }
+    if (tag === 'hr') return { text: '---', block: true }
+    const heading = /^h([1-6])$/.exec(tag)
+    if (heading !== null) {
+      const text = collapse(inline(node))
+      return { text: text === '' ? '' : '#'.repeat(Number(heading[1])) + ' ' + text, block: true }
+    }
+    if (tag === 'li') {
+      const text = collapse(inline(node))
+      return { text: text === '' ? '' : '- ' + text, block: true }
+    }
+    if (BLOCK_TAGS.has(tag)) return { text: renderChildren(node), block: true }
+    return { text: inline(node), block: false }
+  }
+  /** Join a node's children: inline neighbours merge, block boundaries newline. */
+  const renderChildren = (node: MarkdownNode): string => {
+    const out: Array<{ text: string; block: boolean }> = []
+    for (const child of childrenOf(node)) {
+      const piece = renderBlock(child)
+      if (collapse(piece.text) === '') continue
+      const previous = out[out.length - 1]
+      if (previous !== undefined && !previous.block && !piece.block) previous.text += piece.text
+      else out.push({ text: piece.text, block: piece.block })
+    }
+    // Inline runs are trimmed once, after merging, so their inner spacing stays.
+    return out.map(piece => piece.block ? piece.text : collapse(piece.text)).join('\n')
+  }
+  if (root.nodeType === 3) return collapse(root.textContent ?? '')
+  return renderChildren(root).replace(/\n{3,}/g, '\n\n').trim()
 }
 
 async function handleSendEvaluate(

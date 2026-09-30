@@ -36,12 +36,18 @@ export interface Config {
   readonly viewHost?: ElectronBrowserViewHost
   /** Allow navigation only to HTTP(S) URLs. Default true. */
   readonly httpOnly?: boolean
+  /**
+   * Absolute directories `browser_screenshot` and `browser_download` may
+   * write into. Absent -> the workspace and the OS temp directory.
+   */
+  readonly writeRoots?: string[]
 }
 
 export const Config: z<Config> = z.object({
   // Absent on surfaces without a desktop shell; the plugin self-hosts then.
   viewHost: z.any(),
   httpOnly: z.boolean().default(true),
+  writeRoots: z.array(z.string()),
 })
 
 /** Register the Electron browser provider with `ctx.browser`. */
@@ -53,7 +59,10 @@ export function apply(ctx: Context & { browser: BrowserRuntime }, config: Config
   // is bound to the seam's own fiber (the browser row), so a reload of this
   // row would otherwise collide with the still-registered provider
   // (BROWSER_DUPLICATE_PROVIDER) or leave a stale provider behind.
-  const unregister = ctx.browser.registerBrowserProvider(new ElectronBrowserProvider(host, { httpOnly: config.httpOnly }))
+  const unregister = ctx.browser.registerBrowserProvider(new ElectronBrowserProvider(host, {
+    httpOnly: config.httpOnly,
+    ...config.writeRoots !== undefined ? { writeRoots: config.writeRoots } : {},
+  }))
   ctx.effect(() => () => {
     unregister()
     if (config.viewHost === undefined && host instanceof RemoteElectronViewHost) {

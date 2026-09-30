@@ -26,6 +26,11 @@ export interface Config {
     readonly viewHost?: ElectronBrowserViewHost;
     /** Allow navigation only to HTTP(S) URLs. Default true. */
     readonly httpOnly?: boolean;
+    /**
+     * Absolute directories `browser_screenshot` and `browser_download` may
+     * write into. Absent -> the workspace and the OS temp directory.
+     */
+    readonly writeRoots?: string[];
 }
 export declare const Config: z<Config>;
 /** Register the Electron browser provider with `ctx.browser`. */

@@ -41,6 +41,16 @@ export interface ElectronBrowserViewHost {
      * @param entry - the trail entry ({ action, params, ok, at }).
      */
     trace?(viewId: string, entry: unknown): void;
+    /**
+     * Cheap local usability probe for this host. MUST NOT make network calls and
+     * MUST NOT throw (a throw is reported as unavailable). Optional: a host that
+     * omits it is assumed usable, which keeps a desktop shell's shell-owned
+     * viewHost and test fakes working. A self-hosted host reports false when the
+     * pinned Electron binary cannot be resolved, so the seam can pick another
+     * provider (BROWSER_PROVIDER_UNAVAILABLE / BROWSER_PROVIDER_AMBIGUOUS)
+     * instead of failing later on the first open().
+     */
+    isAvailable?(): boolean;
     /** List browser tasks with their labels. Legacy method name retained for compatibility. */
     listWindows?(): Promise<Array<{
         key: string;
@@ -86,6 +96,12 @@ export interface ElectronBrowserProviderConfig {
     readonly snapshotMaxElements?: number;
     /** Maximum content characters before truncation when no maxChars is given. Default 100_000. */
     readonly contentMaxChars?: number;
+    /**
+     * Absolute directories a screenshot or download may write into. Defaults to
+     * the workspace and the OS temp directory ({@link defaultWriteRoots}); an
+     * empty list denies every write.
+     */
+    readonly writeRoots?: readonly string[];
 }
 /**
  * CDP method/params for `Page.navigate`, as sent to {@link ElectronViewHandle.sendCommand}.
@@ -143,8 +159,15 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     private readonly httpOnly;
     private readonly snapshotMaxElements;
     private readonly contentMaxChars;
+    private readonly writeRoots;
     constructor(host: ElectronBrowserViewHost, config?: ElectronBrowserProviderConfig);
-    /** Usable whenever the host can create views (always in the desktop shell). */
+    /**
+     * Usable whenever the host can create views. A host that exposes a local
+     * {@link ElectronBrowserViewHost.isAvailable} probe is believed; a host that
+     * omits it (a desktop shell's known-good viewHost, or a test fake) is assumed
+     * usable. The probe is cheap and local, so this stays callable from the seam's
+     * provider-selection path; the host owns any caching it needs.
+     */
     available(): boolean;
     /**
      * Open or recover the browser session for a task key. The tool layer normally
@@ -164,6 +187,16 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     closeTab(session: BrowserSessionId, tabId: string): Promise<void>;
     /** Close every tab and reset to one blank tab. */
     reset(session: BrowserSessionId): Promise<void>;
+    /**
+     * Admit one URL for a provider-driven fetch (navigation or download).
+     * The whole check is gated by `httpOnly`: when it is disabled, callers are
+     * trusted with any scheme. When it is enabled, only HTTP(S) is admitted and
+     * URL-embedded credentials are refused, so a target can never be reached
+     * with in-URL auth.
+     * @param url - the candidate URL.
+     * @param subject - the operation name used in the error text.
+     */
+    private admitUrl;
     /** Navigate the active tab's view to a URL, honoring HTTP(S)-only admission. */
     navigate(session: BrowserSessionId, request: {
         readonly url: string;
@@ -310,3 +343,33 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     /** Read the current URL of a view through CDP. */
     private currentUrl;
 }
+/**
+ * Minimal DOM shape {@link renderMarkdown} reads; a real DOM node fits it.
+ */
+export interface MarkdownNode {
+    readonly nodeType?: number;
+    readonly tagName?: string | null;
+    readonly textContent?: string | null;
+    readonly childNodes?: ArrayLike<MarkdownNode> | null;
+    readonly href?: string | null;
+    readonly src?: string | null;
+    readonly alt?: string | null;
+}
+/**
+ * Best-effort markdown rendering of a DOM subtree, used by
+ * {@link ElectronBrowserProvider.content} for `format: 'markdown'`.
+ *
+ * Deliberately self-contained (no closures over module state, no imports):
+ * the provider embeds this function's source in the page with
+ * `Function.prototype.toString`, so the tests exercise the very code the page
+ * runs.
+ *
+ * Block containers (div/p/section/article/li/headings/...) recurse into their
+ * children and are joined with newlines, while adjacent inline runs are
+ * concatenated — text split by <b>/<span> stays one paragraph, and a container
+ * never emits its own `textContent` on top of its children (the old walker did,
+ * which flattened real pages — everything is wrapped in divs — to plain text).
+ * @param root - the subtree root (an element, or a text node).
+ * @returns the markdown text.
+ */
+export declare function renderMarkdown(root: MarkdownNode): string;
