@@ -209,7 +209,7 @@ export class BrowserRuntime extends Service {
   }
 
   /** Close one tab through the selected provider. */
-  async closeTab(session: BrowserSessionId, tabId: string): Promise<void> {
+  async closeTab(session: BrowserSessionId, tabId: string): Promise<boolean> {
     return this.resolveProvider().closeTab(session, tabId)
   }
 

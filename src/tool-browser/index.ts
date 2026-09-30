@@ -80,6 +80,32 @@ function coalesceTaskRead<T>(key: string, readKey: string, operation: () => Prom
   return result
 }
 
+/** True when the provider no longer knows the cached session id. */
+function isUnknownSession(error: unknown): boolean {
+  return error instanceof Error && (error as { code?: string }).code === 'BROWSER_SESSION_UNKNOWN'
+}
+
+/**
+ * Run one operation against the task's session, reopening it once when the
+ * provider has forgotten the cached id — for example when the browser row
+ * reloaded and the tool layer still holds a session from the previous provider.
+ * Without this the task fails on every later call until someone happens to run
+ * browser_reset_session.
+ */
+async function withRecoveredSession<T>(
+  browser: NonNullable<Context['browser']>,
+  key: string,
+  run: (session: BrowserSessionId) => Promise<T>,
+): Promise<T> {
+  try {
+    return await run(await ensureSession(browser, key))
+  } catch (error) {
+    if (!isUnknownSession(error)) throw error
+    sessionsByTask.delete(key)
+    return run(await ensureSession(browser, key))
+  }
+}
+
 /** Run a page-changing action with visible task status and FIFO ordering. */
 async function withTaskAction<T>(
   browser: NonNullable<Context['browser']>,
@@ -89,8 +115,8 @@ async function withTaskAction<T>(
   operation: (session: BrowserSessionId) => Promise<T>,
   label?: string,
 ): Promise<T> {
-  const session = await ensureSession(browser, key, label)
-  return queueTaskOperation(key, async () => {
+  await ensureSession(browser, key, label)
+  return queueTaskOperation(key, () => withRecoveredSession(browser, key, async session => {
     const task = await browser.getTask(session)
     if (task.control === 'human') {
       await browser.updateTask(session, { status: 'waiting-user', latestAction: 'waiting for user' })
@@ -112,7 +138,7 @@ async function withTaskAction<T>(
         : { status: 'failed', latestAction: action, error: message })
       throw error
     }
-  })
+  }))
 }
 
 /**
@@ -133,8 +159,8 @@ async function withTaskRead<T>(
   readKey: string,
   operation: (session: BrowserSessionId) => Promise<T>,
 ): Promise<T> {
-  const session = await ensureSession(browser, key)
-  return coalesceTaskRead(key, readKey, () => queueTaskOperation(key, () => operation(session)))
+  await ensureSession(browser, key)
+  return coalesceTaskRead(key, readKey, () => queueTaskOperation(key, () => withRecoveredSession(browser, key, operation)))
 }
 
 /**
@@ -525,6 +551,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
+      // Handoff is not read-only: it changes the task's control state.
+      assertAllowed('browser_handoff', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const key = taskKey(exec)
@@ -1074,6 +1102,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => true,
     async execute(args, exec) {
+      // An unsaved capture is read-only and stays outside the allow-list; the
+      // variant that writes a file is guarded like the other writing tools.
+      if (args.savePath !== undefined) assertAllowed('browser_screenshot', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const key = taskKey(exec)
@@ -1171,8 +1202,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         assertAllowed('browser_close_tab', exec)
         const browser = ctx.get('browser')
         if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
-        await withTaskAction(browser, taskKey(exec), 'close tab', exec, session => browser.closeTab(session, args.tabId))
-        return { closed: true }
+        const closed = await withTaskAction(browser, taskKey(exec), 'close tab', exec, session => browser.closeTab(session, args.tabId))
+        return { closed }
       },
     }))
 
@@ -1358,8 +1389,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const key = taskKey(exec)
-      const session = sessionsByTask.get(key)
-      if (session !== undefined) {
+      // Join the task's FIFO: closing the session while a queued operation is
+      // still using it would tear the view out from under that call.
+      await queueTaskOperation(key, async () => {
+        const session = sessionsByTask.get(key)
+        if (session === undefined) return
         try {
           await browser.close(session)
         } finally {
@@ -1367,7 +1401,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           // even if the provider close threw (the session is half-closed).
           sessionsByTask.delete(key)
         }
-      }
+      })
       return { reset: true }
     },
   }))
@@ -1394,6 +1428,14 @@ export function apply(ctx: Context, config: Config = {}): void {
       const unknown = allowed.filter((t: string) => !t.startsWith('browser_'))
       if (unknown.length > 0) {
         throw new Error(`browser_restrict: unknown tool name(s) ${unknown.map(t => `"${t}"`).join(', ')} (must start with "browser_")`)
+      }
+      // A misspelled name would otherwise be accepted and silently refuse every
+      // guarded action for this task, so check it against the real registry.
+      const schemas = (ctx.tools as { schemas?: () => Array<{ name: string }> }).schemas
+      const registered = typeof schemas === 'function' ? schemas.call(ctx.tools).map(schema => schema.name) : []
+      const misspelled = registered.length === 0 ? [] : allowed.filter((t: string) => !registered.includes(t))
+      if (misspelled.length > 0) {
+        throw new Error(`browser_restrict: no such browser tool ${misspelled.map(t => `"${t}"`).join(', ')}`)
       }
       // Empty list (or omitted) lifts THIS task's restriction; a non-empty list
       // becomes this task's allow-list. Either way the rule is task-scoped.

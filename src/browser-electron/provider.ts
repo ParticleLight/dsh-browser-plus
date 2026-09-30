@@ -505,11 +505,14 @@ export class ElectronBrowserProvider implements BrowserProvider {
     return Promise.resolve()
   }
 
-  /** Close one tab; closing the active tab activates the next. */
-  closeTab(session: BrowserSessionId, tabId: string): Promise<void> {
+  /**
+   * Close one tab; closing the active tab activates the next. Resolves false when
+   * the id is not open in this session, so a miss is distinguishable from a close.
+   */
+  closeTab(session: BrowserSessionId, tabId: string): Promise<boolean> {
     const s = this.session(session)
     const index = s.tabs.findIndex(tab => tab.id === tabId)
-    if (index < 0) return Promise.resolve() // idempotent
+    if (index < 0) return Promise.resolve(false) // idempotent
     const removed = s.tabs[index]
     if (removed !== undefined) {
       s.tabs.splice(index, 1)
@@ -527,7 +530,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
       s.activeIndex = s.tabs.length - 1
     }
     this.showActive(s)
-    return Promise.resolve()
+    return Promise.resolve(true)
   }
 
   /** Close every tab and reset to one blank tab. */

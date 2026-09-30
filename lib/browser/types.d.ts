@@ -402,7 +402,7 @@ export interface BrowserProvider {
     /** Switch to a tab by id. Unknown id -> `BROWSER_TAB_UNKNOWN`. */
     switchTab(session: BrowserSessionId, tabId: string): Promise<void>;
     /** Close one tab. Closing the active tab activates the next. */
-    closeTab(session: BrowserSessionId, tabId: string): Promise<void>;
+    closeTab(session: BrowserSessionId, tabId: string): Promise<boolean>;
     /** Close every tab and reset the session's state. */
     reset(session: BrowserSessionId): Promise<void>;
     /** Navigate the active tab. Honor `signal` for cancellation. */

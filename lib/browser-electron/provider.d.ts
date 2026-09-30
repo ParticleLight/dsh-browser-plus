@@ -201,8 +201,11 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     listTabs(session: BrowserSessionId): Promise<readonly BrowserTab[]>;
     /** Switch to a tab by id; background task tabs stay hidden until user-selected. */
     switchTab(session: BrowserSessionId, tabId: string): Promise<void>;
-    /** Close one tab; closing the active tab activates the next. */
-    closeTab(session: BrowserSessionId, tabId: string): Promise<void>;
+    /**
+     * Close one tab; closing the active tab activates the next. Resolves false when
+     * the id is not open in this session, so a miss is distinguishable from a close.
+     */
+    closeTab(session: BrowserSessionId, tabId: string): Promise<boolean>;
     /** Close every tab and reset to one blank tab. */
     reset(session: BrowserSessionId): Promise<void>;
     /**

@@ -61,7 +61,7 @@ export declare class BrowserRuntime extends Service {
     /** Switch to a tab through the selected provider. */
     switchTab(session: BrowserSessionId, tabId: string): Promise<void>;
     /** Close one tab through the selected provider. */
-    closeTab(session: BrowserSessionId, tabId: string): Promise<void>;
+    closeTab(session: BrowserSessionId, tabId: string): Promise<boolean>;
     /** Close every tab and reset the session through the selected provider. */
     reset(session: BrowserSessionId): Promise<void>;
     /** Navigate the session's page through the selected provider. */

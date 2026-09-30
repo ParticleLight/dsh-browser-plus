@@ -2,6 +2,12 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **会话丢失会自动重开**:工具层按任务缓存 session id;若 provider 被重载(实例换了、不再认识旧 id),此前该任务之后**每次**调用都报 `BROWSER_SESSION_UNKNOWN`,只能靠人想到调 `browser_reset_session`。现在检测到该错误会丢弃缓存并重开一次(仅此一种错误会重试)。
+- **`browser_close_tab` 如实返回**:此前无条件 `{closed:true}`,render 里「Tab not found.」是死代码;未知 tabId 与成功无法区分。现在 provider 返回布尔值,工具层如实回填。
+- **`browser_handoff` 纳入白名单**:它不是只读工具(会改任务控制状态),此前不受 `browser_restrict` 约束。
+- **`browser_screenshot` 仅在写盘时受白名单约束**:不带 `savePath` 的截图仍是只读,保持「只读工具永不拦截」的承诺;带 `savePath` 时按写盘工具守卫。
+- **`browser_reset_session` 纳入每任务 FIFO**:此前直接 close,可能把并发排队操作正在使用的会话/视图拆掉。
+- **`browser_restrict` 校验名字是否存在**:此前只校验 `browser_` 前缀,拼错(如 `browser_snapsho`)会被接受并静默拒绝该任务所有受守卫动作。
 - **输入派发补上超时兜底**:`click`/`clickRef`/`doubleClick`/`hover`/`type`/`pressKey` 的 8 处 `Input.*` 派发此前是裸 `await`,页面主线程被同步 JS 阻塞时会一直挂到工具预算耗尽;现在与其它 CDP 调用一样有 15s 上限并响应调用方 signal。
 - **超时错误带稳定 code**:`withTimeout` 现在抛 `BROWSER_OPERATION_TIMEOUT`(保留 `TimeoutError` 名称),此前只有 `execute`/`waitForElement` 两处归一化,其余超时是裸 Error,无法按 code 分支。
 - **快照重试有总预算且尊重取消**:空清单重试此前最多 5 次、每次可等满求值超时(理论上约 182s,远超 60s 工具预算),且 `.catch(() => undefined)` 会吞掉 abort 继续重试。现在整段重试有 3s 预算,abort 会立即中止并上抛。
