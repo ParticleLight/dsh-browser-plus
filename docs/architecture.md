@@ -35,6 +35,8 @@ agent (browser_* 工具)
 - **人类工具栏是页面注入 chrome**:通过 `Page.addScriptToEvaluateOnNewDocument` 在顶层文档挂载 closed Shadow DOM,不创建第二个 `WebContentsView`;
 - **可见性不重挂**: `showView` 只切换 `setVisible`，导航、加载、标题和 resize 路径不得执行 `removeChildView` / `addChildView`;
 - **截图优先走宿主原生 `capturePage`**(新增 `capture` 通道):CDP `captureScreenshot` 在窗口存在多个(隐藏)视图时会挂起,原生捕获对可见视图快速可靠,失败时自动回退 CDP(临时摘除其他视图保证单视图状态);
+- **写入路径受白名单约束**:`browser_screenshot` 与 `browser_download` 落盘前经 `resolveWritePath()`(解析最深已存在祖先的真实路径,防 `..` 与符号链接逃逸),只允许 `browser-electron.writeRoots`(默认工作目录 + 系统临时目录)之内的路径;`browser_download` 复用 `admitUrl()`,与导航同一套 URL 准入;
+- **注入 chrome 的信任边界**:页面可见的轨迹经 `redactTraceParams()` 白名单脱敏(`type`→字符数、`execute`→丢弃脚本、URL→origin、路径→basename),被访问页面无法从轨迹里读走此前输入的文本或脚本;`Runtime.addBinding('__dshBrowserTaskAction')` 的每个 payload 必须携带 `createView` 生成的每视图随机 token,否则忽略,页面脚本无法伪造任务切换或控制权变更;
 - 所有 CDP 调用都有超时兜底(`withTimeout`),避免卡死工具调用;
 - 历史记录单调递增的 seq,截断(500 条)后不回绕;失败导航只记一条。
 
@@ -63,7 +65,7 @@ RemoteElectronViewHost  ──TCP JSON-RPC──▶  host-main.js
 
 - **协议**:本机 loopback TCP,每行一个 JSON(`{ id, op, ... }` ↔ `{ id, ok, result|err }`);
 - **Electron 定位**:优先 package-local 的精确 `42.9.3` optional dependency；其次只接受经 package metadata 验证为 `42.9.3` 的 `ELECTRON_PATH`、DSH 锚点或 pnpm store 候选；找不到即失败，绝不回退到 43.x。
-- **稳健性**:子进程/套接字都有 `error` 监听(否则未捕获事件会炸掉整个 DSH 进程);子进程退出自动重启;物化失败可重试;下载有 256MB 上限与 60s 超时;cookie 导出/恢复有 30s 超时;
+- **稳健性**:子进程/套接字都有 `error` 监听(否则未捕获事件会炸掉整个 DSH 进程);子进程退出自动重启;物化失败可重试;下载有 64MB 上限与 60s 超时;cookie 导出/恢复有 30s 超时;
 - **视图可见性**:所有任务键(DSH 会话)共用一个 `BrowserWindow`，每个任务有隔离视图；页面任务管理器选择可见任务，`showView` 对后台任务只更新其活动视图，不改变用户当前选择。切换仅用 `setVisible`，绝不 remove/re-add（capture 的 CDP 兜底仍只临时 detach/restore 同窗口兄弟视图）；
 - **任务状态传递**:页面首次挂载、导航重装 chrome 或任务切换时接收完整 bootstrap；常规状态、任务卡、面板和轨迹变化使用带 epoch/revision 的增量 patch。摘要中的 URL 只保留 origin，避免泄露完整路径与查询参数；
 - **任务缩略图**:缩略图使用原生 `capturePage` 生成 JPEG data URL，最长边限制为 288px、质量 58、上限 180 KiB。仅在任务面板打开时为可见任务按需捕获，单飞、最短 2 秒间隔、32 项缓存；后台任务保留最后成功图像。

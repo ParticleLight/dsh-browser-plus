@@ -19,6 +19,7 @@
 import { app, BrowserWindow, WebContentsView } from 'electron'
 import { createInterface } from 'node:readline'
 import { createConnection } from 'node:net'
+import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { buildPageChromeScript } from './page-chrome.js'
 import { taskSummaryUrl } from './task-summary.js'
@@ -42,8 +43,12 @@ try {
 /** CDP protocol version attached to every view's debugger. */
 const CDP_VERSION = '1.3'
 
-/** Download cap: the body is shipped base64 as one JSON line; bound the memory. */
-const MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024
+/**
+ * Download cap. The body is fetched inside the page, shipped as one base64 JSON
+ * line and decoded again here, so one download peaks at several times its size
+ * in memory; 64 MiB keeps that bounded while covering ordinary files.
+ */
+const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024
 
 /** One task-scoped page view in the shared browser window. */
 interface HostView {
@@ -53,6 +58,14 @@ interface HostView {
 
 /** Views by the id the parent assigned at createView time. */
 const views = new Map<string, HostView>()
+
+/**
+ * Per-view secret authenticating page-emitted chrome control messages.
+ * `Runtime.addBinding` exposes the callback to every page script, so a payload
+ * is trusted only when it echoes the token that `buildPageChromeScript`
+ * captured in the injected chrome's closure.
+ */
+const chromeTokens = new WeakMap<WebContentsView, string>()
 
 /** Operation trail per view, newest last, bounded. */
 const traces = new Map<string, unknown[]>()
@@ -251,11 +264,73 @@ function activeTraceForTask(taskKey: string | undefined): ChromeTrailEntry[] {
     if (typeof record.action !== 'string' || typeof record.at !== 'number') return []
     return [{
       action: record.action,
-      ...typeof record.params === 'object' && record.params !== null && !Array.isArray(record.params) ? { params: record.params as Record<string, unknown> } : {},
+      // The only funnel into the page-visible trail: the bootstrap and the
+      // `trail.append` patch both read it back, so redaction belongs here.
+      ...typeof record.params === 'object' && record.params !== null && !Array.isArray(record.params)
+        ? { params: redactTraceParams(record.action, record.params as Record<string, unknown>) }
+        : {},
       ...typeof record.ok === 'boolean' ? { ok: record.ok } : {},
       at: record.at,
     }]
   })
+}
+
+/**
+ * Reduce one recorded action's params to what the in-page trail may show.
+ *
+ * The provider records replay-grade detail (full typed text, full executed
+ * scripts, full URLs, upload and download paths). Every visited page can read
+ * the injected trail, so a page could otherwise harvest what was typed on an
+ * earlier site in the same task. Only the keys a human-readable description
+ * needs survive; URLs and paths collapse to origin and basename, and typed text
+ * to a character count.
+ */
+function redactTraceParams(action: string, params: Record<string, unknown>): Record<string, unknown> {
+  const pageSafeKeys: Record<string, readonly string[]> = {
+    navigate: ['url'],
+    back: ['navigated'],
+    forward: ['navigated'],
+    reload: [],
+    stop: [],
+    execute: [],
+    snapshot: [],
+    click: ['x', 'y'],
+    doubleClick: ['x', 'y'],
+    hover: ['x', 'y'],
+    scroll: ['deltaX', 'deltaY'],
+    clickRef: ['snapshotId', 'ref'],
+    scrollIntoView: ['snapshotId', 'ref', 'block'],
+    fill: ['fields', 'submit'],
+    type: ['chars'],
+    pressKey: ['modifiers'],
+    screenshot: ['fullPage'],
+    content: ['selector'],
+    waitForElement: ['selector', 'timeoutMs', 'visible'],
+    uploadFile: ['selector'],
+    download: ['url', 'savePath'],
+    flushAuth: [],
+    restoreAuth: ['count'],
+    setSpace: ['label'],
+    dialog: ['type', 'message'],
+    replay: ['seq', 'of', 'chars', 'x', 'y'],
+  }
+  const keys = pageSafeKeys[action] ?? []
+  const safe: Record<string, unknown> = {}
+  for (const key of keys) {
+    const value = params[key]
+    if (value === undefined) continue
+    if (key === 'url') {
+      if (typeof value === 'string') safe.url = taskSummaryUrl(value)
+      continue
+    }
+    if (key === 'savePath') {
+      if (typeof value === 'string') safe.savePath = value.slice(Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\')) + 1)
+      continue
+    }
+    safe[key] = value
+  }
+  if (keys.includes('chars') && typeof params.text === 'string') safe.chars = params.text.length
+  return safe
 }
 
 function chromeWorkspaceState(selectedTaskKey = visibleTaskKey): ChromeWorkspaceState {
@@ -402,7 +477,9 @@ let rpcSocket: import('node:net').Socket | undefined
 
 /** Install human browser chrome without creating or reparenting a child view. */
 function installPageChrome(view: WebContentsView, viewId: string): void {
-  const source = buildPageChromeScript()
+  // Rebuilt with the view's token on every injection, so the chrome re-arms
+  // itself after each navigation while the page never sees the token.
+  const source = buildPageChromeScript(chromeTokens.get(view) ?? '')
   // Electron's native executeJavaScript waits for a committed document, unlike
   // a CDP evaluate issued before commit, which can hang. Re-run on every
   // committed navigation so the toolbar follows each document.
@@ -430,6 +507,17 @@ function reply(id: number, payload: Record<string, unknown>): void {
     return
   }
   rpcSocket.write(JSON.stringify({ id, ...payload }) + '\n')
+}
+
+/**
+ * True when a page-emitted `__dshBrowserTaskAction` payload carries this view's
+ * token. The binding is callable by every page script, so without this check any
+ * visited page could switch the visible task or set control to "human" and
+ * freeze the Agent. Payloads without a matching token are ignored.
+ */
+function authorizeChromeAction(action: unknown, token: string): boolean {
+  if (typeof action !== 'object' || action === null || Array.isArray(action)) return false
+  return (action as { token?: unknown }).token === token
 }
 
 /** Handle one command. */
@@ -485,6 +573,10 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // Attach the debugger BEFORE the view can be seen: an attach failure
         // then leaves nothing in the window (no visible ghost view).
         view.webContents.debugger.attach(CDP_VERSION)
+        // Per-view secret for the page chrome. It belongs to the view rather than
+        // to a document, so re-injecting the chrome after a navigation reuses it.
+        const chromeToken = randomBytes(24).toString('hex')
+        chromeTokens.set(view, chromeToken)
         // Register the listener before enabling domains. Runtime.addBinding
         // exposes a callable function in the page, while Runtime.bindingCalled
         // is the only channel back to this host for workspace controls.
@@ -497,6 +589,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
               try {
                 const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tasks?: unknown; trail?: unknown; control?: unknown }
+                // Authenticate before acting: only our injected chrome knows this
+                // view's token, so a forged payload never reaches the dispatcher.
+                if (!authorizeChromeAction(action, chromeToken)) return
                 if (action.type === 'switch-task' && typeof action.taskKey === 'string' && activeViewByTask.has(action.taskKey)) {
                   switchVisibleTask(action.taskKey)
                 } else if (action.type === 'request-chrome-bootstrap') {

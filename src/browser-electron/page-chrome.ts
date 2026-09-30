@@ -21,8 +21,15 @@ export function normalizeBrowserAddress(raw: string): string {
   return 'https://' + value
 }
 
-/** Build a self-contained CDP page-start script. */
-export function buildPageChromeScript(): string {
+/**
+ * Build a self-contained CDP page-start script.
+ *
+ * @param bindingToken - per-view secret echoed back on every chrome control
+ *   message. It is captured in the injected IIFE's closure, so page scripts can
+ *   call the CDP binding but cannot read the token back out. Omit it for hosts
+ *   that do not authenticate page-emitted controls (see {@link PAGE_CHROME_SCRIPT}).
+ */
+export function buildPageChromeScript(bindingToken = ''): string {
   const normalizer = normalizeBrowserAddress.toString()
   const toolbarHtml = [
     '<style>',
@@ -130,6 +137,11 @@ export function buildPageChromeScript(): string {
     '',
     '  const hostId = ' + JSON.stringify(PAGE_CHROME_HOST_ID),
     '  const chromeAttribute = ' + JSON.stringify(PAGE_CHROME_ATTRIBUTE),
+    '  const bindingToken = ' + JSON.stringify(bindingToken),
+    '  // Residual risk: a page that hooks JSON.stringify before this chrome is',
+    '  // injected can still capture the token on the next emit. The complete fix is',
+    '  // an isolated-world injection (CDP Runtime.evaluate with a worldName), which',
+    '  // keeps the token out of the page realm entirely. Follow-up work.',
     '  const normalizeAddress = (' + normalizer + ')',
     '',
     '  const mount = () => {',
@@ -199,7 +211,7 @@ export function buildPageChromeScript(): string {
     "        case 'navigate': return '导航到 ' + String(p.url || '').slice(0, 80)",
     "        case 'click': return '点击 (' + p.x + ', ' + p.y + ')'",
     "        case 'fill': return '填写表单 ' + (Array.isArray(p.fields) ? p.fields.length : p.fields ?? 1) + ' 项'",
-    "        case 'type': return '输入文字' + (p.text ? '（' + String(p.text).slice(0, 20) + '…）' : '')",
+    "        case 'type': return '输入文字' + (p.chars ? '（' + p.chars + ' 字符）' : '')",
     "        case 'execute': return '执行页面脚本'",
     "        case 'screenshot': return '截图' + (p.fullPage ? '（整页）' : '')",
     "        case 'download': return '下载 ' + String(p.savePath || p.url || '').slice(0, 60)",
@@ -251,9 +263,9 @@ export function buildPageChromeScript(): string {
     "      else { const head = document.createElement('div'); head.className = 'activity-day'; head.dataset.dshTrailDay = day; head.textContent = '— ' + day + ' —'; trailList.prepend(row); trailList.prepend(head) }",
     "      if (!atTop) trailList.scrollTop += trailList.scrollHeight - previousHeight",
     "    }",
-    "    const emitTaskAction = taskKey => { try { const binding = window.__dshBrowserTaskAction; if (typeof binding === 'function') binding(JSON.stringify({ type: 'switch-task', taskKey })) } catch { /* host unavailable */ } }",
-    "    const emitTaskControl = (taskKey, control) => { try { const binding = window.__dshBrowserTaskAction; if (typeof binding === 'function') binding(JSON.stringify({ type: 'set-control-owner', taskKey, control })) } catch { /* host unavailable */ } }",
-    "    const emitWorkspacePanels = (tasks, trail) => { try { const binding = window.__dshBrowserTaskAction; if (typeof binding === 'function') binding(JSON.stringify({ type: 'set-workspace-panels', tasks, trail })) } catch { /* host unavailable */ } }",
+    "    const emitTaskAction = taskKey => { if (bindingToken === '') return; try { const binding = window.__dshBrowserTaskAction; if (typeof binding === 'function') binding(JSON.stringify({ type: 'switch-task', taskKey, token: bindingToken })) } catch { /* host unavailable */ } }",
+    "    const emitTaskControl = (taskKey, control) => { if (bindingToken === '') return; try { const binding = window.__dshBrowserTaskAction; if (typeof binding === 'function') binding(JSON.stringify({ type: 'set-control-owner', taskKey, control, token: bindingToken })) } catch { /* host unavailable */ } }",
+    "    const emitWorkspacePanels = (tasks, trail) => { if (bindingToken === '') return; const payload = { type: 'set-workspace-panels', tasks, trail }; try { const binding = window.__dshBrowserTaskAction; if (typeof binding === 'function') binding(JSON.stringify({ ...payload, token: bindingToken })) } catch { /* host unavailable */ } }",
     "    const latestText = latest => { if (!latest || typeof latest !== 'object') return ''; const action = String(latest.action || ''); return action === '' ? '' : action + (latest.at ? ' · ' + fmtTime(latest.at) : '') }",
     "    const statusText = status => status === 'running' ? '执行中' : status === 'waiting-user' ? '等待用户' : status === 'failed' ? '失败' : '空闲'",
     '    let activeTask = null',
@@ -400,7 +412,7 @@ export function buildPageChromeScript(): string {
     "    let chromeEpoch = -1",
     "    let chromeRevision = -1",
     "    let chromeSelectedTaskKey = undefined",
-    "    const requestChromeBootstrap = () => { try { const binding = window.__dshBrowserTaskAction; if (typeof binding === 'function') binding(JSON.stringify({ type: 'request-chrome-bootstrap' })) } catch { /* host unavailable */ } }",
+    "    const requestChromeBootstrap = () => { if (bindingToken === '') return; try { const binding = window.__dshBrowserTaskAction; if (typeof binding === 'function') binding(JSON.stringify({ type: 'request-chrome-bootstrap', token: bindingToken })) } catch { /* host unavailable */ } }",
     "    const applyChromeMessage = message => {",
     "      if (!message || typeof message !== 'object') return",
     "      if (message.kind === 'bootstrap') {",
