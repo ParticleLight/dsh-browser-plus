@@ -18,7 +18,7 @@
 
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createServer, type Server, type Socket } from 'node:net'
 import { fileURLToPath } from 'node:url'
@@ -37,11 +37,9 @@ const READY_TIMEOUT_MS = 20_000
  * base64 inside ONE JSON line, which inflates it by 4/3 —
  *   64 MiB * 4 / 3 = 67,108,864 * 4 / 3 = 89,478,485 bytes ≈ 85.33 MiB
  * — plus the JSON envelope and room for a base64 capture PNG. 128 MiB =
- * 134,217,728 bytes gives ~1.5x headroom over the largest legal reply
- * (134,217,728 / 89,478,485 ≈ 1.5) while still bounding a pathological child.
- * Anything smaller would reject a legal maximum-size download before it
- * reaches disk; anything larger would only widen the memory a runaway child
- * can force the parent to buffer.
+ * Downloads no longer cross this channel — the child writes them and reports a
+ * byte count — so the largest replies left are screenshot payloads. The cap
+ * still bounds what a pathological child can make the parent buffer.
  */
 const MAX_RPC_BUFFER_BYTES = 128 * 1024 * 1024
 /** Bounded RPC budgets prevent a dead child from wedging model-facing tools. */
@@ -433,8 +431,9 @@ class RemoteView implements ElectronViewHandle {
 
   /** Ask the child to download a URL to a local file (keeps cookies/login). */
   async download(url: string, savePath: string): Promise<void> {
-    const result = await this.client.call<{ base64: string }>('download', { viewId: this.id, url, savePath }, RPC_TRANSFER_TIMEOUT_MS)
-    writeFileSync(savePath, Buffer.from(result.base64, 'base64'))
+    // The child writes the file and reports its size, so the body never crosses
+    // the RPC socket.
+    await this.client.call<{ bytes: number }>('download', { viewId: this.id, url, savePath }, RPC_TRANSFER_TIMEOUT_MS)
   }
 
   /** Native capturePage snapshot of the view (PNG base64 + size). */
@@ -467,6 +466,11 @@ class RemoteView implements ElectronViewHandle {
     // client.call resolves the host's reply result directly (no wrapper), so
     // the dialog object arrives as-is; a null reply means nothing was raised.
     return this.client.call<unknown>('drainDialog', { viewId: this.id }, RPC_QUERY_TIMEOUT_MS)
+  }
+
+  /** Ask the child to re-apply its token-aware chrome to the current document. */
+  async reinstallChrome(): Promise<void> {
+    await this.client.call('reinstallChrome', { viewId: this.id }, RPC_COMMAND_TIMEOUT_MS)
   }
 
   /** Set this view's browser-task label; selected task controls the shared title. */
@@ -791,6 +795,10 @@ export class DeferredRemoteView implements ElectronViewHandle {
 
   async clearDialog(): Promise<unknown> {
     return this.withView(view => view.clearDialog())
+  }
+
+  async reinstallChrome(): Promise<void> {
+    return this.withView(view => view.reinstallChrome())
   }
 
   async label(label: string): Promise<void> {

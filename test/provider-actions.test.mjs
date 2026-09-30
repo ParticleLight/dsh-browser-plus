@@ -304,6 +304,33 @@ test('pressKey types punctuation, including inside modifier combos', async () =>
   assert.equal(keys[2].params.text, '/')
 })
 
+test('chrome is re-installed through the host when it offers to', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  let reinstalled = 0
+  host.views[0].reinstallChrome = async () => { reinstalled += 1 }
+  host.evalReplies.push({ result: { value: 'complete' } })
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(reinstalled, 1, 'only the host holds the per-view binding token')
+  const tokenless = host.log.filter(entry => entry.method === 'Runtime.evaluate'
+    && String(entry.params.expression).includes('__dsh_browser_chrome_host__'))
+  assert.equal(tokenless.length, 0, 'the tokenless copy was not injected')
+})
+
+test('chrome falls back to the provider copy when the host owns none', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  host.evalReplies.push({ result: { value: 'complete' } })
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setImmediate(resolve))
+  const injected = host.log.filter(entry => entry.method === 'Runtime.evaluate'
+    && String(entry.params.expression).includes('__dsh_browser_chrome_host__'))
+  assert.ok(injected.length >= 1, 'shell hosts still get chrome')
+})
+
 test('an over-long script is clipped in history and cannot be replayed', async () => {
   const host = new FakeHost()
   const provider = new ElectronBrowserProvider(host)

@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import * as remoteHost from '../lib/browser-electron/remote-host.js'
 
 test('DeferredRemoteView keeps the latest successful task label across recovery', async () => {
@@ -50,4 +51,18 @@ test('DeferredRemoteView stays outside the package main API', async () => {
   const packageMain = await import('../lib/index.js')
   assert.equal('DeferredRemoteView' in packageMain, false)
   assert.equal(typeof packageMain.RemoteElectronViewHost, 'function')
+})
+test('the test seams stay out of the declared surface but keep their runtime export', async () => {
+  const [toolTypes, hostTypes] = await Promise.all([
+    readFile(new URL('../lib/tool-browser/index.d.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/browser-electron/remote-host.d.ts', import.meta.url), 'utf8'),
+  ])
+  assert.doesNotMatch(toolTypes, /declare const internals/, 'internals is @internal and stripped')
+  assert.doesNotMatch(hostTypes, /declare class DeferredRemoteView/, 'the recovery handle is @internal too')
+  // The focused tests import these from the built JavaScript, so the export
+  // must survive even though it is no longer part of the type surface.
+  const tool = await import('../lib/tool-browser/index.js')
+  const host = await import('../lib/browser-electron/remote-host.js')
+  assert.equal(typeof tool.internals, 'object')
+  assert.equal(typeof host.DeferredRemoteView, 'function')
 })

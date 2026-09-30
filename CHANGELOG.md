@@ -2,6 +2,9 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **下载改由子进程直接落盘**:此前子进程把整包 base64 塞进一行 JSON 回传,父进程再解码写盘——64MiB 的下载在 host→parent→disk 路径上要复制约 8 份(含 RPC 行缓冲)。现在子进程自己写文件、只回 `{ bytes }`,下载体**完全不再经过 RPC socket**,峰值内存与 `MAX_RPC_BUFFER_BYTES` 的压力同时消失。
+- **测试 seam 移出声明的 API 面**:`tsconfig` 打开 `stripInternal`,`internals` 与 `DeferredRemoteView` 不再出现在 `lib/*.d.ts` 里(运行时导出保留,定点测试照常可用)。
+- **chrome 重装改由宿主执行**:provider 在导航后注入的是**无 token** 的 `PAGE_CHROME_SCRIPT`,而只有宿主持有每视图 token——一旦宿主自身的注入失败,退化的那份会让工具栏按钮静默失效。新增可选的 `reinstallChrome()` seam:自托管宿主经 RPC 重装 token 版,不提供该能力的宿主(桌面外壳)仍走原回退。
 - **每次调用的 `timeoutMs` 被夹在工具预算之下**:`browser_wait_for`/`browser_content` 此前把调用方给的值原样下传,所以 `timeoutMs: 90000` 实际会在 60s 被运行时掐断,模型只会收到一条笼统的 tool timeout。现在夹到「预算 − 5s」,并在参数描述里写明上限,让 provider 先给出干净的 `BROWSER_OPERATION_TIMEOUT`。
 - **历史记录不再全量深拷贝**:`browser_history` 此前对每条 entry 做 `JSON.parse(JSON.stringify(params))`,把完整脚本与输入文本逐条复制一遍;现在只做浅拷贝并对超长字符串截断(附剩余字数),同时保持 lossless JSON。
 - **单条历史有存储上限**:`execute` 的脚本与 `type` 的文本超过 32KiB 时会被截断并打标;`browser_replay` 遇到被截断的条目会明确拒绝(`BROWSER_HISTORY_TRUNCATED`),而不是重放一个被悄悄剪短的脚本。

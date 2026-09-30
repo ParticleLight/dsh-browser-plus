@@ -99,6 +99,12 @@ export interface ElectronViewHandle {
     }>;
     /** Set this view's browser task label; it titles the shared window only when selected. Optional. */
     label?(label: string): Promise<void>;
+    /**
+     * Re-apply the host's own page chrome to the current document. Optional: a host
+     * that does not own the chrome omits it, and the provider then injects its own
+     * tokenless copy as a fallback.
+     */
+    reinstallChrome?(): Promise<void>;
 }
 /** Provider config: navigation admission defaults and snapshot caps. */
 export interface ElectronBrowserProviderConfig {

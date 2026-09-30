@@ -82,3 +82,18 @@ test('download enforces its cap while streaming rather than after buffering', as
   assert.match(block, /AbortSignal\.timeout/, 'bounds the in-page fetch')
 })
 
+test('a download is written by the child and reported as a byte count', async () => {
+  const [host, remote] = await Promise.all([readFile(hostPath, 'utf8'), readFile(remotePath, 'utf8')])
+  const start = host.indexOf("case 'download':")
+  const end = host.indexOf("case 'flushAuth':", start)
+  assert.ok(start >= 0 && end > start, 'download op exists')
+  const block = host.slice(start, end)
+  assert.match(block, /writeFileSync\(savePath, bytes\)/, 'the child writes the file itself')
+  assert.match(block, /result: \{ bytes: bytes\.length \}/, 'and reports only its size')
+  assert.doesNotMatch(block, /base64: value/, 'the body no longer crosses the RPC line')
+
+  const downloadStart = remote.indexOf('async download(url: string, savePath: string)')
+  assert.ok(downloadStart >= 0, 'the parent-side download exists')
+  const downloadBlock = remote.slice(downloadStart, remote.indexOf('\n  }', downloadStart))
+  assert.doesNotMatch(downloadBlock, /writeFileSync/, 'the parent no longer buffers and writes it')
+})

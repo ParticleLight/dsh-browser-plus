@@ -165,6 +165,12 @@ export interface ElectronViewHandle {
   clearCookies?(filter: { readonly domain?: string; readonly name?: string; readonly all?: boolean }): Promise<{ readonly removed: number; readonly names: readonly string[] }>
   /** Set this view's browser task label; it titles the shared window only when selected. Optional. */
   label?(label: string): Promise<void>
+  /**
+   * Re-apply the host's own page chrome to the current document. Optional: a host
+   * that does not own the chrome omits it, and the provider then injects its own
+   * tokenless copy as a fallback.
+   */
+  reinstallChrome?(): Promise<void>
 }
 
 /** Internal selector and fingerprint captured for one snapshot element. */
@@ -1992,6 +1998,17 @@ function withTimeout<T>(
  */
 /** Best-effort injection of the human chrome into the current document. */
 async function reinstallPageChrome(handle: ElectronViewHandle): Promise<void> {
+  // Prefer the host's own injection: only it holds the per-view binding token, so
+  // its copy can still authenticate actions the human triggers. The tokenless
+  // script below is a fallback for hosts that do not own the chrome.
+  if (typeof handle.reinstallChrome === 'function') {
+    try {
+      await handle.reinstallChrome()
+      return
+    } catch {
+      // Fall through rather than leaving the document without any chrome.
+    }
+  }
   try {
     await handle.sendCommand(CDP_RUNTIME_EVALUATE, {
       expression: PAGE_CHROME_SCRIPT,
