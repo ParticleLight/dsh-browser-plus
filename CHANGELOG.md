@@ -2,6 +2,10 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **缩略图捕获加超时**:`capturePage()` 在合成器卡住时可能永不 settle,而 `finally` 不会执行 → 单飞标志永远为 true,此后缩略图静默停更。现在 5s 超时按失败处理。
+- **减少跨进程 IPC**:`syncVisibleTaskVisibility` 此前对**每个** view(含其它任务的隐藏页与后台标签)各发一次 `executeJavaScript`;现在只对 active 状态真正变化的 view 发送。
+- **`installPageChrome` 的 active 判定改用 viewId**:此前只比 taskKey,导致可见任务的**后台标签页**导航时被当成「正在显示」,会启动其页面定时器并顶掉真正可见视图的 chrome epoch。
+- **`restoreAuth` 逐条隔离**:此前任一条 cookie 非法即整批 reject、已写入不可回滚、调用方也拿不到计数;现在逐条 try/catch 并回报 `{restored, failed}`。
 - **会话丢失会自动重开**:工具层按任务缓存 session id;若 provider 被重载(实例换了、不再认识旧 id),此前该任务之后**每次**调用都报 `BROWSER_SESSION_UNKNOWN`,只能靠人想到调 `browser_reset_session`。现在检测到该错误会丢弃缓存并重开一次(仅此一种错误会重试)。
 - **`browser_close_tab` 如实返回**:此前无条件 `{closed:true}`,render 里「Tab not found.」是死代码;未知 tabId 与成功无法区分。现在 provider 返回布尔值,工具层如实回填。
 - **`browser_handoff` 纳入白名单**:它不是只读工具(会改任务控制状态),此前不受 `browser_restrict` 约束。

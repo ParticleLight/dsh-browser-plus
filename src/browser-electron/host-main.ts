@@ -23,7 +23,7 @@ import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { buildPageChromeScript } from './page-chrome.js'
 import { taskSummaryUrl } from './task-summary.js'
-import { taskThumbnailDataUrl } from './task-thumbnail.js'
+import { taskThumbnailDataUrl, type ThumbnailImage } from './task-thumbnail.js'
 import { exportCookiesForAuth, selectCookiesForClear } from './auth-cookies.js'
 import { resolveBrowserIconPath } from './icon.js'
 import { createBootstrap, createPatch, type ChromePatchOperation, type ChromeTaskSummary, type ChromeTrailEntry, type ChromeWorkspaceState } from './chrome-state.js'
@@ -53,6 +53,9 @@ const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024
 /** Bound the in-page fetch independently of the parent's RPC transfer budget. */
 const DOWNLOAD_FETCH_TIMEOUT_MS = 60_000
 
+/** capturePage can hang on a wedged compositor; bound it like every other call. */
+const THUMBNAIL_CAPTURE_TIMEOUT_MS = 5_000
+
 /** One task-scoped page view in the shared browser window. */
 interface HostView {
   readonly webContentsView: WebContentsView
@@ -72,6 +75,9 @@ const chromeTokens = new WeakMap<WebContentsView, string>()
 
 /** Operation trail per view, newest last, bounded. */
 const traces = new Map<string, unknown[]>()
+
+/** Last active flag pushed to each view's chrome, so unchanged views skip the IPC. */
+const chromeActiveApplied = new WeakMap<WebContentsView, boolean>()
 
 /** Latest unread JS dialog per view (auto-accepted; read by drainDialog). */
 const dialogLogs = new Map<string, unknown>()
@@ -166,6 +172,10 @@ function syncVisibleTaskVisibility(): void {
       const active = entry === target
       if (active) entry.webContentsView.setVisible(true)
       else entry.webContentsView.setVisible(false)
+      // Only notify a renderer whose state actually changed: this loop runs for
+      // every view on each task switch, and the IPC is the expensive part.
+      if (chromeActiveApplied.get(entry.webContentsView) === active) continue
+      chromeActiveApplied.set(entry.webContentsView, active)
       void entry.webContentsView.webContents.executeJavaScript(';window.__dshChromeActive = ' + String(active) + ';try { window.__dshChromeSetActive?.(' + String(active) + ') } catch {}').catch(() => undefined)
     } catch { /* destroyed */ }
   }
@@ -430,6 +440,17 @@ function scheduleVisibleTaskThumbnail(taskKey: string, delayMs = 360): void {
   thumbnailTimers.set(taskKey, timer)
 }
 
+/** A capturePage that never settles would leave the single-flight flag set forever. */
+function capturePageWithTimeout(view: WebContentsView): Promise<ThumbnailImage> {
+  return new Promise<ThumbnailImage>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('thumbnail capture timed out')), THUMBNAIL_CAPTURE_TIMEOUT_MS)
+    view.webContents.capturePage().then(
+      image => { clearTimeout(timer); resolve(image) },
+      error => { clearTimeout(timer); reject(error) },
+    )
+  })
+}
+
 async function refreshVisibleTaskThumbnail(taskKey: string): Promise<void> {
   if (taskKey !== visibleTaskKey || !workspacePanels.tasks || thumbnailCaptureInFlight) return
   const viewId = activeViewByTask.get(taskKey)
@@ -438,7 +459,7 @@ async function refreshVisibleTaskThumbnail(taskKey: string): Promise<void> {
   thumbnailCaptureInFlight = true
   let produced = false
   try {
-    const image = await entry.webContentsView.webContents.capturePage()
+    const image = await capturePageWithTimeout(entry.webContentsView)
     if (taskKey !== visibleTaskKey || activeViewByTask.get(taskKey) !== viewId || !workspacePanels.tasks) return
     const thumbnail = taskThumbnailDataUrl(image)
     if (thumbnail === undefined) return
@@ -502,8 +523,10 @@ function installPageChrome(view: WebContentsView, viewId: string): void {
   // committed navigation so the toolbar follows each document.
   const apply = (): void => {
     try {
+      // The ACTIVE VIEW of the visible task, not merely any view belonging to it:
+      // a background tab of the visible task must not claim to be on screen.
       const pageTaskKey = views.get(viewId)?.taskKey
-      const active = pageTaskKey !== undefined && pageTaskKey === visibleTaskKey
+      const active = pageTaskKey !== undefined && activeViewByTask.get(pageTaskKey) === viewId
       if (active) resetChromeDelivery()
       void view.webContents.executeJavaScript(source + ';window.__dshChromeActive = ' + String(active) + ';try { window.__dshChromeSetActive?.(' + String(active) + ') } catch {};' + chromeBootstrapScript()).catch(() => undefined)
     } catch {
@@ -938,21 +961,28 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (entry === undefined) throw new Error(`restoreAuth: unknown view ${viewId}`)
         if (!Array.isArray(cookies)) throw new Error('restoreAuth missing cookies array')
         let restored = 0
+        let failed = 0
         for (const c of cookies as Array<{ url?: string; name?: string; value?: string; domain?: string; path?: string; secure?: boolean; httpOnly?: boolean; expirationDate?: number }>) {
-          if (typeof c.url !== 'string' || typeof c.name !== 'string' || typeof c.value !== 'string') continue
-          await entry.webContentsView.webContents.session.cookies.set({
-            url: c.url,
-            name: c.name,
-            value: c.value,
-            ...typeof c.domain === 'string' ? { domain: c.domain } : {},
-            ...typeof c.path === 'string' ? { path: c.path } : {},
-            ...typeof c.secure === 'boolean' ? { secure: c.secure } : {},
-            ...typeof c.httpOnly === 'boolean' ? { httpOnly: c.httpOnly } : {},
-            ...typeof c.expirationDate === 'number' ? { expirationDate: c.expirationDate } : {},
-          })
-          restored++
+          if (typeof c.url !== 'string' || typeof c.name !== 'string' || typeof c.value !== 'string') { failed += 1; continue }
+          try {
+            await entry.webContentsView.webContents.session.cookies.set({
+              url: c.url,
+              name: c.name,
+              value: c.value,
+              ...typeof c.domain === 'string' ? { domain: c.domain } : {},
+              ...typeof c.path === 'string' ? { path: c.path } : {},
+              ...typeof c.secure === 'boolean' ? { secure: c.secure } : {},
+              ...typeof c.httpOnly === 'boolean' ? { httpOnly: c.httpOnly } : {},
+              ...typeof c.expirationDate === 'number' ? { expirationDate: c.expirationDate } : {},
+            })
+            restored += 1
+          } catch {
+            // One malformed cookie must not discard the rest of the batch, and the
+            // caller still learns how many landed.
+            failed += 1
+          }
         }
-        reply(msg.id, { ok: true, result: { restored } })
+        reply(msg.id, { ok: true, result: { restored, failed } })
         return
       }
       case 'clearCookies': {
