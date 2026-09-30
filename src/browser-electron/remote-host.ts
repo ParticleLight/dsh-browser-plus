@@ -23,6 +23,7 @@ import { join } from 'node:path'
 import { createServer, type Server, type Socket } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import type { ElectronBrowserViewHost, ElectronViewHandle } from './provider.ts'
+import { BrowserError } from '../browser/types.ts'
 import type { BrowserTaskInfo, BrowserTaskUpdate, ExportedCookie } from '../browser/types.ts'
 
 /** How long to wait for the child to signal readiness before failing. */
@@ -56,6 +57,13 @@ const RECOVERY_CAPTURE_SETTLE_MS = 3_000
 
 /** Electron 43.x is known to trigger compositor faults in this host. */
 const SUPPORTED_ELECTRON_VERSION = '42.9.3'
+
+/**
+ * CDP methods that must NOT be replayed onto a freshly materialized view. Input
+ * dispatched at a blank document does nothing yet still resolves, so retrying it
+ * after a host death reported success for a click that never happened.
+ */
+const UNREPLAYABLE_METHOD_PREFIX = 'Input.'
 
 /**
  * Locate the one supported Electron binary. Candidates may come from the
@@ -726,6 +734,7 @@ export class DeferredRemoteView implements ElectronViewHandle {
   private async withView<T>(
     run: (view: RemoteView) => Promise<T>,
     afterRecovery?: () => Promise<void>,
+    method?: string,
   ): Promise<T> {
     try {
       return await run(await this.materializeOnce())
@@ -734,6 +743,14 @@ export class DeferredRemoteView implements ElectronViewHandle {
       // a mid-call exit, spawn failure, or socket close used to escape this
       // check because their messages differ from the dead early-exit's.
       if (!isBrowserHostDead(error)) throw error
+      if (method !== undefined && method.startsWith(UNREPLAYABLE_METHOD_PREFIX)) {
+        // Re-materializing yields an about:blank view, so replaying input would
+        // act on an empty document and still report success. Name the loss.
+        throw new BrowserError(
+          `browser: the browser host restarted and the page was lost before ${method}; reopen the page and retry`,
+          'BROWSER_HOST_RESTARTED',
+        )
+      }
       // Stale child: forget the cached view, then re-create a fresh pair.
       this.materialized = undefined
       const view = await this.materializeOnce()
@@ -748,7 +765,7 @@ export class DeferredRemoteView implements ElectronViewHandle {
       ? () => this.settleRecoveredCompositorForCapture()
       : undefined
     await settle?.()
-    return this.withView(view => view.sendCommand(method, params), settle)
+    return this.withView(view => view.sendCommand(method, params), settle, method)
   }
 
   async download(url: string, savePath: string): Promise<void> {

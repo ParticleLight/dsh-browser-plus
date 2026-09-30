@@ -52,6 +52,21 @@ test('every child-death path self-heals once it carries the stable code', async 
   }
 })
 
+test('input is not replayed onto the blank replacement view', async () => {
+  // A fresh view is about:blank, where an Input.* command resolves without doing
+  // anything: replaying it reported success for a click that never happened.
+  const { view, materializeLabels } = deathThenRecovery(deadError('dsh-browser-plus: browser host exited (code=1 signal=null)'))
+  await assert.rejects(
+    () => view.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed' }),
+    error => {
+      assert.equal(error.code, 'BROWSER_HOST_RESTARTED')
+      assert.match(error.message, /reopen the page and retry/)
+      return true
+    },
+  )
+  assert.deepEqual(materializeLabels, ['T'], 'did not re-materialize just to replay input')
+})
+
 test('the stable code is what triggers recovery, not the wording', async () => {
   // Same text as a real exit error, but no code: this is the OLD contract, and
   // it must not be treated as a dead host by the new code path.

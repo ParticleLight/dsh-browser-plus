@@ -2,6 +2,9 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **自愈不再在空白页上重放输入**:主机崩溃后重建的视图是 `about:blank`,而 `Input.*` 在空白文档上会「什么都不做但正常 resolve」,于是 `browser_click`/`browser_type` 会在页面上什么都没发生的情况下报成功。现在这类命令不再自动重放,而是抛 `BROWSER_HOST_RESTARTED` 并提示重开页面(读类命令仍照常自愈)。
+- **快照 `truncated` 语义修正**:此前用 `out.length >= cap` 判断,页面恰好有 cap 个可见候选时会误报截断;现在只有真的因达到上限而提前跳出才算截断。
+- **`browser_scroll` 描述与实现对齐**:实际是「约一屏(视口高度的 80%,最少 480px)」,描述原写「one viewport」。
 - **新增 CI**:`.github/workflows/ci.yml` 在 push/PR 上跑 `npm ci --omit=optional` + `npm test`,并额外用 `git diff --exit-code -- lib` 校验**已提交的 `lib/`** 与 `src/` 一致——这正是 `pretest` 会掩盖的那类漂移(改了 src、本地重建了 lib,却没提交重建结果)。
 - **新增 ESLint 最小集**:只启用类型感知的 `no-floating-promises` / `no-misused-promises` 与两条一致性规则,不引入格式化以免搅动现有风格。首次运行即发现一处真实缺陷:`setWindowOpenHandler` 里的 `loadURL()` 未被 await 也未挂 rejection handler,失败时会产生未处理拒绝。
 - **`CHANGELOG.md` 现在会进 npm tarball**(此前 `files` 未列)。

@@ -864,7 +864,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'browser_scroll',
-    description: 'Scroll the active page by CSS-pixel deltas. With no deltas it scrolls downward by one viewport.',
+    description: 'Scroll the active page by CSS-pixel deltas. With no deltas it scrolls downward by about one viewport (80% of the viewport height, at least 480px).',
     parameters: {
       deltaX: { type: 'number', description: 'Horizontal CSS-pixel delta. Default 0.' },
       deltaY: { type: 'number', description: 'Vertical CSS-pixel delta. Default one viewport downward.' },
