@@ -17,11 +17,35 @@
  */
 import type { ElectronBrowserViewHost, ElectronViewHandle } from './provider.ts';
 import type { BrowserTaskInfo, BrowserTaskUpdate, ExportedCookie } from '../browser/types.ts';
+/**
+ * Whether a usable Electron binary can be located right now. Cheap and local:
+ * it only probes package metadata and the filesystem (no spawn, no network).
+ * Exported with an injectable resolver so the failure branch stays testable
+ * without uninstalling Electron.
+ * @param resolve - the locator to probe; defaults to {@link resolveElectronPath}.
+ */
+export declare function probeElectronAvailability(resolve?: () => string): boolean;
 /** Select the one Electron version this plugin supports; exported for behavior tests. */
 export declare function selectSupportedElectronPath(candidates: ReadonlyArray<{
     version: string;
     path: string;
 }>): string;
+/**
+ * Stable `error.code` for every rejection caused by the Electron child being
+ * gone. DeferredRemoteView.withView retries on this code instead of
+ * pattern-matching message text: a child can die in several ways — spawn
+ * failure, exit, socket close, or a call made after it already died — and each
+ * produces a different message.
+ */
+export declare const BROWSER_HOST_DEAD_CODE = "BROWSER_HOST_DEAD";
+/**
+ * True when an error means the child is gone and ONE self-heal retry is
+ * allowed. The stable code is authoritative; the message check is a legacy
+ * backstop for errors raised outside ElectronChildClient (an externally
+ * supplied host shim, or an older `Error` that only carries the old text), so
+ * the pre-existing "browser host is not running" retry contract keeps working.
+ */
+export declare function isBrowserHostDead(error: unknown): boolean;
 /**
  * Line-delimited JSON-RPC client over a local TCP socket. Electron's main
  * process on Windows does not receive piped stdin, so the parent listens on a
@@ -88,7 +112,16 @@ export declare class RemoteElectronViewHost implements ElectronBrowserViewHost {
     private readonly views;
     private readyPromise;
     private disposed;
+    /** Cached local-backend probe; locating Electron walks the filesystem. */
+    private availableProbe;
     constructor(hostMainPath: string);
+    /**
+     * Cheap local usability probe, consulted by the provider's `available()`.
+     * Without it the provider reports itself usable unconditionally, so a missing
+     * Electron binary would surface only on the first browser tool call instead of
+     * at provider-selection time.
+     */
+    isAvailable(): boolean;
     /** Ensure the child is up and ready (lazy on first use; restarts after a crash). */
     private ready;
     private start;

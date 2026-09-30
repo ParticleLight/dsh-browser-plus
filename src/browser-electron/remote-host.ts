@@ -28,8 +28,21 @@ import type { BrowserTaskInfo, BrowserTaskUpdate, ExportedCookie } from '../brow
 /** How long to wait for the child to signal readiness before failing. */
 const READY_TIMEOUT_MS = 20_000
 
-/** Safety cap on a single RPC reply line (base64 downloads are the big ones). */
-const MAX_RPC_BUFFER_BYTES = 512 * 1024 * 1024
+/**
+ * Safety cap on a single RPC reply line (base64 downloads are the big ones).
+ *
+ * Derived from the child's download cap (host-main.ts MAX_DOWNLOAD_BYTES,
+ * lowered to 64 MiB = 67,108,864 bytes by T1): the child ships the body as
+ * base64 inside ONE JSON line, which inflates it by 4/3 —
+ *   64 MiB * 4 / 3 = 67,108,864 * 4 / 3 = 89,478,485 bytes ≈ 85.33 MiB
+ * — plus the JSON envelope and room for a base64 capture PNG. 128 MiB =
+ * 134,217,728 bytes gives ~1.5x headroom over the largest legal reply
+ * (134,217,728 / 89,478,485 ≈ 1.5) while still bounding a pathological child.
+ * Anything smaller would reject a legal maximum-size download before it
+ * reaches disk; anything larger would only widen the memory a runaway child
+ * can force the parent to buffer.
+ */
+const MAX_RPC_BUFFER_BYTES = 128 * 1024 * 1024
 /** Bounded RPC budgets prevent a dead child from wedging model-facing tools. */
 const RPC_QUERY_TIMEOUT_MS = 8_000
 const RPC_COMMAND_TIMEOUT_MS = 35_000
@@ -106,6 +119,22 @@ function resolveElectronPath(): string {
   return selectSupportedElectronPath(candidates)
 }
 
+/**
+ * Whether a usable Electron binary can be located right now. Cheap and local:
+ * it only probes package metadata and the filesystem (no spawn, no network).
+ * Exported with an injectable resolver so the failure branch stays testable
+ * without uninstalling Electron.
+ * @param resolve - the locator to probe; defaults to {@link resolveElectronPath}.
+ */
+export function probeElectronAvailability(resolve: () => string = resolveElectronPath): boolean {
+  try {
+    resolve()
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Select the one Electron version this plugin supports; exported for behavior tests. */
 export function selectSupportedElectronPath(candidates: ReadonlyArray<{ version: string; path: string }>): string {
   const supported = candidates.find(candidate => candidate.version === SUPPORTED_ELECTRON_VERSION)
@@ -164,6 +193,40 @@ function dirname(p: string): string {
   const j = p.lastIndexOf('\\')
   const k = Math.max(i, j)
   return k < 0 ? p : p.slice(0, k)
+}
+
+/**
+ * Stable `error.code` for every rejection caused by the Electron child being
+ * gone. DeferredRemoteView.withView retries on this code instead of
+ * pattern-matching message text: a child can die in several ways — spawn
+ * failure, exit, socket close, or a call made after it already died — and each
+ * produces a different message.
+ */
+export const BROWSER_HOST_DEAD_CODE = 'BROWSER_HOST_DEAD'
+
+/** Tag an error with {@link BROWSER_HOST_DEAD_CODE} without touching its message. */
+function markBrowserHostDead<T extends Error>(error: T): T {
+  const tagged = error as Error & { code?: string }
+  tagged.code = BROWSER_HOST_DEAD_CODE
+  return error
+}
+
+/** Build a dead-host error carrying the stable code. */
+function browserHostDeadError(message: string): Error {
+  return markBrowserHostDead(new Error(message))
+}
+
+/**
+ * True when an error means the child is gone and ONE self-heal retry is
+ * allowed. The stable code is authoritative; the message check is a legacy
+ * backstop for errors raised outside ElectronChildClient (an externally
+ * supplied host shim, or an older `Error` that only carries the old text), so
+ * the pre-existing "browser host is not running" retry contract keeps working.
+ */
+export function isBrowserHostDead(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  if ((error as { code?: unknown }).code === BROWSER_HOST_DEAD_CODE) return true
+  return error.message.includes('browser host is not running')
 }
 
 /** One RPC round-trip with the child. */
@@ -229,6 +292,11 @@ class ElectronChildClient {
     if (this.dead) return
     this.dead = true
     this.connected = false
+    // Everything rejected from here on means "this child is gone": tag it with
+    // the stable code so withView can self-heal without matching message text.
+    // Covers all three death paths that funnel through fail(): child 'exit',
+    // child 'error' (spawn failure), and socket 'close'.
+    markBrowserHostDead(err)
     for (const pending of this.pending.values()) pending.reject(err)
     this.pending.clear()
     this.outbox = []
@@ -264,7 +332,8 @@ class ElectronChildClient {
     this.buffer += typeof chunk === 'string' ? chunk : chunk.toString('utf8')
     // Safety net: a pathological child (or a reply larger than expected)
     // must not grow the parent's memory without bound. The child caps
-    // downloads at 256 MiB, so a healthy stream never approaches this.
+    // downloads at 64 MiB (see MAX_RPC_BUFFER_BYTES), so a healthy stream
+    // never approaches this.
     if (this.buffer.length > MAX_RPC_BUFFER_BYTES) {
       this.buffer = ''
       this.fail(new Error(`dsh-browser-plus: RPC reply exceeded ${MAX_RPC_BUFFER_BYTES} bytes`))
@@ -294,7 +363,9 @@ class ElectronChildClient {
   /** Send one bounded command and await the reply. */
   call<T = unknown>(op: string, payload: Record<string, unknown> = {}, timeoutMs = RPC_COMMAND_TIMEOUT_MS): Promise<T> {
     if (this.dead) {
-      return Promise.reject(new Error('dsh-browser-plus: browser host is not running'))
+      // Death path 1: called after the child already died. Message kept for
+      // diagnostics; the code is what withView keys on.
+      return Promise.reject(browserHostDeadError('dsh-browser-plus: browser host is not running'))
     }
     const id = this.nextId++
     const line = JSON.stringify({ id, op, ...payload })
@@ -312,6 +383,10 @@ class ElectronChildClient {
         pending.reject(error)
         // A child that stopped answering cannot safely serve later operations.
         // Tear it down so the next call follows the existing self-heal path.
+        // fail() tags `error` with the dead code, so the timed-out call is
+        // retried once against the freshly started child (the provider's own
+        // deadlines bound the worst case) and the other in-flight calls, which
+        // never got to run, recover the same way.
         this.fail(error)
         try { this.child.kill() } catch { /* already exited */ }
       }, timeoutMs)
@@ -394,11 +469,31 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
   private readonly views = new Map<string, ElectronViewHandle>()
   private readyPromise: Promise<void> | undefined
   private disposed = false
+  /** Cached local-backend probe; locating Electron walks the filesystem. */
+  private availableProbe: boolean | undefined
 
   constructor(private readonly hostMainPath: string) {}
 
+  /**
+   * Cheap local usability probe, consulted by the provider's `available()`.
+   * Without it the provider reports itself usable unconditionally, so a missing
+   * Electron binary would surface only on the first browser tool call instead of
+   * at provider-selection time.
+   */
+  isAvailable(): boolean {
+    this.availableProbe ??= probeElectronAvailability()
+    return this.availableProbe
+  }
+
   /** Ensure the child is up and ready (lazy on first use; restarts after a crash). */
   private ready(): Promise<void> {
+    // The one case that must NOT self-heal: a disposed host is shutting down
+    // with its fiber, so respawning here (a late call, or a withView retry)
+    // would leave an orphaned Electron process. This error carries no dead
+    // code on purpose.
+    if (this.disposed) {
+      return Promise.reject(new Error('dsh-browser-plus: browser host is disposed'))
+    }
     if (this.readyPromise !== undefined) return this.readyPromise
     const started = this.start()
     const wrapped = started.catch(error => {
@@ -469,7 +564,11 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
   private async ensureView(id: string, key?: string, label?: string): Promise<RemoteView> {
     await this.ready()
     const client = this.client
-    if (client === undefined) throw new Error('browser host unavailable')
+    // Death path 5: ready() resolved but the child died before this read (a
+    // narrow race) — or the host was disposed, which ready() above already
+    // rejects. Tag it dead so withView retries once against a fresh child;
+    // materialization itself is safe to repeat because createView never ran.
+    if (client === undefined) throw browserHostDeadError('browser host unavailable')
     await client.call('createView', {
       viewId: id,
       ...key !== undefined ? { key } : {},
@@ -621,7 +720,10 @@ export class DeferredRemoteView implements ElectronViewHandle {
     try {
       return await run(await this.materializeOnce())
     } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes('browser host is not running')) throw error
+      // Judge by the stable code (see isBrowserHostDead), not by message text:
+      // a mid-call exit, spawn failure, or socket close used to escape this
+      // check because their messages differ from the dead early-exit's.
+      if (!isBrowserHostDead(error)) throw error
       // Stale child: forget the cached view, then re-create a fresh pair.
       this.materialized = undefined
       const view = await this.materializeOnce()

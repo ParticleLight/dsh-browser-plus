@@ -38,18 +38,35 @@ export interface Config {
 const sessionsByTask = new Map<string, BrowserSessionId>()
 /** In-flight first-open per task key, so concurrent first calls share one session. */
 const pendingOpens = new Map<string, Promise<BrowserSessionId>>()
-/** Tail promise for state-changing operations in one browser task. */
+/**
+ * Tail promise for queued operations in one browser task. Entries are dropped
+ * as soon as a queue drains (see {@link queueTaskOperation}), so this stays
+ * bounded by the number of tasks with work in flight instead of growing one
+ * permanent entry per task key.
+ */
 const operationTails = new Map<string, Promise<void>>()
 /** In-flight identical read requests, keyed by task and canonical request shape. */
 const pendingReads = new Map<string, Promise<unknown>>()
 
 type ToolExecution = { agent?: { id?: string }; signal?: AbortSignal } | undefined
 
-/** Queue one state-changing operation after prior work for the same task. */
+/**
+ * Queue one operation after prior work for the same task (per-task FIFO).
+ *
+ * Both page-changing actions and read-only operations go through here, so a
+ * read issued while a navigation is in flight resolves against the post-write
+ * page instead of racing it. The entry is removed once its queue is idle: the
+ * identity check means a newer operation that already chained onto this tail
+ * keeps its ordering, because the map no longer points at this tail.
+ */
 function queueTaskOperation<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const prior = operationTails.get(key) ?? Promise.resolve()
   const result = prior.catch(() => undefined).then(operation)
-  operationTails.set(key, result.then(() => undefined, () => undefined))
+  const tail = result.then(() => undefined, () => undefined)
+  operationTails.set(key, tail)
+  void tail.then(() => {
+    if (operationTails.get(key) === tail) operationTails.delete(key)
+  })
   return result
 }
 
@@ -98,7 +115,18 @@ async function withTaskAction<T>(
   })
 }
 
-/** Run and coalesce a read-only operation for the current task. */
+/**
+ * Run and coalesce a read-only operation for the current task.
+ *
+ * The read joins the task's FIFO queue, so a read issued while a write is in
+ * flight (e.g. browser_open + browser_snapshot, both marked concurrency-safe)
+ * resolves against the post-write page instead of racing the navigation.
+ *
+ * Dedup deliberately wraps the queue: if the queue wrapped the dedup, a second
+ * identical read would start only after the first settled, miss the in-flight
+ * entry, and issue a second CDP call. The queued closure never re-enters the
+ * queue, so this cannot deadlock.
+ */
 async function withTaskRead<T>(
   browser: NonNullable<Context['browser']>,
   key: string,
@@ -106,7 +134,7 @@ async function withTaskRead<T>(
   operation: (session: BrowserSessionId) => Promise<T>,
 ): Promise<T> {
   const session = await ensureSession(browser, key)
-  return coalesceTaskRead(key, readKey, () => operation(session))
+  return coalesceTaskRead(key, readKey, () => queueTaskOperation(key, () => operation(session)))
 }
 
 /**
@@ -394,21 +422,23 @@ export function apply(ctx: Context, config: Config = {}): void {
       assertAllowed('browser_space')
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
-      if (args.label === undefined) {
+      const key = taskKey(exec)
+      const label = args.label
+      if (label === undefined && sessionsByTask.get(key) === undefined) {
         // LIST mode must not force-open a visible window just to enumerate
         // spaces: consult this task's session map before opening anything.
-        const existing = sessionsByTask.get(taskKey(exec))
-        if (existing === undefined) {
-          const spaces = await browser.listSpaces()
-          return { spaces: spaces.map(s => ({ key: s.key, label: s.label ?? '' })) }
-        }
+        // This reads the task registry rather than page state, so it stays
+        // outside the page FIFO.
+        const spaces = await browser.listSpaces()
+        return { spaces: spaces.map(s => ({ key: s.key, label: s.label ?? '' })) }
       }
-      const session = await ensureSession(browser, taskKey(exec))
-      if (args.label !== undefined) {
-        await browser.setSpace(session, args.label)
-        return { label: args.label }
+      const session = await ensureSession(browser, key)
+      if (label !== undefined) {
+        // Naming a task mutates shared task-manager state: keep FIFO order.
+        await queueTaskOperation(key, () => browser.setSpace(session, label))
+        return { label }
       }
-      const spaces = await browser.listSpaces()
+      const spaces = await withTaskRead(browser, key, 'spaces', () => browser.listSpaces())
       return { spaces: spaces.map(s => ({ key: s.key, label: s.label ?? '' })) }
     },
   }))
@@ -1036,9 +1066,10 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...args.fullPage === true ? { fullPage: true } : {},
         ...args.savePath !== undefined ? { savePath: args.savePath } : {},
       }, exec.signal)
-      const shot = args.savePath === undefined
-        ? await withTaskRead(browser, key, 'screenshot:' + String(args.fullPage === true), capture)
-        : await capture(await ensureSession(browser, key))
+      // A saved capture must not share a dedup key with an unsaved one, and
+      // two different save paths must not either; both variants join the FIFO.
+      const readKey = 'screenshot:' + JSON.stringify({ fullPage: args.fullPage === true, savePath: args.savePath })
+      const shot = await withTaskRead(browser, key, readKey, capture)
       return {
         dataUrl: shot.dataUrl,
         ...shot.path !== undefined ? { path: shot.path } : {},
@@ -1082,8 +1113,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       async execute(_args, exec) {
         const browser = ctx.get('browser')
         if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
-        const session = await ensureSession(browser, taskKey(exec))
-        const tabs = await browser.listTabs(session)
+        const key = taskKey(exec)
+        const tabs = await withTaskRead(browser, key, 'list_tabs', session => browser.listTabs(session))
         return { tabs: tabs.map(t => ({ id: t.id, url: t.url, active: t.active })) }
       },
     }))
@@ -1195,8 +1226,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     async execute(_args, exec) {
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
-      const session = await ensureSession(browser, taskKey(exec))
-      const entries = await browser.history(session)
+      const key = taskKey(exec)
+      const entries = await withTaskRead(browser, key, 'history', session => browser.history(session))
       const rendered = entries.map(e => {
         const row: { seq: number; action: string; ok: boolean; params: unknown; result?: string; error?: string } = {
           seq: e.seq,
@@ -1290,8 +1321,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     async execute(_args, exec) {
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
-      const session = await ensureSession(browser, taskKey(exec))
-      const tabs = await browser.listTabs(session)
+      const key = taskKey(exec)
+      const session = await ensureSession(browser, key)
+      const tabs = await withTaskRead(browser, key, 'session', () => browser.listTabs(session))
       return { session, tabs: tabs.map(t => ({ id: t.id, url: t.url, active: t.active })) }
     },
   }))
@@ -1391,11 +1423,20 @@ export function apply(ctx: Context, config: Config = {}): void {
   }))
 }
 
-/** Test hook: inspect and reset the plugin-level session map (used by tests). */
+/**
+ * Test hook: inspect and reset plugin-level state (used by tests).
+ *
+ * @internal This is a test seam, not part of the supported tool API. It stays
+ * exported because `test/tool-browser-session.test.mjs` imports
+ * `internals.clearSession` by name to simulate a lost tool-layer cache; treat
+ * everything reachable here as unstable and internal to this package.
+ */
 export const internals = {
   /** A copy of the per-task session map (task key -> provider session id). */
   get sessions(): ReadonlyMap<string, BrowserSessionId> { return new Map(sessionsByTask) },
   /** Drop one task's mapping without closing the provider session. */
   clearSession(key = 'default'): void { sessionsByTask.delete(key) },
+  /** Number of task queues still holding a tail; drains back to 0 when idle. */
+  get operationTailCount(): number { return operationTails.size },
 }
 

@@ -30,10 +30,19 @@ export interface Config {
 }
 /** Register all browser tools with `ctx.tools`. */
 export declare function apply(ctx: Context, config?: Config): void;
-/** Test hook: inspect and reset the plugin-level session map (used by tests). */
+/**
+ * Test hook: inspect and reset plugin-level state (used by tests).
+ *
+ * @internal This is a test seam, not part of the supported tool API. It stays
+ * exported because `test/tool-browser-session.test.mjs` imports
+ * `internals.clearSession` by name to simulate a lost tool-layer cache; treat
+ * everything reachable here as unstable and internal to this package.
+ */
 export declare const internals: {
     /** A copy of the per-task session map (task key -> provider session id). */
     readonly sessions: ReadonlyMap<string, BrowserSessionId>;
     /** Drop one task's mapping without closing the provider session. */
     clearSession(key?: string): void;
+    /** Number of task queues still holding a tail; drains back to 0 when idle. */
+    readonly operationTailCount: number;
 };
