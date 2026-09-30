@@ -194,3 +194,27 @@ test('uploadFile is bounded by its own timeout', async (t) => {
     upload.cleanup()
   }
 })
+
+test('content format=json describes the DOM instead of returning "{}"', async () => {
+  const paragraph = el('p', [text('hello')], { textContent: 'hello' })
+  const body = el('body', [paragraph], { children: [paragraph], id: 'main' })
+  const host = new DomHost({ body })
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const result = await provider.content(session, { format: 'json' })
+  assert.notEqual(result.content, '{}', 'an element has no own enumerable properties')
+  const parsed = JSON.parse(result.content)
+  assert.equal(parsed.tag, 'body')
+  assert.equal(parsed.id, 'main')
+  assert.equal(parsed.children[0].tag, 'p')
+  assert.equal(parsed.children[0].text, 'hello')
+})
+
+test('content format=json passes a genuine JSON payload through', async () => {
+  const host = new DomHost({ body: el('body', [], { textContent: '{"a":1,"b":[2]}' }) })
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const result = await provider.content(session, { format: 'json' })
+  assert.deepEqual(JSON.parse(result.content), { a: 1, b: [2] })
+})
+

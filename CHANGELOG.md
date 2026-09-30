@@ -2,6 +2,10 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **`browser_fill` 不再静默假成功**:checkbox/radio 点击后回读 `checked`,未变更(disabled 或被处理器取消)报 `ok:false`;input/textarea 在请求了非空值却得到空值时报错;`submit` 改为锚定**实际填入成功**的最后一个字段所在表单(此前取第一个能解析到的字段),并在 `requestSubmit()` 因 HTML5 约束校验不通过而**不提交**时如实返回 `submitted:false`(此前一律报 true)。
+- **`browser_content format=json` 不再恒返回 `{}`**:DOM 元素没有自有可枚举属性,`JSON.stringify(document.body)` 永远是 `{}`。现在返回有界的结构视图(标签/id/class/子节点/叶子文本),若文本本身就是 JSON 则原样透传。
+- **`browser_press_key` 支持标点**:此前只认字母数字与功能键,`Ctrl+-`、`Ctrl+/`、`,`、`.`、`[`、`]` 等一律抛 `BROWSER_KEY_UNKNOWN`,而工具描述却写「single characters」。现在按 US 布局补全可打印 ASCII。
+- **`browser_wait_for` 非法选择器快速失败**:此前会每 250ms 重试直到超时(默认 15s)再报一个误导性的 `BROWSER_WAIT_TIMEOUT`,现在立即抛 `BROWSER_SELECTOR_INVALID`。
 - **工具栏不再吞掉代理点击**:注入 chrome 的顶部中央 280×56 感应区在捕获阶段 `preventDefault` + `stopImmediatePropagation`,且从不检查 Agent 输入抑制窗口,导致落在该带的 CDP 点击到不了页面、`browser_click` 却报成功;抽屉打开后无自动关闭,死区还会扩大到约 940×42。现在感应与触发都会在 Agent 输入期间让路。
 - **缩略图失败不再 5Hz 重试**:抓取失败(空图/编码失败/抛错)时 dirty 标记未清除,`finally` 每 200ms 重排一次,任务面板打开期间会以 5 次/秒无限抓屏。失败路径现在清除标记,只在有新动作时才重试。
 - **下载上限改为流式判定**:此前先 `arrayBuffer()` 读完整包再比 64MiB,超大响应会先撑爆渲染进程,上限形同虚设;现在先看 `content-length`,再边读边累计并在超限时 `cancel()` 流,同时给页内 fetch 加了超时。

@@ -286,3 +286,37 @@ function domStub (host, queryNodeId) {
         : {}
   }
 }
+
+test('pressKey types punctuation, including inside modifier combos', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  await provider.pressKey(session, { key: '-', modifiers: ['ctrl'] })
+  let keys = host.log.filter(entry => entry.method === 'Input.dispatchKeyEvent')
+  assert.equal(keys[0].params.key, '-')
+  assert.equal(keys[0].params.code, 'Minus')
+  assert.equal(keys[0].params.windowsVirtualKeyCode, 189)
+  assert.equal(keys[0].params.text, '-')
+  assert.equal(keys[0].params.modifiers, 2, 'ctrl is still held')
+  await provider.pressKey(session, { key: '/' })
+  keys = host.log.filter(entry => entry.method === 'Input.dispatchKeyEvent')
+  assert.equal(keys[2].params.code, 'Slash')
+  assert.equal(keys[2].params.text, '/')
+})
+
+test('waitForElement fails fast on an invalid selector instead of burning the budget', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  host.evalReplies.push({ result: { value: { error: 'SyntaxError: not a valid selector' } } })
+  const started = Date.now()
+  await assert.rejects(
+    () => provider.waitForElement(session, { selector: 'div:has-text("x")', timeoutMs: 5_000 }),
+    error => {
+      assert.equal(error.code, 'BROWSER_SELECTOR_INVALID')
+      return true
+    },
+  )
+  assert.ok(Date.now() - started < 2_000, 'does not poll until the deadline')
+})
+

@@ -304,12 +304,33 @@ const KEY_VK: Record<string, number> = {
   F12: 123,
 }
 
+/** Printable ASCII with no KEY_VK entry, mapped to its US-layout position. */
+const PRINTABLE_CODES: Record<string, { code: string; vk: number }> = {
+  '-': { code: 'Minus', vk: 189 },
+  '=': { code: 'Equal', vk: 187 },
+  '[': { code: 'BracketLeft', vk: 219 },
+  ']': { code: 'BracketRight', vk: 221 },
+  ';': { code: 'Semicolon', vk: 186 },
+  "'": { code: 'Quote', vk: 222 },
+  ',': { code: 'Comma', vk: 188 },
+  '.': { code: 'Period', vk: 190 },
+  '/': { code: 'Slash', vk: 191 },
+  '`': { code: 'Backquote', vk: 192 },
+}
+
+/** True for the ASCII range a key event can carry as text. */
+function isPrintable(key: string): boolean {
+  if (key.length !== 1) return false
+  const code = key.charCodeAt(0)
+  return code >= 0x20 && code <= 0x7e
+}
+
 function keyText(key: string): string | null {
   switch (key) {
     case 'Enter': return '\r'
     case 'Tab': return '\t'
     case 'Space': return ' '
-    default: return /^[a-z0-9]$/i.test(key) ? key : null
+    default: return isPrintable(key) ? key : null
   }
 }
 
@@ -328,6 +349,14 @@ function keyDescriptor(key: string): { key: string; code: string; vk: number } {
   }
   if (/^[0-9]$/.test(key)) {
     return { key, code: `Digit${key}`, vk: key.charCodeAt(0) }
+  }
+  if (isPrintable(key)) {
+    // Punctuation carries its US-layout position so shortcuts such as Ctrl+- and
+    // Ctrl+/ reach the page; anything else printable falls back to its own code.
+    const known = PRINTABLE_CODES[key]
+    return known === undefined
+      ? { key, code: key, vk: key.toUpperCase().charCodeAt(0) }
+      : { key, code: known.code, vk: known.vk }
   }
   throw new BrowserError(`browser: unsupported key "${key}"`, 'BROWSER_KEY_UNKNOWN')
 }
@@ -844,7 +873,31 @@ export class ElectronBrowserProvider implements BrowserProvider {
       let content = ''
       if (fmt === 'txt') content = root.innerText || ''
       else if (fmt === 'html') content = root.outerHTML || ''
-      else if (fmt === 'json') content = JSON.stringify(root)
+      else if (fmt === 'json') {
+        // An element has no own enumerable properties, so JSON.stringify(root)
+        // always produced "{}". Serialize a bounded structural view instead, and
+        // pass a genuine JSON payload through unchanged.
+        const raw = (root.textContent || '').trim()
+        let parsed
+        try { parsed = JSON.parse(raw) } catch { parsed = undefined }
+        if (parsed !== undefined) content = JSON.stringify(parsed)
+        else {
+          const shape = (el, depth) => {
+            const node = { tag: el.tagName ? el.tagName.toLowerCase() : undefined }
+            if (depth >= 8) return node
+            if (el.id) node.id = el.id
+            if (typeof el.className === 'string' && el.className !== '') node.class = el.className
+            const kids = el.children ? [...el.children].slice(0, 40) : []
+            if (kids.length > 0) node.children = kids.map(child => shape(child, depth + 1))
+            else {
+              const text = (el.textContent || '').trim().slice(0, 200)
+              if (text !== '') node.text = text
+            }
+            return node
+          }
+          content = JSON.stringify(shape(root, 0))
+        }
+      }
       // markdown: headings, links, lists, paragraphs (best-effort). The
       // renderer is embedded from its own source, so the function under test
       // is byte-for-byte the one that runs in the page.
@@ -1012,7 +1065,11 @@ export class ElectronBrowserProvider implements BrowserProvider {
           this.record(s, 'waitForElement', { selector, timeoutMs, visible }, true, { result: value.tag })
           return { found: true, selector, tag: value.tag, text: value.text ?? '' }
         }
-        if (value?.error !== undefined) lastError = value.error
+        if (value?.error !== undefined) {
+          // A malformed selector can never start matching, so fail now instead of
+          // polling to the deadline and reporting a misleading timeout.
+          throw new BrowserError(`browser: invalid selector "${selector}": ${value.error}`, 'BROWSER_SELECTOR_INVALID')
+        }
       }
       await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(deadline - Date.now(), 1))))
     }
@@ -1108,6 +1165,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
         const vis = all.filter(visible)
         return vis.length > 0 ? vis : all
       }
+      const filledEls = []
       for (const spec of specs) {
         let els
         try {
@@ -1122,6 +1180,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
         const el = els[0]
         const tag = el.tagName
         const type = (el.type || '').toLowerCase()
+        const before = out.length
         try {
           if (tag === 'SELECT') {
             const wanted = String(spec.value)
@@ -1147,6 +1206,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
           } else if (type === 'checkbox') {
             const want = spec.value === true || spec.value === 'true' || spec.value === 'on'
             if (el.checked !== want) el.click()
+            if (el.checked !== want) { out.push({ ok: false, error: 'checkbox did not change (disabled, or a handler prevented it)', target: describe(spec) }); continue }
             out.push({ ok: true, method: 'checkbox', target: describe(spec) })
           } else if (type === 'radio') {
             const wanted = String(spec.value)
@@ -1154,36 +1214,54 @@ export class ElectronBrowserProvider implements BrowserProvider {
               .find(r => r.value === wanted || (r === el && (spec.value === true || spec.value === 'true')))
             if (!radio) { out.push({ ok: false, error: 'radio option not found: ' + wanted, target: describe(spec) }); continue }
             if (!radio.checked) radio.click()
+            if (!radio.checked) { out.push({ ok: false, error: 'radio did not change (disabled, or a handler prevented it)', target: describe(spec) }); continue }
             out.push({ ok: true, method: 'radio', target: describe(spec) })
           } else if (el.isContentEditable) {
             el.textContent = String(spec.value)
             el.dispatchEvent(new Event('input', { bubbles: true }))
             out.push({ ok: true, method: 'contenteditable', target: describe(spec) })
           } else if (tag === 'TEXTAREA') {
-            setNative(el, HTMLTextAreaElement.prototype, String(spec.value))
+            const wanted = String(spec.value)
+            setNative(el, HTMLTextAreaElement.prototype, wanted)
             el.dispatchEvent(new Event('input', { bubbles: true }))
             el.dispatchEvent(new Event('change', { bubbles: true }))
+            if (wanted !== '' && el.value === '') { out.push({ ok: false, error: 'the field rejected the value', target: describe(spec) }); continue }
             out.push({ ok: true, method: 'textarea', target: describe(spec) })
           } else {
-            setNative(el, HTMLInputElement.prototype, String(spec.value))
+            const wanted = String(spec.value)
+            setNative(el, HTMLInputElement.prototype, wanted)
             el.dispatchEvent(new Event('input', { bubbles: true }))
             el.dispatchEvent(new Event('change', { bubbles: true }))
+            // A constrained input (number/date/email) silently blanks a value it
+            // will not accept. Only the empty outcome is unambiguous: the DOM may
+            // legitimately normalise a value it did accept.
+            if (wanted !== '' && el.value === '') { out.push({ ok: false, error: 'the field rejected the value', target: describe(spec) }); continue }
             out.push({ ok: true, method: 'input', target: describe(spec) })
           }
         } catch (e) {
           out.push({ ok: false, error: String(e), target: describe(spec) })
         }
+        // Remember what actually landed, so submit anchors on a form the caller
+        // really filled rather than the first field the page happens to expose.
+        if (out.length > before && out[out.length - 1].ok === true) filledEls.push(el)
       }
       let submitted = false
+      let blockReason = ''
       if (${submitFlag}) {
-        let last = null
-        for (const spec of specs) {
-          try { const els = candidates(spec); if (els.length > 0) { last = els[0]; break } } catch { /* skip */ }
+        let anchor = null
+        for (let index = filledEls.length - 1; index >= 0; index--) {
+          const candidate = filledEls[index]
+          if (candidate.form || candidate.closest('form')) { anchor = candidate; break }
         }
-        const form = last && (last.form || last.closest('form'))
-        if (form) { form.requestSubmit(); submitted = true }
+        const form = anchor === null ? null : (anchor.form || anchor.closest('form'))
+        if (form === null) blockReason = 'no containing form'
+        // requestSubmit() runs constraint validation: on an invalid form it
+        // neither throws nor submits, so reporting submitted:true was a silent
+        // false success.
+        else if (typeof form.checkValidity === 'function' && form.checkValidity() !== true) blockReason = 'the form is invalid'
+        else { form.requestSubmit(); submitted = true }
       }
-      return { fields: out, submitted }
+      return { fields: out, submitted, blockReason }
     })()`
     const timeoutMs = request.timeoutMs ?? 30_000
     const result = await withTimeout(
@@ -1195,10 +1273,15 @@ export class ElectronBrowserProvider implements BrowserProvider {
     if (!result.ok) {
       throw new BrowserError(`browser: fillForm evaluation failed: ${result.exception}`, 'BROWSER_FILL_FAILED')
     }
-    const value = result.value as BrowserFillResult
+    const value = result.value as BrowserFillResult & { readonly blockReason?: string }
     const okCount = value.fields.filter(f => f.ok).length
+    const submitNote = value.submitted
+      ? ', form submitted'
+      : value.blockReason !== undefined && value.blockReason !== ''
+        ? `, submit blocked: ${value.blockReason}`
+        : ''
     this.record(s, 'fill', { fields: request.fields.length, submit: submitFlag }, okCount === value.fields.length, {
-      result: `${okCount}/${value.fields.length} fields filled${value.submitted ? ', form submitted' : ''}`,
+      result: `${okCount}/${value.fields.length} fields filled${submitNote}`,
     })
     return { fields: value.fields, submitted: value.submitted === true }
   }
