@@ -192,7 +192,10 @@ interface TaskSummary {
   readonly updatedAt: number
   readonly latest?: TaskTraceSummary
   readonly error?: string
-  readonly thumbnail?: string
+  /**
+   * Bumped when a new image arrives through the 'task.thumbnail' patch. The
+   * image itself is never part of a summary: summaries reach every page.
+   */
   readonly thumbnailVersion: number
 }
 
@@ -224,11 +227,14 @@ function summarizeLatestTrace(entry: unknown): TaskTraceSummary | undefined {
 }
 
 function taskSummaries(): TaskSummary[] {
+  // Thumbnails are deliberately absent: these summaries are injected into every
+  // visited page's main world, and shipping the JPEG here let any page read the
+  // visible task's screen content. The image travels only through the targeted
+  // 'task.thumbnail' patch, which is queued for the visible task alone.
   return [...activeViewByTask.entries()].flatMap(([key, viewId]) => {
     const activeView = views.get(viewId)
     if (activeView === undefined) return []
     const latest = summarizeLatestTrace((traces.get(viewId) ?? []).at(-1))
-    const thumbnail = taskThumbnails.get(key)
     const state = ensureTaskState(key)
     let url = ''
     try { url = activeView.webContentsView.webContents.getURL() } catch { /* closing */ }
@@ -244,7 +250,6 @@ function taskSummaries(): TaskSummary[] {
       updatedAt: state.updatedAt,
       ...(latest === undefined ? {} : { latest: latest }),
       ...(state.error !== undefined ? { error: state.error } : {}),
-      ...(thumbnail === undefined ? {} : { thumbnail: thumbnail }),
       thumbnailVersion: taskThumbnailVersions.get(key) ?? 0,
     }]
   })

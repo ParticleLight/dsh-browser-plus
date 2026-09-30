@@ -89,9 +89,11 @@ export function resolveWritePath(savePath: string, roots: readonly string[]): st
   }
   const absolute = resolve(savePath)
   if (!isWithinRoots(absolute, roots)) {
-    const shown = roots.length === 0 ? '(none configured)' : roots.join(', ')
+    // This message reaches the model context and, through a task's error field,
+    // the page itself — so it never names an absolute path.
+    const hint = roots.length === 0 ? ' (none configured)' : ''
     throw new BrowserError(
-      `browser: refusing to write "${savePath}" outside the allowed roots (${shown}); `
+      `browser: refusing to write "${savePath}" outside the allowed roots${hint}; `
       + 'add the directory to the browser-electron "writeRoots" config to allow it',
       'BROWSER_WRITE_PATH_DENIED',
     )

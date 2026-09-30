@@ -128,7 +128,8 @@ test('task and trail panels can remain open together', () => {
 
 test('task rows safely render host JPEG thumbnail data', () => {
   const script = buildPageChromeScript()
-  assert.match(script, /task\.thumbnail/)
+  assert.match(script, /taskThumbCache\.get\(taskKey\)/, 'thumbnail comes from the client cache')
+  assert.doesNotMatch(script, /typeof task\.thumbnail === 'string'/, 'never reads the bulk task.thumbnail field')
   assert.match(script, /startsWith\('data:image\/jpeg;base64,'\)/)
   assert.doesNotMatch(script, /startsWith\('data:image\/'\)/)
   assert.ok(!script.includes('.src'), 'never wires image src under page CSP')

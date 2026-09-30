@@ -34,7 +34,10 @@ export interface ChromeTaskSummary {
   readonly updatedAt: number
   readonly latest?: ChromeTaskLatest
   readonly error?: string
-  readonly thumbnail?: string
+  /**
+   * Bumped when a new image arrives through the 'task.thumbnail' patch. The
+   * image itself is never part of a summary: summaries reach every page.
+   */
   readonly thumbnailVersion: number
 }
 
