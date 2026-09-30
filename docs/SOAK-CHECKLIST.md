@@ -14,7 +14,8 @@
 - [ ] `browser_press_key key="a" modifiers=["ctrl"]`(键盘事件低位键 'a')
 - [ ] `browser_double_click` 选中文本段;history 有 doubleClick
 - [ ] `browser_hover` 导航项 → `browser_screenshot` 目视 hover 态;history 有 hover
-- [ ] `browser_execute` 注入 `<input type=file>` → `browser_upload_file filePath=C:\Windows\win.ini` → `browser_execute` 读 `input.files[0]?.name` = win.ini
+- [ ] `browser_execute` 注入 `<input type=file>` → 在工作目录/临时目录建样本文件 → `browser_upload_file filePath=<该文件绝对路径>` → `browser_execute` 读 `input.files[0]?.name` 与文件同名
+- [ ] 传根外路径(如 `C:\Windows\win.ini`)调用 `browser_upload_file` → 必须报 `BROWSER_READ_PATH_DENIED`,且页面收不到该文件
 
 ## 3. 等待与定位
 - [ ] `browser_wait_for selector="a[href]"` 立即命中(iana.org)

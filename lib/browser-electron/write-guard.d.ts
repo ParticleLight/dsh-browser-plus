@@ -29,3 +29,13 @@ export declare function isWithinRoots(candidate: string, roots: readonly string[
  * @throws BrowserError `BROWSER_WRITE_PATH_DENIED` when the path is unusable or outside every root.
  */
 export declare function resolveWritePath(savePath: string, roots: readonly string[]): string;
+/**
+ * Resolve a file the browser is about to hand to a page and admit it only when
+ * it lands inside one of the allowed roots. Unlike a write target the file must
+ * already exist, so the path itself is realpath'd: a symlink to a permitted
+ * file is admitted, a symlink that leaves the roots is not.
+ * @param filePath - the caller-supplied path.
+ * @param roots - the allowed roots; an empty list denies every read.
+ * @throws BrowserError `BROWSER_READ_PATH_DENIED` when the path is unusable, missing, or outside every root.
+ */
+export declare function resolveReadPath(filePath: string, roots: readonly string[]): string;

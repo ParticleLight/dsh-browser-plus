@@ -32,6 +32,7 @@ dsh plugin --profile web add <本仓库路径>
 | `browser-electron` | `viewHost` | 对象 | 必填 | 宿主提供的 `ElectronBrowserViewHost`(通常 `!!js ctx.get('electronViewHost')`) |
 | `browser-electron` | `httpOnly` | 布尔 | `true` | 仅允许 HTTP(S) 导航;`file:`/`data:` 等拒绝 |
 | `browser-electron` | `writeRoots` | 字符串数组 | `[工作目录, 系统临时目录]` | `browser_screenshot`/`browser_download` 允许写入的绝对目录;越界拒绝 |
+| `browser-electron` | `readRoots` | 字符串数组 | 同 `writeRoots` | `browser_upload_file` 允许读取的绝对目录;越界拒绝 |
 | `browser-electron` | `snapshotMaxElements` | 数字 | `60` | 快照最多收录的交互元素数 |
 | `browser-electron` | `contentMaxChars` | 数字 | `100000` | 内容抓取默认字符上限 |
 | `tool-browser` | `timeoutMs` | 数字 | `60000` | 工具协作超时(ms) |
@@ -108,5 +109,6 @@ dsh plugin --profile web add <本仓库路径>
 | 工具超时 | 页面卡死/未渲染完成 | 稍后重试;`browser_reset` 重置标签 |
 | 导航被拒 | 非 HTTP(S) 协议,或 URL 内嵌凭据 | 检查 URL;`httpOnly` 配置 |
 | `BROWSER_WRITE_PATH_DENIED` | 落盘路径不在允许根内 | 改存工作目录/临时目录,或在 `browser-electron.writeRoots` 追加该目录 |
+| `BROWSER_READ_PATH_DENIED` | 上传的文件不存在,或不在允许根内 | 改传工作目录/临时目录内的文件,或配置 `browser-electron.readRoots` |
 | 下载被拒 | 非 HTTP(S),或 URL 内嵌凭据 | 下载与导航共用 `admitUrl` 准入;凭据请走页面登录态 |
 | 快照为空 | 页面尚未加载 | 等待后重试 `browser_snapshot` |

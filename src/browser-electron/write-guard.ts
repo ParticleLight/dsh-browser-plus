@@ -100,3 +100,35 @@ export function resolveWritePath(savePath: string, roots: readonly string[]): st
   }
   return absolute
 }
+
+/**
+ * Resolve a file the browser is about to hand to a page and admit it only when
+ * it lands inside one of the allowed roots. Unlike a write target the file must
+ * already exist, so the path itself is realpath'd: a symlink to a permitted
+ * file is admitted, a symlink that leaves the roots is not.
+ * @param filePath - the caller-supplied path.
+ * @param roots - the allowed roots; an empty list denies every read.
+ * @throws BrowserError `BROWSER_READ_PATH_DENIED` when the path is unusable, missing, or outside every root.
+ */
+export function resolveReadPath(filePath: string, roots: readonly string[]): string {
+  if (typeof filePath !== 'string' || filePath.trim() === '') {
+    throw new BrowserError('browser: refusing to read without a file path', 'BROWSER_READ_PATH_DENIED')
+  }
+  const absolute = resolve(filePath)
+  let real: string
+  try {
+    real = realpathSync.native(absolute)
+  } catch {
+    throw new BrowserError(`browser: refusing to read "${filePath}": the file does not exist`, 'BROWSER_READ_PATH_DENIED')
+  }
+  const allowed = roots.map(root => comparable(realpathOfNearestAncestor(resolve(root))))
+  if (!allowed.some(root => within(comparable(real), root))) {
+    const hint = roots.length === 0 ? ' (none configured)' : ''
+    throw new BrowserError(
+      `browser: refusing to read "${filePath}" outside the allowed roots${hint}; `
+      + 'add the directory to the browser-electron "readRoots" config to allow it',
+      'BROWSER_READ_PATH_DENIED',
+    )
+  }
+  return absolute
+}

@@ -114,6 +114,11 @@ export interface ElectronBrowserProviderConfig {
      * empty list denies every write.
      */
     readonly writeRoots?: readonly string[];
+    /**
+     * Absolute directories `browser_upload_file` may read from. Defaults to the
+     * same roots as {@link writeRoots}; an empty list denies every upload.
+     */
+    readonly readRoots?: readonly string[];
 }
 /**
  * CDP method/params for `Page.navigate`, as sent to {@link ElectronViewHandle.sendCommand}.
@@ -172,6 +177,7 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     private readonly snapshotMaxElements;
     private readonly contentMaxChars;
     private readonly writeRoots;
+    private readonly readRoots;
     constructor(host: ElectronBrowserViewHost, config?: ElectronBrowserProviderConfig);
     /**
      * Usable whenever the host can create views. A host that exposes a local

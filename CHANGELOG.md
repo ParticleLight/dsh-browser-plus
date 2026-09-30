@@ -2,6 +2,8 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **`browser_upload_file` 加读白名单**:此前只有写有白名单,上传可把任意本地文件交给页面(绕过 DSH 文件策略)。现在 `filePath` 必须存在且落在 `browser-electron.readRoots`(默认同 `writeRoots`)之内,校验在触碰 DOM 之前完成,越界抛 `BROWSER_READ_PATH_DENIED`。
+- **任务摘要不再下发缩略图**:`window.__dshTasks` 走页面主世界,此前携带可见任务的 288px JPEG,任意页面可据此读走其他任务的屏幕内容。摘要只保留 `thumbnailVersion`,图片仅经定向的 `task.thumbnail` 补丁下发。写盘拒绝消息也不再回显允许根路径。
 - **`browser_restrict` 改为按任务隔离**:此前白名单是模块级全局状态,一个任务设置后会把**所有**并行任务的浏览器工具一起限制。现在规则按调用任务存储,插件级 `tool-browser.allowedActions` 作为默认值,单个任务可用空列表只为解除自己。
 - **页面可见轨迹脱敏**:注入页面的 `window.__dshChromeBootstrap.trail` 只保留展示所需字段——`type` 折叠为字符数、`execute` 丢弃脚本、URL 折叠为 origin、路径折叠为 basename。此前被访问页面可用一行 JS 读走同任务中早前站点输入的文本(含密码)与执行过的脚本。
 - **页面→宿主控制通道加每视图 token**:`__dshBrowserTaskAction` 的 payload 必须携带 `createView` 生成的随机 token。此前任意页面脚本可伪造 `set-control-owner=human` 冻结该任务的 Agent 自动化。残留风险:页面若在 chrome 注入前 hook `JSON.stringify` 仍可能窃取 token,彻底解法是 isolated world 注入(后续工作)。

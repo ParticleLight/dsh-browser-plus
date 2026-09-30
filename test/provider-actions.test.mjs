@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { ElectronBrowserProvider } from '../lib/browser-electron/provider.js'
 
 /**
@@ -138,34 +141,52 @@ test('hover dispatches one mouseMoved with no button', async () => {
   assert.equal(host.log[0].params.x, 33)
 })
 
+/** A real file inside its own root, so the read guard admits the upload. */
+function tempUpload(name = 'x.txt') {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-upload-'))
+  const file = join(dir, name)
+  writeFileSync(file, 'payload')
+  return { dir, file, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
+}
+
 test('uploadFile resolves a nodeId through the DOM domain and sets files', async () => {
-  const host = new FakeHost()
-  const provider = new ElectronBrowserProvider(host)
-  const session = await provider.open()
-  // Stub the DOM-domain replies: document resolves, then a matched input.
-  host.views[0].sendCommand = domStub(host, 42)
-  const result = await provider.uploadFile(session, { filePath: 'C:/tmp/x.txt' })
-  assert.equal(result.path, 'C:/tmp/x.txt')
+  const upload = tempUpload()
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { readRoots: [upload.dir] })
+    const session = await provider.open()
+    // Stub the DOM-domain replies: document resolves, then a matched input.
+    host.views[0].sendCommand = domStub(host, 42)
+    const result = await provider.uploadFile(session, { filePath: upload.file })
+    assert.equal(result.path, upload.file)
   const getDoc = host.log.find(e => e.method === 'DOM.getDocument')
   assert.ok(getDoc, 'asks for the document')
-  const query = host.log.find(e => e.method === 'DOM.querySelector')
-  assert.equal(query.params.selector, 'input[type="file"]')
-  const set = host.log.find(e => e.method === 'DOM.setFileInputFiles')
-  assert.deepEqual(set.params.files, ['C:/tmp/x.txt'])
-  assert.equal(set.params.nodeId, 42)
-  // Command order must be getDocument -> querySelector -> setFileInputFiles.
-  const order = ['DOM.getDocument', 'DOM.querySelector', 'DOM.setFileInputFiles']
-    .map(m => host.log.findIndex(e => e.method === m))
-  assert.ok(order.every(i => i >= 0) && order.every((i, n) => n === 0 || i > order[n - 1]), 'CDP sequence ordered')
+    const query = host.log.find(e => e.method === 'DOM.querySelector')
+    assert.equal(query.params.selector, 'input[type="file"]')
+    const set = host.log.find(e => e.method === 'DOM.setFileInputFiles')
+    assert.deepEqual(set.params.files, [upload.file])
+    assert.equal(set.params.nodeId, 42)
+    // Command order must be getDocument -> querySelector -> setFileInputFiles.
+    const order = ['DOM.getDocument', 'DOM.querySelector', 'DOM.setFileInputFiles']
+      .map(m => host.log.findIndex(e => e.method === m))
+    assert.ok(order.every(i => i >= 0) && order.every((i, n) => n === 0 || i > order[n - 1]), 'CDP sequence ordered')
+  } finally {
+    upload.cleanup()
+  }
 })
 
 test('uploadFile reports a missing file input', async () => {
-  const host = new FakeHost()
-  const provider = new ElectronBrowserProvider(host)
-  const session = await provider.open()
-  // Missing-input scenario: document resolves, DOM.querySelector answers nodeId 0.
-  host.views[0].sendCommand = domStub(host, 0)
-  await assert.rejects(() => provider.uploadFile(session, { filePath: 'C:/tmp/x.txt' }), /no file input/)
+  const upload = tempUpload()
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { readRoots: [upload.dir] })
+    const session = await provider.open()
+    // Missing-input scenario: document resolves, DOM.querySelector answers nodeId 0.
+    host.views[0].sendCommand = domStub(host, 0)
+    await assert.rejects(() => provider.uploadFile(session, { filePath: upload.file }), /no file input/)
+  } finally {
+    upload.cleanup()
+  }
 })
 
 test('waitForElement polls until the element appears', async () => {

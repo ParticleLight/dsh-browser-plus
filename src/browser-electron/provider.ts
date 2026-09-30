@@ -48,7 +48,7 @@ import type {
 } from '../browser/types.ts'
 import { BrowserError } from '../browser/types.ts'
 import { PAGE_CHROME_HOST_ID, PAGE_CHROME_SCRIPT } from './page-chrome.ts'
-import { defaultWriteRoots, resolveWritePath } from './write-guard.ts'
+import { defaultWriteRoots, resolveReadPath, resolveWritePath } from './write-guard.ts'
 
 /**
  * Page-context human-verification (CAPTCHA / bot-detection) detection. Runs
@@ -225,6 +225,11 @@ export interface ElectronBrowserProviderConfig {
    * empty list denies every write.
    */
   readonly writeRoots?: readonly string[]
+  /**
+   * Absolute directories `browser_upload_file` may read from. Defaults to the
+   * same roots as {@link writeRoots}; an empty list denies every upload.
+   */
+  readonly readRoots?: readonly string[]
 }
 
 /**
@@ -366,6 +371,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
   private readonly snapshotMaxElements: number
   private readonly contentMaxChars: number
   private readonly writeRoots: readonly string[]
+  private readonly readRoots: readonly string[]
 
   constructor(
     private readonly host: ElectronBrowserViewHost,
@@ -375,6 +381,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     this.snapshotMaxElements = config.snapshotMaxElements ?? 60
     this.contentMaxChars = config.contentMaxChars ?? 100_000
     this.writeRoots = config.writeRoots ?? defaultWriteRoots()
+    this.readRoots = config.readRoots ?? defaultWriteRoots()
   }
 
   /**
@@ -942,6 +949,9 @@ export class ElectronBrowserProvider implements BrowserProvider {
     // the human while an agent-driven file selection is in flight.
     await suppressAutoUserControl(handle, signal)
     const selector = request.selector ?? 'input[type="file"]'
+    // A file handed to a page leaves the machine, so admission happens before
+    // any DOM work: the path must exist and sit inside the configured roots.
+    const filePath = resolveReadPath(request.filePath, this.readRoots)
     // Bound the whole DOM sequence: a wedged renderer must not hang the tool.
     const timeoutMs = 30_000
     await withTimeout((async () => {
@@ -956,7 +966,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
       if (nodeId === undefined || nodeId === 0) {
         throw new BrowserError(`browser: no file input matches "${selector}"`, 'BROWSER_UPLOAD_NO_INPUT')
       }
-      await handle.sendCommand('DOM.setFileInputFiles', { files: [request.filePath], nodeId })
+      await handle.sendCommand('DOM.setFileInputFiles', { files: [filePath], nodeId })
     })(), timeoutMs, signal, `browser: upload timed out after ${timeoutMs}ms`)
     this.record(s, 'uploadFile', { filePath: request.filePath, selector }, true, { result: '1 file attached' })
     return { path: request.filePath }

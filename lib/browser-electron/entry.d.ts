@@ -31,6 +31,11 @@ export interface Config {
      * write into. Absent -> the workspace and the OS temp directory.
      */
     readonly writeRoots?: string[];
+    /**
+     * Absolute directories `browser_upload_file` may read from. Absent -> the
+     * same default as writeRoots (the workspace and the OS temp directory).
+     */
+    readonly readRoots?: string[];
 }
 export declare const Config: z<Config>;
 /** Register the Electron browser provider with `ctx.browser`. */

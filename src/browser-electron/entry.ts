@@ -41,6 +41,11 @@ export interface Config {
    * write into. Absent -> the workspace and the OS temp directory.
    */
   readonly writeRoots?: string[]
+  /**
+   * Absolute directories `browser_upload_file` may read from. Absent -> the
+   * same default as writeRoots (the workspace and the OS temp directory).
+   */
+  readonly readRoots?: string[]
 }
 
 export const Config: z<Config> = z.object({
@@ -48,6 +53,7 @@ export const Config: z<Config> = z.object({
   viewHost: z.any(),
   httpOnly: z.boolean().default(true),
   writeRoots: z.array(z.string()),
+  readRoots: z.array(z.string()),
 })
 
 /** Register the Electron browser provider with `ctx.browser`. */
@@ -62,6 +68,7 @@ export function apply(ctx: Context & { browser: BrowserRuntime }, config: Config
   const unregister = ctx.browser.registerBrowserProvider(new ElectronBrowserProvider(host, {
     httpOnly: config.httpOnly,
     ...config.writeRoots !== undefined ? { writeRoots: config.writeRoots } : {},
+    ...config.readRoots !== undefined ? { readRoots: config.readRoots } : {},
   }))
   ctx.effect(() => () => {
     unregister()

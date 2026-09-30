@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { ElectronBrowserProvider, renderMarkdown } from '../lib/browser-electron/provider.js'
 
 /**
@@ -138,9 +141,19 @@ test('renderMarkdown is usable directly and drops script/style text', () => {
   )
 })
 
+/** A real file inside its own root, so the read guard admits the upload. */
+function tempUpload() {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-upload-'))
+  const file = join(dir, 'a.txt')
+  writeFileSync(file, 'payload')
+  return { dir, file, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
+}
+
 test('uploadFile suppresses auto user control before touching the DOM domain', async () => {
+  const upload = tempUpload()
+  try {
   const host = new DomHost({ body: el('div', []) })
-  const provider = new ElectronBrowserProvider(host)
+  const provider = new ElectronBrowserProvider(host, { readRoots: [upload.dir] })
   const session = await provider.open()
   host.views[0].sendCommand = async (method, params) => {
     host.log.push({ method, params })
@@ -148,28 +161,36 @@ test('uploadFile suppresses auto user control before touching the DOM domain', a
       : method === 'DOM.querySelector' ? { nodeId: 7 }
         : {}
   }
-  const result = await provider.uploadFile(session, { filePath: 'C:/tmp/a.txt' })
-  assert.equal(result.path, 'C:/tmp/a.txt')
+  const result = await provider.uploadFile(session, { filePath: upload.file })
+  assert.equal(result.path, upload.file)
   assert.equal(host.log[0].method, 'Runtime.evaluate')
   assert.match(host.log[0].params.expression, /data-dsh-agent-input-until/)
   const order = ['Runtime.evaluate', 'DOM.getDocument', 'DOM.querySelector', 'DOM.setFileInputFiles']
     .map(method => host.log.findIndex(entry => entry.method === method))
   assert.ok(order.every(index => index >= 0), 'every step ran')
   assert.ok(order.every((index, position) => position === 0 || index > order[position - 1]), 'suppression precedes the DOM sequence')
+  } finally {
+    upload.cleanup()
+  }
 })
 
 test('uploadFile is bounded by its own timeout', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  const host = new DomHost({ body: el('div', []) })
-  const provider = new ElectronBrowserProvider(host)
-  const session = await provider.open()
-  host.views[0].sendCommand = async (method) => {
-    if (method === 'Runtime.evaluate') return {}
-    return new Promise(() => {}) // DOM.getDocument never settles
+  const upload = tempUpload()
+  try {
+    const host = new DomHost({ body: el('div', []) })
+    const provider = new ElectronBrowserProvider(host, { readRoots: [upload.dir] })
+    const session = await provider.open()
+    host.views[0].sendCommand = async (method) => {
+      if (method === 'Runtime.evaluate') return {}
+      return new Promise(() => {}) // DOM.getDocument never settles
+    }
+    const pending = provider.uploadFile(session, { filePath: upload.file })
+    const rejected = assert.rejects(pending, /upload timed out after 30000ms/)
+    await new Promise(resolve => setImmediate(resolve))
+    t.mock.timers.tick(30_000)
+    await rejected
+  } finally {
+    upload.cleanup()
   }
-  const pending = provider.uploadFile(session, { filePath: 'C:/tmp/a.txt' })
-  const rejected = assert.rejects(pending, /upload timed out after 30000ms/)
-  await new Promise(resolve => setImmediate(resolve))
-  t.mock.timers.tick(30_000)
-  await rejected
 })

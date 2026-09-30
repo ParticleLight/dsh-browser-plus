@@ -30,7 +30,7 @@
 | `browser_type` | `text`(必填) | `{ typed }` | ✅ | 向聚焦元素输入文本(CDP `Input.insertText`) |
 | `browser_press_key` | `key`(必填), `modifiers?` | `{ pressed }` | ✅ | 向聚焦元素物理按键(keyDown+keyUp;Enter/Tab/F1-F12/方向键及 Ctrl+A 等修饰组合) |
 | `browser_fill` | `fields`(必填,数组), `submit?` | `{ fields[], submitted }` | ✅ | 批量填表;字段按 `selector`/`name`/`label`/`placeholder` 匹配,值支持字符串/数字/布尔;单个字段失败不影响其余;`submit: true` 提交表单 |
-| `browser_upload_file` | `filePath`(必填), `selector?` | `{ path }` | ✅ | 给文件输入附加本地文件(CDP `DOM.setFileInputFiles`,页面视为真实选择);缺省页面第一个 `input[type="file"]` |
+| `browser_upload_file` | `filePath`(必填), `selector?` | `{ path }` | ✅ | 给文件输入附加本地文件(CDP `DOM.setFileInputFiles`,页面视为真实选择);缺省页面第一个 `input[type="file"]`;`filePath` 必须存在且落在 `browser-electron.readRoots` 之内,越界抛 `BROWSER_READ_PATH_DENIED` |
 
 ## 标签与会话
 

@@ -1,10 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { ElectronBrowserProvider } from '../lib/browser-electron/provider.js'
-import { defaultWriteRoots, isWithinRoots, resolveWritePath } from '../lib/browser-electron/write-guard.js'
+import { defaultWriteRoots, isWithinRoots, resolveReadPath, resolveWritePath } from '../lib/browser-electron/write-guard.js'
 
 /**
  * Minimal host seam whose handle exposes exactly the two write-producing
@@ -20,6 +20,9 @@ class FakeView {
   async sendCommand(method, params) {
     this.host.log.push({ method, params })
     if (method === 'Runtime.evaluate') return this.host.evalReplies.shift() ?? {}
+    // Minimal DOM domain answers so an admitted upload can run to completion.
+    if (method === 'DOM.getDocument') return { root: { nodeId: 1 } }
+    if (method === 'DOM.querySelector') return { nodeId: 2 }
     return {}
   }
 
@@ -208,6 +211,86 @@ test('resolveWritePath refuses a symlink that escapes an allowed root', t => {
       return
     }
     assert.throws(() => resolveWritePath(join(link, 'escape.png'), [sandbox.root]), /outside the allowed roots/)
+  } finally {
+    sandbox.cleanup()
+  }
+})
+test('resolveReadPath admits an existing file inside a root', () => {
+  const sandbox = makeSandbox()
+  try {
+    const file = join(sandbox.root, 'notes.txt')
+    writeFileSync(file, 'hi')
+    assert.equal(resolveReadPath(file, [sandbox.root]), resolve(file))
+  } finally {
+    sandbox.cleanup()
+  }
+})
+
+test('resolveReadPath refuses a file that does not exist', () => {
+  const sandbox = makeSandbox()
+  try {
+    assert.throws(() => resolveReadPath(join(sandbox.root, 'nope.txt'), [sandbox.root]), /does not exist/)
+  } finally {
+    sandbox.cleanup()
+  }
+})
+
+test('resolveReadPath refuses a file outside the roots', () => {
+  const sandbox = makeSandbox()
+  try {
+    const outside = join(sandbox.base, 'secret.txt')
+    writeFileSync(outside, 'x')
+    assert.throws(() => resolveReadPath(outside, [sandbox.root]), /outside the allowed roots/)
+  } finally {
+    sandbox.cleanup()
+  }
+})
+
+test('resolveReadPath refuses a link that escapes a root', t => {
+  const sandbox = makeSandbox()
+  try {
+    const outside = join(sandbox.base, 'secret.txt')
+    writeFileSync(outside, 'x')
+    const link = join(sandbox.root, 'link.txt')
+    try {
+      symlinkSync(outside, link, 'file')
+    } catch {
+      t.skip('file links are not permitted on this platform')
+      return
+    }
+    assert.throws(() => resolveReadPath(link, [sandbox.root]), /outside the allowed roots/)
+  } finally {
+    sandbox.cleanup()
+  }
+})
+
+test('uploadFile refuses a file outside readRoots before any DOM work', async () => {
+  const sandbox = makeSandbox()
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { readRoots: [sandbox.root] })
+    const session = await provider.open()
+    const outside = join(sandbox.base, 'secret.txt')
+    writeFileSync(outside, 'x')
+    await rejectsWithCode(() => provider.uploadFile(session, { filePath: outside }), 'BROWSER_READ_PATH_DENIED')
+    assert.deepEqual(host.log.filter(entry => entry.method.startsWith('DOM.')), [], 'admission precedes DOM work')
+  } finally {
+    sandbox.cleanup()
+  }
+})
+
+test('uploadFile admits a file inside readRoots and sends the resolved path', async () => {
+  const sandbox = makeSandbox()
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { readRoots: [sandbox.root] })
+    const session = await provider.open()
+    const file = join(sandbox.root, 'notes.txt')
+    writeFileSync(file, 'hi')
+    const result = await provider.uploadFile(session, { filePath: file })
+    assert.equal(result.path, file)
+    const set = host.log.find(entry => entry.method === 'DOM.setFileInputFiles')
+    assert.deepEqual(set.params.files, [resolve(file)])
   } finally {
     sandbox.cleanup()
   }
