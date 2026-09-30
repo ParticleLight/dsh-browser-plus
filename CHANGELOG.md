@@ -2,6 +2,7 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **补上两处零覆盖**:① `entry.ts` 的组合入口(外部 viewHost 优先 / 缺省自托管 / 销毁时只 dispose 自托管 host / 配置透传)此前没有任何测试;② 页面 chrome 的 patch 握手(epoch 与 revision 连续性判定)此前只有「标识符还在」的源码断言——现在把它抽成纯函数 `decideChromeMessage` 并真跑:丢包、乱序、重放、跨文档都要 resync 而不是部分应用。
 - **自愈不再在空白页上重放输入**:主机崩溃后重建的视图是 `about:blank`,而 `Input.*` 在空白文档上会「什么都不做但正常 resolve」,于是 `browser_click`/`browser_type` 会在页面上什么都没发生的情况下报成功。现在这类命令不再自动重放,而是抛 `BROWSER_HOST_RESTARTED` 并提示重开页面(读类命令仍照常自愈)。
 - **快照 `truncated` 语义修正**:此前用 `out.length >= cap` 判断,页面恰好有 cap 个可见候选时会误报截断;现在只有真的因达到上限而提前跳出才算截断。
 - **`browser_scroll` 描述与实现对齐**:实际是「约一屏(视口高度的 80%,最少 480px)」,描述原写「one viewport」。

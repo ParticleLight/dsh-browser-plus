@@ -312,3 +312,18 @@ test('an agent-driven click in the top-centre band is not swallowed by the toolb
   assert.equal(humanEvent.stopped, 1, 'still stops propagation for a human')
 })
 
+test('the patch handshake resyncs instead of applying a dropped or reordered patch', () => {
+  const script = buildPageChromeScript()
+  const marker = 'const decideChromeMessage'
+  const start = script.indexOf(marker)
+  assert.ok(start >= 0, 'chrome script defines the handshake decision')
+  const end = script.indexOf('\n', start)
+  const decide = new Function(`${script.slice(start, end)}\nreturn decideChromeMessage`)()
+
+  assert.equal(decide('bootstrap', 1, 1, 0, 0), 'bootstrap')
+  assert.equal(decide('patch', 1, 1, 1, 0), 'apply', 'a sequential patch applies')
+  assert.equal(decide('patch', 1, 3, 1, 0), 'resync', 'a revision gap means a dropped patch')
+  assert.equal(decide('patch', 2, 1, 1, 0), 'resync', 'an epoch change means the document reloaded')
+  assert.equal(decide('patch', 1, 1, 1, 1), 'resync', 'a replayed patch is not applied twice')
+  assert.equal(decide('trail', 1, 1, 1, 0), 'ignore', 'an unknown kind is ignored')
+})
