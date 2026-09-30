@@ -48,7 +48,7 @@ agent (browser_* 工具)
 - 变更型调用经过每任务 FIFO 操作通道;相同 in-flight snapshot/content/无落盘截图会合并，避免重复 CDP 与渲染工作;
 - `browser_tasks` 与 `browser_handoff` 暴露运行、等待用户、用户接管、失败和空闲状态;用户接管后新的变更型 Agent 调用会等待交还;
 - `browser_reset_session` 关闭本任务会话并遗忘映射(即使 close 抛错也清除,下次调用重建);
-- `browser_restrict` 维护模块级白名单,守卫所有非只读工具;
+- `browser_restrict` 维护**按调用任务隔离**的白名单(插件级 `allowedActions` 作为默认值,任务可为自己覆盖或解除),守卫所有非只读工具;一个任务的规则不会限制其它任务;
 - 输出 schema 与返回值严格一致(DSH 运行时会校验,`additionalProperties: false` 下多一个字段都会报错)。
 
 ## 自托管实现(纯 `dsh web`)

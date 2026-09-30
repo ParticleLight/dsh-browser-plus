@@ -35,6 +35,7 @@ dsh plugin --profile web add <本仓库路径>
 | `browser-electron` | `snapshotMaxElements` | 数字 | `60` | 快照最多收录的交互元素数 |
 | `browser-electron` | `contentMaxChars` | 数字 | `100000` | 内容抓取默认字符上限 |
 | `tool-browser` | `timeoutMs` | 数字 | `60000` | 工具协作超时(ms) |
+| `tool-browser` | `allowedActions` | 字符串数组 | 无 | 插件级初始动作白名单;每个任务可用 `browser_restrict` 为自己覆盖或解除 |
 | `tool-browser` | `tabTools` | 布尔 | `true` | 是否注册标签管理工具 |
 
 ## 快速上手(给 agent 的提示词示例)
@@ -95,7 +96,7 @@ dsh plugin --profile web add <本仓库路径>
 `browser_download` 在页面上下文内 `fetch`,受同源/CORS 约束;跨域文件请先在同源页面内操作,或直接请求用户提供。
 
 **Q:如何禁止 agent 乱点?**
-`browser_restrict` 设置白名单(如只允许 `browser_snapshot`/`browser_content`);传空列表解除。
+`browser_restrict` 设置白名单(如只允许 `browser_snapshot`/`browser_content`);传空列表解除。**规则按任务隔离**:一个任务设的白名单不会影响其它并行任务;`tool-browser.allowedActions` 配置作为所有任务的默认值。
 
 ## 故障排查
 

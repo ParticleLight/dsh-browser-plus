@@ -138,21 +138,34 @@ async function withTaskRead<T>(
 }
 
 /**
- * Action restriction state: an allow-list of browser tool names, or undefined
- * for unrestricted. When set, any browser_* tool not in the list is refused
- * (browser_restrict itself is always allowed so the guard can be lifted).
+ * Per-task action restriction. `browser_restrict` writes an entry keyed by the
+ * calling task, so one task's allow-list never restricts another task's tools.
+ * An entry holding an empty array means that task explicitly lifted the
+ * restriction — distinct from having no entry at all, which inherits the
+ * plugin-level default.
  */
-let restrictedTo: readonly string[] | undefined
+const restrictedToByTask = new Map<string, readonly string[]>()
+/** Plugin-level default from config; applies to tasks that set no rule of their own. */
+let defaultRestriction: readonly string[] | undefined
+
+/** The allow-list in force for one task, or undefined when unrestricted. */
+function restrictionFor(key: string): readonly string[] | undefined {
+  const explicit = restrictedToByTask.get(key)
+  if (explicit === undefined) return defaultRestriction
+  return explicit.length === 0 ? undefined : explicit
+}
 
 /**
- * Guard one browser tool call against the active restriction. Refuses calls
- * not on the allow-list when a restriction is in effect.
+ * Guard one browser tool call against the calling task's restriction. Refuses
+ * calls that are not on that task's allow-list when a restriction is in effect.
  * @param toolName - the browser tool about to run.
+ * @param exec - the tool-execution context; only its agent id (task key) is read.
  */
-function assertAllowed(toolName: string): void {
+function assertAllowed(toolName: string, exec: ToolExecution): void {
+  const restrictedTo = restrictionFor(taskKey(exec))
   if (restrictedTo === undefined) return
   if (restrictedTo.includes(toolName)) return
-  throw new Error(`browser action "${toolName}" is restricted (allow-list: ${restrictedTo.join(', ')})`)
+  throw new Error(`browser action "${toolName}" is restricted for this task (allow-list: ${restrictedTo.join(', ')})`)
 }
 
 /**
@@ -223,8 +236,10 @@ function formatSnapshot(snapshot: {
 /** Register all browser tools with `ctx.tools`. */
 export function apply(ctx: Context, config: Config = {}): void {
   const timeoutMs = config.timeoutMs ?? 60_000
-  // Re-apply resets the restriction: an omitted allowedActions lifts it.
-  restrictedTo = config.allowedActions !== undefined ? [...config.allowedActions] : undefined
+  // Re-apply clears task-scoped rules and re-seeds the plugin-level default;
+  // an omitted allowedActions lifts the default.
+  restrictedToByTask.clear()
+  defaultRestriction = config.allowedActions !== undefined ? [...config.allowedActions] : undefined
 
   ctx.systemPrompt.section({
     name: 'tool:browser',
@@ -284,7 +299,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => true,
     async execute(args, exec) {
-      assertAllowed('browser_open')
+      assertAllowed('browser_open', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const key = taskKey(exec)
@@ -319,7 +334,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(_args, exec) {
-      assertAllowed('browser_back')
+      assertAllowed('browser_back', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const navigated = await withTaskAction(browser, taskKey(exec), 'go back', exec, session => browser.back(session, exec.signal))
@@ -338,7 +353,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(_args, exec) {
-      assertAllowed('browser_forward')
+      assertAllowed('browser_forward', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const navigated = await withTaskAction(browser, taskKey(exec), 'go forward', exec, session => browser.forward(session, exec.signal))
@@ -357,7 +372,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(_args, exec) {
-      assertAllowed('browser_reload')
+      assertAllowed('browser_reload', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       await withTaskAction(browser, taskKey(exec), 'reload page', exec, session => browser.reload(session, exec.signal))
@@ -376,7 +391,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(_args, exec) {
-      assertAllowed('browser_stop')
+      assertAllowed('browser_stop', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       await withTaskAction(browser, taskKey(exec), 'stop loading', exec, session => browser.stopLoading(session, exec.signal))
@@ -419,7 +434,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => true,
     async execute(args, exec) {
-      assertAllowed('browser_space')
+      assertAllowed('browser_space', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const key = taskKey(exec)
@@ -596,7 +611,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_click_ref')
+      assertAllowed('browser_click_ref', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       await withTaskAction(browser, taskKey(exec), 'click referenced element', exec, session => browser.clickRef(session, { snapshotId: args.snapshotId, ref: args.ref }, exec.signal))
@@ -625,7 +640,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_scroll_into_view')
+      assertAllowed('browser_scroll_into_view', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const result = await withTaskAction(browser, taskKey(exec), 'scroll referenced element into view', exec, session => browser.scrollIntoView(session, {
@@ -699,7 +714,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false, // page JS can be stateful
     async execute(args, exec) {
-      assertAllowed('browser_execute')
+      assertAllowed('browser_execute', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const result = await withTaskAction(browser, taskKey(exec), 'execute page script', exec, session => browser.execute(session, {
@@ -766,7 +781,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_click')
+      assertAllowed('browser_click', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       await withTaskAction(browser, taskKey(exec), 'click page', exec, session => browser.click(session, { x: args.x, y: args.y }, exec.signal))
@@ -788,7 +803,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_double_click')
+      assertAllowed('browser_double_click', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       await withTaskAction(browser, taskKey(exec), 'double-click page', exec, session => browser.doubleClick(session, { x: args.x, y: args.y }, exec.signal))
@@ -810,7 +825,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_hover')
+      assertAllowed('browser_hover', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       await withTaskAction(browser, taskKey(exec), 'hover page', exec, session => browser.hover(session, { x: args.x, y: args.y }, exec.signal))
@@ -838,7 +853,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_scroll')
+      assertAllowed('browser_scroll', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const result = await withTaskAction(browser, taskKey(exec), 'scroll page', exec, session => browser.scroll(session, {
@@ -863,7 +878,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_upload_file')
+      assertAllowed('browser_upload_file', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const result = await withTaskAction(browser, taskKey(exec), 'attach file', exec, session => browser.uploadFile(session, {
@@ -898,7 +913,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => true,
     async execute(args, exec) {
-      assertAllowed('browser_wait_for')
+      assertAllowed('browser_wait_for', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const result = await withTaskAction(browser, taskKey(exec), 'wait for element', exec, session => browser.waitForElement(session, {
@@ -923,7 +938,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_type')
+      assertAllowed('browser_type', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       await withTaskAction(browser, taskKey(exec), 'type text', exec, session => browser.type(session, { text: args.text }, exec.signal))
@@ -945,7 +960,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_press_key')
+      assertAllowed('browser_press_key', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       await withTaskAction(browser, taskKey(exec), 'press key', exec, session => browser.pressKey(session, {
@@ -1016,7 +1031,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_fill')
+      assertAllowed('browser_fill', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const fields = (args.fields ?? []).map((f: { selector?: string; name?: string; label?: string; placeholder?: string; kind?: string; value?: string }) => ({
@@ -1132,7 +1147,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       timeoutMs,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
-        assertAllowed('browser_switch_tab')
+        assertAllowed('browser_switch_tab', exec)
         const browser = ctx.get('browser')
         if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
         await withTaskAction(browser, taskKey(exec), 'switch tab', exec, session => browser.switchTab(session, args.tabId))
@@ -1153,7 +1168,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       timeoutMs,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
-        assertAllowed('browser_close_tab')
+        assertAllowed('browser_close_tab', exec)
         const browser = ctx.get('browser')
         if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
         await withTaskAction(browser, taskKey(exec), 'close tab', exec, session => browser.closeTab(session, args.tabId))
@@ -1172,7 +1187,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       timeoutMs,
       isConcurrencySafe: () => true,
       async execute(_args, exec) {
-        assertAllowed('browser_reset')
+        assertAllowed('browser_reset', exec)
         const browser = ctx.get('browser')
         if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
         await withTaskAction(browser, taskKey(exec), 'reset tabs', exec, session => browser.reset(session))
@@ -1256,7 +1271,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_replay')
+      assertAllowed('browser_replay', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       await withTaskAction(browser, taskKey(exec), 'replay browser action', exec, session => browser.replay(session, args.seq))
@@ -1278,7 +1293,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_download')
+      assertAllowed('browser_download', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const result = await withTaskAction(browser, taskKey(exec), 'download file', exec, session => browser.download(session, { url: args.url, savePath: args.savePath }, exec.signal))
@@ -1339,7 +1354,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => true,
     async execute(_args, exec) {
-      assertAllowed('browser_reset_session')
+      assertAllowed('browser_reset_session', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const key = taskKey(exec)
@@ -1359,7 +1374,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'browser_restrict',
-    description: 'Restrict which browser actions are allowed, to prevent stray clicks/navigation. Pass a list of browser tool names (e.g. ["browser_snapshot","browser_content","browser_click"]) — any other browser_* call is refused. Pass an empty list or omit to lift the restriction. Read-only tools (snapshot/content/screenshot/session/history/list_tabs/challenge) are never blocked.',
+    description: 'Restrict which browser actions are allowed for THIS task, to prevent stray clicks/navigation. Pass a list of browser tool names (e.g. ["browser_snapshot","browser_content","browser_click"]) — any other browser_* call from this task is refused. The rule is scoped to the calling task; other tasks keep their own rules. Pass an empty list or omit to lift this task\'s restriction. Read-only tools (snapshot/content/screenshot/session/history/list_tabs/challenge) are never blocked.',
     parameters: {
       allowed: {
         type: 'array',
@@ -1380,9 +1395,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (unknown.length > 0) {
         throw new Error(`browser_restrict: unknown tool name(s) ${unknown.map(t => `"${t}"`).join(', ')} (must start with "browser_")`)
       }
-      // Empty list (or omitted) lifts the restriction; a non-empty list is the
-      // new allow-list.
-      restrictedTo = allowed.length === 0 ? undefined : [...allowed]
+      // Empty list (or omitted) lifts THIS task's restriction; a non-empty list
+      // becomes this task's allow-list. Either way the rule is task-scoped.
+      const key = taskKey(exec)
+      restrictedToByTask.set(key, allowed.length === 0 ? [] : [...allowed])
+      const restrictedTo = restrictionFor(key)
       return { restrictedTo: restrictedTo === undefined ? [] : [...restrictedTo] }
     },
   }))
@@ -1408,7 +1425,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      assertAllowed('browser_auth')
+      assertAllowed('browser_auth', exec)
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const session = await ensureSession(browser, taskKey(exec))

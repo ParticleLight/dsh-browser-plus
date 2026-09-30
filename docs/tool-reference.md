@@ -1,6 +1,6 @@
 # 工具参考
 
-全部 35 个 `browser_*` 工具。守卫列:✅ 表示该动作受 `browser_restrict` 白名单约束;只读工具永不拦截。
+全部 35 个 `browser_*` 工具。守卫列:✅ 表示该动作受 `browser_restrict` 白名单约束(白名单**按调用任务隔离**,一个任务的规则不影响其它任务);只读工具永不拦截。
 
 ## 页面与导航
 
@@ -59,7 +59,7 @@
 | 工具 | 参数 | 输出 | 守卫 | 说明 |
 | --- | --- | --- | --- | --- |
 | `browser_auth` | `action`(flush/restore,必填), `cookies?` | `{ cookies[]? / restored? }` | ✅ | 导出/恢复 cookie(自托管可用);flush 返回 cookie 列表,restore 带列表写回 |
-| `browser_restrict` | `allowed?` | `{ restrictedTo[] }` | – | 设置动作白名单;空列表解除;未知工具名报错 |
+| `browser_restrict` | `allowed?` | `{ restrictedTo[] }` | – | 设置**本任务**的动作白名单;空列表解除本任务的限制;未知工具名报错 |
 
 ## 截图
 

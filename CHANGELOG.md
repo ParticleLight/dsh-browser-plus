@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **`browser_restrict` 改为按任务隔离**:此前白名单是模块级全局状态,一个任务设置后会把**所有**并行任务的浏览器工具一起限制。现在规则按调用任务存储,插件级 `tool-browser.allowedActions` 作为默认值,单个任务可用空列表只为解除自己。
 - **页面可见轨迹脱敏**:注入页面的 `window.__dshChromeBootstrap.trail` 只保留展示所需字段——`type` 折叠为字符数、`execute` 丢弃脚本、URL 折叠为 origin、路径折叠为 basename。此前被访问页面可用一行 JS 读走同任务中早前站点输入的文本(含密码)与执行过的脚本。
 - **页面→宿主控制通道加每视图 token**:`__dshBrowserTaskAction` 的 payload 必须携带 `createView` 生成的随机 token。此前任意页面脚本可伪造 `set-control-owner=human` 冻结该任务的 Agent 自动化。残留风险:页面若在 chrome 注入前 hook `JSON.stringify` 仍可能窃取 token,彻底解法是 isolated world 注入(后续工作)。
 - **读操作纳入每任务 FIFO**:`snapshot`/`content`/`screenshot`/`list_tabs`/`history`/`session`/`space(list)` 现在会等待在飞写操作,修复并发 `browser_open` + `browser_snapshot` 读到导航前页面的竞态;同 readKey 的 in-flight 去重保留,`operationTails` 改为队列空闲即回收。
