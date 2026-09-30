@@ -304,6 +304,25 @@ test('pressKey types punctuation, including inside modifier combos', async () =>
   assert.equal(keys[2].params.text, '/')
 })
 
+test('an over-long script is clipped in history and cannot be replayed', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const long = 'x'.repeat(40_000)
+  host.evalReplies.push({ result: { value: 1 } })
+  await provider.execute(session, { script: `return 1 // ${long}` })
+  const entry = (await provider.history(session)).find(candidate => candidate.action === 'execute')
+  assert.equal(entry.params.scriptTruncated, true, 'marks the clip so replay can refuse')
+  assert.equal(String(entry.params.script).length, 32_768, 'stores a bounded script')
+  await assert.rejects(
+    () => provider.replay(session, entry.seq),
+    error => {
+      assert.equal(error.code, 'BROWSER_HISTORY_TRUNCATED')
+      return true
+    },
+  )
+})
+
 test('a timed-out operation carries a stable code', async () => {
   const host = new FakeHost()
   const provider = new ElectronBrowserProvider(host)

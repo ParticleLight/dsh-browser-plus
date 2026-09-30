@@ -236,6 +236,27 @@ function parseFillValue(v: string | undefined): string | number | boolean {
   return v ?? ''
 }
 
+/** Longest string kept in one history row handed to the model. */
+const HISTORY_OUTPUT_MAX_CHARS = 500
+
+/**
+ * A shallow, bounded copy of one entry's params. The previous deep clone
+ * (JSON.parse(JSON.stringify(...))) copied every stored script and typed text in
+ * full on every browser_history call, and the row is only ever rendered.
+ */
+function summarizeHistoryParams(params: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(params)) {
+    // Dropping undefined keeps the row lossless-JSON, which the deep clone used
+    // to guarantee.
+    if (value === undefined) continue
+    out[key] = typeof value === 'string' && value.length > HISTORY_OUTPUT_MAX_CHARS
+      ? `${value.slice(0, HISTORY_OUTPUT_MAX_CHARS)}…(${value.length - HISTORY_OUTPUT_MAX_CHARS} more)`
+      : value
+  }
+  return out
+}
+
 /** Format a snapshot element list for the model. */
 function formatSnapshot(snapshot: {
   snapshotId?: string
@@ -262,6 +283,12 @@ function formatSnapshot(snapshot: {
 /** Register all browser tools with `ctx.tools`. */
 export function apply(ctx: Context, config: Config = {}): void {
   const timeoutMs = config.timeoutMs ?? 60_000
+  /**
+   * A caller-supplied budget is capped below the tool's own deadline, so the
+   * provider reports a clean timeout instead of the runtime aborting the call.
+   */
+  const withinToolBudget = (requested: number | undefined, fallback: number): number =>
+    Math.min(requested ?? fallback, Math.max(timeoutMs - 5_000, 1_000))
   // Re-apply clears task-scoped rules and re-seeds the plugin-level default;
   // an omitted allowedActions lifts the default.
   restrictedToByTask.clear()
@@ -765,7 +792,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       format: { type: 'string', required: true, enum: ['html', 'markdown', 'txt', 'json'], description: 'Output format.' },
       selector: { type: 'string', description: 'CSS selector limiting the fetch to one region (e.g. #main).' },
       maxChars: { type: 'number', description: 'Maximum characters of returned content.' },
-      timeoutMs: { type: 'number', description: 'Evaluation timeout in ms (default 30000).' },
+      timeoutMs: { type: 'number', description: `Evaluation timeout in ms (default 30000), capped below this tool's ${String(timeoutMs)}ms budget.` },
     },
     output: {
       schema: {
@@ -784,12 +811,13 @@ export function apply(ctx: Context, config: Config = {}): void {
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const key = taskKey(exec)
-      const readKey = 'content:' + JSON.stringify({ format: args.format, selector: args.selector, maxChars: args.maxChars, timeoutMs: args.timeoutMs })
+      const budgetMs = withinToolBudget(args.timeoutMs, 30_000)
+      const readKey = 'content:' + JSON.stringify({ format: args.format, selector: args.selector, maxChars: args.maxChars, timeoutMs: budgetMs })
       const result = await withTaskRead(browser, key, readKey, session => browser.content(session, {
         format: args.format,
         ...args.selector !== undefined ? { selector: args.selector } : {},
         ...args.maxChars !== undefined ? { maxChars: args.maxChars } : {},
-        ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
+        timeoutMs: budgetMs,
       }, exec.signal))
       return { content: result.content, truncated: result.truncated }
     },
@@ -922,7 +950,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     description: 'Wait until an element matching a CSS selector appears (and is visible), polling every 250ms. Use before interacting with dynamically-loaded content (SPA views, toasts, menus).',
     parameters: {
       selector: { type: 'string', required: true, description: 'CSS selector to wait for.' },
-      timeoutMs: { type: 'number', description: 'Total budget in ms (default 15000).' },
+      timeoutMs: { type: 'number', description: `Total budget in ms (default 15000), capped below this tool's ${String(timeoutMs)}ms budget.` },
       visible: { type: 'boolean', description: 'Require visibility (>4x4 px, not display:none). Default true.' },
     },
     output: {
@@ -946,7 +974,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const result = await withTaskAction(browser, taskKey(exec), 'wait for element', exec, session => browser.waitForElement(session, {
         selector: args.selector,
-        ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
+        timeoutMs: withinToolBudget(args.timeoutMs, 15_000),
         ...args.visible !== undefined ? { visible: args.visible } : {},
       }, exec.signal))
       return { found: true, selector: result.selector, tag: result.tag, text: result.text }
@@ -1279,7 +1307,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           seq: e.seq,
           action: e.action,
           ok: e.ok,
-          params: JSON.parse(JSON.stringify(e.params)),
+          params: summarizeHistoryParams(e.params),
         }
         if (e.result !== undefined) row.result = e.result
         if (e.error !== undefined) row.error = e.error

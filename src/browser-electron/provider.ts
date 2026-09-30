@@ -389,6 +389,29 @@ const INPUT_DISPATCH_TIMEOUT_MS = 15_000
 const SNAPSHOT_RETRY_BUDGET_MS = 3_000
 
 /**
+ * Longest script or typed text kept in one history entry. Entries exist to be
+ * replayed, so an over-long value is stored clipped and marked: replay then
+ * refuses outright rather than re-issuing a silently shortened script.
+ */
+const HISTORY_PARAM_MAX_CHARS = 32_768
+
+/** Clip the replay payloads that would otherwise pin unbounded text in memory. */
+function clampHistoryParams(params: Record<string, unknown>): Record<string, unknown> {
+  const tooLong = (value: unknown): value is string => typeof value === 'string' && value.length > HISTORY_PARAM_MAX_CHARS
+  if (!tooLong(params.script) && !tooLong(params.text)) return params
+  const clipped: Record<string, unknown> = { ...params }
+  if (tooLong(params.script)) {
+    clipped.script = params.script.slice(0, HISTORY_PARAM_MAX_CHARS)
+    clipped.scriptTruncated = true
+  }
+  if (tooLong(params.text)) {
+    clipped.text = params.text.slice(0, HISTORY_PARAM_MAX_CHARS)
+    clipped.textTruncated = true
+  }
+  return clipped
+}
+
+/**
  * Browser provider over Electron views. Sessions hold an ordered list of
  * tabs; each tab is one view created by the host. The active tab receives
  * every operation; switching tabs calls the host's optional `showView` and
@@ -1604,7 +1627,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const entry: BrowserHistoryEntry = {
       seq: s.nextSeq++,
       action,
-      params,
+      params: clampHistoryParams(params),
       ok,
       ...detail?.result !== undefined ? { result: detail.result } : {},
       ...detail?.error !== undefined ? { error: detail.error } : {},
@@ -1664,6 +1687,9 @@ export class ElectronBrowserProvider implements BrowserProvider {
       case 'type': {
         const text = entry.params.text
         if (typeof text !== 'string') throw new BrowserError(`browser: history seq ${seq} type has no text`, 'BROWSER_HISTORY_INVALID')
+        if (entry.params.textTruncated === true) {
+          throw new BrowserError(`browser: history seq ${seq} text was too long to keep in full; replay is not possible`, 'BROWSER_HISTORY_TRUNCATED')
+        }
         await this.type(session, { text })
         this.record(s, 'replay', { seq, of: entry.action, text }, true)
         return
@@ -1671,6 +1697,9 @@ export class ElectronBrowserProvider implements BrowserProvider {
       case 'execute': {
         const script = entry.params.script
         if (typeof script !== 'string') throw new BrowserError(`browser: history seq ${seq} execute has no script`, 'BROWSER_HISTORY_INVALID')
+        if (entry.params.scriptTruncated === true) {
+          throw new BrowserError(`browser: history seq ${seq} script was too long to keep in full; replay is not possible`, 'BROWSER_HISTORY_TRUNCATED')
+        }
         const recordedArgs = entry.params.args
         const args = Array.isArray(recordedArgs) ? recordedArgs.filter((a): a is string => typeof a === 'string') : undefined
         const result = await this.execute(session, { script, ...args !== undefined && args.length > 0 ? { args } : {} })

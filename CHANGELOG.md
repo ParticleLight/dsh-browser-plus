@@ -2,6 +2,9 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **每次调用的 `timeoutMs` 被夹在工具预算之下**:`browser_wait_for`/`browser_content` 此前把调用方给的值原样下传,所以 `timeoutMs: 90000` 实际会在 60s 被运行时掐断,模型只会收到一条笼统的 tool timeout。现在夹到「预算 − 5s」,并在参数描述里写明上限,让 provider 先给出干净的 `BROWSER_OPERATION_TIMEOUT`。
+- **历史记录不再全量深拷贝**:`browser_history` 此前对每条 entry 做 `JSON.parse(JSON.stringify(params))`,把完整脚本与输入文本逐条复制一遍;现在只做浅拷贝并对超长字符串截断(附剩余字数),同时保持 lossless JSON。
+- **单条历史有存储上限**:`execute` 的脚本与 `type` 的文本超过 32KiB 时会被截断并打标;`browser_replay` 遇到被截断的条目会明确拒绝(`BROWSER_HISTORY_TRUNCATED`),而不是重放一个被悄悄剪短的脚本。
 - **补上两处零覆盖**:① `entry.ts` 的组合入口(外部 viewHost 优先 / 缺省自托管 / 销毁时只 dispose 自托管 host / 配置透传)此前没有任何测试;② 页面 chrome 的 patch 握手(epoch 与 revision 连续性判定)此前只有「标识符还在」的源码断言——现在把它抽成纯函数 `decideChromeMessage` 并真跑:丢包、乱序、重放、跨文档都要 resync 而不是部分应用。
 - **自愈不再在空白页上重放输入**:主机崩溃后重建的视图是 `about:blank`,而 `Input.*` 在空白文档上会「什么都不做但正常 resolve」,于是 `browser_click`/`browser_type` 会在页面上什么都没发生的情况下报成功。现在这类命令不再自动重放,而是抛 `BROWSER_HOST_RESTARTED` 并提示重开页面(读类命令仍照常自愈)。
 - **快照 `truncated` 语义修正**:此前用 `out.length >= cap` 判断,页面恰好有 cap 个可见候选时会误报截断;现在只有真的因达到上限而提前跳出才算截断。
