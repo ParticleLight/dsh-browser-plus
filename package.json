@@ -44,7 +44,9 @@
   "scripts": {
     "build": "npm run build:icons && tsc -p tsconfig.json",
     "build:icons": "node scripts/build-icons.mjs",
+    "pretest": "tsc -p tsconfig.json",
     "test": "node --test test/*.test.mjs",
+    "test:only": "node --test test/*.test.mjs",
     "smoke:electron-host": "node scripts/smoke-electron-host.mjs",
     "prepack": "npm run build"
   },

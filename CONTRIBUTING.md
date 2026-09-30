@@ -7,7 +7,8 @@
 ```sh
 npm install
 npm run build
-node --test test/host-composition.test.mjs test/page-chrome.test.mjs test/provider-actions.test.mjs
+npm test          # 先自动 tsc(pretest),再跑 test/*.test.mjs
+npm run test:only # 跳过构建,仅跑测试(要求 lib/ 已是最新)
 ```
 
 ## 约定
@@ -18,6 +19,7 @@ node --test test/host-composition.test.mjs test/page-chrome.test.mjs test/provid
   2. 页面 chrome 留在页面内(closed Shadow DOM);不得变成第二个 WebContentsView。
   3. Electron 锁 42.9.3(43.4.1 组合器故障);升级需 5/5 导航浸泡测试。
   4. 快照/填充/内容脚本必须过滤 `closest('[data-dsh-browser-chrome]')`。
+- 测试从 `lib/` 导入构建产物,因此 `npm test` 由 `pretest` 前置 `tsc`;**手工 `node --test` 前必须先 `npm run build`**,否则测的是旧 `lib/`。
 - 提交信息风格:`feat/fix|test(scoped): ...`,每个任务独立提交。
 
 ## 运行时验证
