@@ -262,3 +262,53 @@ test('close, toggle, and bookmark-open behaviors sync workspace state after clas
   assert.match(panelOpen, /taskPanel\.classList\.remove\('open'\)/, 'bookmark open removes task class')
   assert.match(panelOpen, /syncWorkspacePanels\(\)/, 'bookmark open syncs the removed workspace state')
 })
+
+/**
+ * The page-level toolbar trigger, evaluated from the shipped script with its
+ * collaborators injected, so the guard under test is the code that really runs.
+ */
+function loadToolbarTrigger(script) {
+  const start = script.indexOf('    const triggerToolbarFromPage = event => {')
+  assert.ok(start >= 0, 'chrome script defines triggerToolbarFromPage')
+  const end = script.indexOf('\n    }', start)
+  assert.ok(end > start, 'triggerToolbarFromPage ends at four-space indentation')
+  const source = script.slice(start, end + 6)
+  const state = { suppressed: false, opened: 0 }
+  const bar = { classList: { contains: () => false } }
+  const trigger = new Function(
+    'bar', 'isToolbarTriggerPosition', 'openToolbar', 'agentInputSuppressed',
+    `${source}\nreturn triggerToolbarFromPage`,
+  )(bar, () => true, () => { state.opened += 1 }, () => state.suppressed)
+  return { trigger, state }
+}
+
+test('an agent-driven click in the top-centre band is not swallowed by the toolbar', () => {
+  const { trigger, state } = loadToolbarTrigger(buildPageChromeScript())
+  const makeEvent = () => ({
+    isTrusted: true,
+    button: 0,
+    clientY: 10,
+    clientX: 100,
+    prevented: 0,
+    stopped: 0,
+    preventDefault() { this.prevented += 1 },
+    stopImmediatePropagation() { this.stopped += 1 },
+  })
+
+  // While CDP input is in flight the chrome must let the event through.
+  state.suppressed = true
+  const agentEvent = makeEvent()
+  trigger(agentEvent)
+  assert.equal(state.opened, 0, 'does not open the toolbar for agent input')
+  assert.equal(agentEvent.prevented, 0, 'does not preventDefault for agent input')
+  assert.equal(agentEvent.stopped, 0, 'does not stop propagation for agent input')
+
+  // A human click at the same coordinates keeps the original behaviour.
+  state.suppressed = false
+  const humanEvent = makeEvent()
+  trigger(humanEvent)
+  assert.equal(state.opened, 1, 'still opens the toolbar for a human click')
+  assert.equal(humanEvent.prevented, 1, 'still suppresses the page click for a human')
+  assert.equal(humanEvent.stopped, 1, 'still stops propagation for a human')
+})
+
