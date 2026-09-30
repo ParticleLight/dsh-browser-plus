@@ -2,6 +2,9 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **工具栏不再吞掉代理点击**:注入 chrome 的顶部中央 280×56 感应区在捕获阶段 `preventDefault` + `stopImmediatePropagation`,且从不检查 Agent 输入抑制窗口,导致落在该带的 CDP 点击到不了页面、`browser_click` 却报成功;抽屉打开后无自动关闭,死区还会扩大到约 940×42。现在感应与触发都会在 Agent 输入期间让路。
+- **缩略图失败不再 5Hz 重试**:抓取失败(空图/编码失败/抛错)时 dirty 标记未清除,`finally` 每 200ms 重排一次,任务面板打开期间会以 5 次/秒无限抓屏。失败路径现在清除标记,只在有新动作时才重试。
+- **下载上限改为流式判定**:此前先 `arrayBuffer()` 读完整包再比 64MiB,超大响应会先撑爆渲染进程,上限形同虚设;现在先看 `content-length`,再边读边累计并在超限时 `cancel()` 流,同时给页内 fetch 加了超时。
 - **`browser_upload_file` 加读白名单**:此前只有写有白名单,上传可把任意本地文件交给页面(绕过 DSH 文件策略)。现在 `filePath` 必须存在且落在 `browser-electron.readRoots`(默认同 `writeRoots`)之内,校验在触碰 DOM 之前完成,越界抛 `BROWSER_READ_PATH_DENIED`。
 - **任务摘要不再下发缩略图**:`window.__dshTasks` 走页面主世界,此前携带可见任务的 288px JPEG,任意页面可据此读走其他任务的屏幕内容。摘要只保留 `thumbnailVersion`,图片仅经定向的 `task.thumbnail` 补丁下发。写盘拒绝消息也不再回显允许根路径。
 - **`browser_restrict` 改为按任务隔离**:此前白名单是模块级全局状态,一个任务设置后会把**所有**并行任务的浏览器工具一起限制。现在规则按调用任务存储,插件级 `tool-browser.allowedActions` 作为默认值,单个任务可用空列表只为解除自己。

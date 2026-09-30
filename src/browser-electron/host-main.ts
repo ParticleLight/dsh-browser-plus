@@ -50,6 +50,9 @@ const CDP_VERSION = '1.3'
  */
 const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024
 
+/** Bound the in-page fetch independently of the parent's RPC transfer budget. */
+const DOWNLOAD_FETCH_TIMEOUT_MS = 60_000
+
 /** One task-scoped page view in the shared browser window. */
 interface HostView {
   readonly webContentsView: WebContentsView
@@ -433,6 +436,7 @@ async function refreshVisibleTaskThumbnail(taskKey: string): Promise<void> {
   const entry = viewId === undefined ? undefined : views.get(viewId)
   if (entry === undefined) return
   thumbnailCaptureInFlight = true
+  let produced = false
   try {
     const image = await entry.webContentsView.webContents.capturePage()
     if (taskKey !== visibleTaskKey || activeViewByTask.get(taskKey) !== viewId || !workspacePanels.tasks) return
@@ -445,6 +449,7 @@ async function refreshVisibleTaskThumbnail(taskKey: string): Promise<void> {
     taskThumbnails.set(taskKey, thumbnail)
     const version = (taskThumbnailVersions.get(taskKey) ?? 0) + 1
     taskThumbnailVersions.set(taskKey, version)
+    produced = true
     while (taskThumbnails.size > 32) {
       const oldest = [...taskThumbnails.keys()].find(key => key !== visibleTaskKey)
       if (oldest === undefined) break
@@ -459,8 +464,15 @@ async function refreshVisibleTaskThumbnail(taskKey: string): Promise<void> {
     // Thumbnails are cosmetic; capture or JPEG encoding failures are ignored.
   } finally {
     thumbnailCaptureInFlight = false
-    if (thumbnailDirty.has(taskKey) && taskKey === visibleTaskKey && workspacePanels.tasks) {
-      scheduleVisibleTaskThumbnail(taskKey, 200)
+    if (produced) {
+      if (thumbnailDirty.has(taskKey) && taskKey === visibleTaskKey && workspacePanels.tasks) {
+        scheduleVisibleTaskThumbnail(taskKey, 200)
+      }
+    } else {
+      // A capture that produced nothing (or threw) must not re-arm the retry:
+      // leaving the dirty flag set re-captured a window that cannot paint at
+      // 5Hz for as long as the task panel stayed open.
+      thumbnailDirty.delete(taskKey)
     }
   }
 }
@@ -865,12 +877,32 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // avoids Electron's download pipeline entirely (CDP debugger attach
         // can interfere with will-download).
         const result = await entry.webContentsView.webContents.debugger.sendCommand('Runtime.evaluate', {
+          // The cap is enforced while streaming: reading the whole body first
+          // let an oversized response exhaust the renderer before it was
+          // rejected, which made the limit decorative.
           expression: `(async () => {
-            const r = await fetch(${JSON.stringify(url)}, { credentials: 'include' })
+            const limit = ${String(MAX_DOWNLOAD_BYTES)}
+            const r = await fetch(${JSON.stringify(url)}, { credentials: 'include', signal: AbortSignal.timeout(${String(DOWNLOAD_FETCH_TIMEOUT_MS)}) })
             if (!r.ok) throw new Error('HTTP ' + r.status)
-            const b = await r.arrayBuffer()
-            const bytes = new Uint8Array(b)
-            if (bytes.length > ${String(MAX_DOWNLOAD_BYTES)}) throw new Error('download too large (limit ' + ${String(MAX_DOWNLOAD_BYTES)} + ' bytes, got ' + bytes.length + ')')
+            const declared = Number(r.headers.get('content-length'))
+            if (Number.isFinite(declared) && declared > limit) throw new Error('download too large (limit ' + limit + ' bytes, declared ' + declared + ')')
+            if (!r.body) throw new Error('download has no readable body')
+            const reader = r.body.getReader()
+            const chunks = []
+            let total = 0
+            for (;;) {
+              const step = await reader.read()
+              if (step.done) break
+              total += step.value.length
+              if (total > limit) {
+                try { await reader.cancel() } catch (ignored) { /* already gone */ }
+                throw new Error('download too large (limit ' + limit + ' bytes)')
+              }
+              chunks.push(step.value)
+            }
+            const bytes = new Uint8Array(total)
+            let offset = 0
+            for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
             let bin = ''
             for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
             return btoa(bin)

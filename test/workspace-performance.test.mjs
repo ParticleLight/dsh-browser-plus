@@ -55,3 +55,30 @@ test('page chrome applies patches without rebuilding all task and trail state', 
   assert.match(source, /stopChromeTimers/)
   assert.match(source, /startChromeTimers/)
 })
+
+test('a failed thumbnail capture does not re-arm the retry loop', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  const start = source.indexOf('async function refreshVisibleTaskThumbnail')
+  const end = source.indexOf('/** Select a task', start)
+  assert.ok(start >= 0 && end > start, 'thumbnail refresh exists')
+  const block = source.slice(start, end)
+  assert.match(block, /let produced = false/, 'tracks whether a capture produced an image')
+  assert.match(block, /produced = true/, 'marks the success path')
+  const branch = block.indexOf('if (produced) {')
+  const clear = block.indexOf('thumbnailDirty.delete(taskKey)', branch)
+  assert.ok(branch >= 0 && clear > branch, 'the failure path clears dirty so a broken window is not re-captured at 5Hz')
+})
+
+test('download enforces its cap while streaming rather than after buffering', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  const start = source.indexOf("case 'download':")
+  const end = source.indexOf("case 'flushAuth':", start)
+  assert.ok(start >= 0 && end > start, 'download op exists')
+  const block = source.slice(start, end)
+  assert.doesNotMatch(block, /arrayBuffer\(\)/, 'never buffers the whole body before checking the size')
+  assert.match(block, /getReader\(\)/, 'reads the body as a stream')
+  assert.match(block, /content-length/, 'rejects a declared oversize body before reading it')
+  assert.match(block, /reader\.cancel\(\)/, 'cancels the stream once the cap is exceeded')
+  assert.match(block, /AbortSignal\.timeout/, 'bounds the in-page fetch')
+})
+
