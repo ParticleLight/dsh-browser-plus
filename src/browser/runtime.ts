@@ -26,6 +26,8 @@ import type {
   BrowserOpenOptions,
   BrowserOpenRequest,
   BrowserPressKeyRequest,
+  BrowserClearAuthRequest,
+  BrowserClearAuthResult,
   BrowserProvider,
   BrowserRefRequest,
   BrowserScreenshotRequest,
@@ -73,6 +75,8 @@ export type {
   BrowserOpenOptions,
   BrowserOpenRequest,
   BrowserPressKeyRequest,
+  BrowserClearAuthRequest,
+  BrowserClearAuthResult,
   BrowserProvider,
   BrowserRefRequest,
   BrowserScreenshotRequest,
@@ -342,6 +346,11 @@ export class BrowserRuntime extends Service {
   /** Import cookies into the session through the provider. */
   async restoreAuth(session: BrowserSessionId, cookies: readonly ExportedCookie[]): Promise<number> {
     return this.resolveProvider().restoreAuth(session, cookies)
+  }
+
+  /** Remove cookies for one site scope through the provider. */
+  async clearAuth(session: BrowserSessionId, request: BrowserClearAuthRequest): Promise<BrowserClearAuthResult> {
+    return this.resolveProvider().clearAuth(session, request)
   }
 
   /** Set the session's browser task label through the selected provider. */

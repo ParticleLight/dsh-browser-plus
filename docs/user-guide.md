@@ -78,6 +78,8 @@ dsh plugin --profile web add <本仓库路径>
 
 登录态(cookie)为所有任务共享;可用 `browser_auth` 导出/恢复,重启后不丢。
 
+某些站点(带 WAF 挑战的站点)会用**轮换名称**续期挑战 Cookie,旧代不会自动消失;两代共存时站点可能直接返回 400/412。遇到这种情况用 `browser_auth action="clear" domain="example.com"`(可再加 `name` 只删一个)清掉旧代,不必清空整个 profile;清除只影响该域及其子域,其他站点登录态保留。
+
 ## FAQ
 
 **Q:纯 `dsh web` 能用吗?**

@@ -201,6 +201,20 @@ export interface ExportedCookie {
     readonly httpOnly?: boolean;
     readonly expirationDate?: number;
 }
+/** Which cookies a clear request removes: a domain scope, one name, or an explicit wipe. */
+export interface BrowserClearAuthRequest {
+    /** Domain scope; matches that domain and every subdomain. */
+    readonly domain?: string;
+    /** Exact cookie name to remove within the scope. */
+    readonly name?: string;
+    /** Remove every addressable cookie; requires this explicit opt-in. */
+    readonly all?: boolean;
+}
+/** Outcome of a cookie clear: how many went and which names. */
+export interface BrowserClearAuthResult {
+    readonly removed: number;
+    readonly names: readonly string[];
+}
 /**
  * Execute arbitrary JavaScript in the session's page context. This is the
  * primary interaction path — DOM-referenced, not screen-coordinate-based:
@@ -441,6 +455,8 @@ export interface BrowserProvider {
     flushAuth(session: BrowserSessionId): Promise<readonly ExportedCookie[]>;
     /** Import cookies into the session (restore login state); returns the number of cookies restored. */
     restoreAuth(session: BrowserSessionId, cookies: readonly ExportedCookie[]): Promise<number>;
+    /** Remove cookies for a site scope; returns how many went and their names. */
+    clearAuth(session: BrowserSessionId, request: BrowserClearAuthRequest): Promise<BrowserClearAuthResult>;
     /** Return the session's chronological operation log. */
     history(session: BrowserSessionId): Promise<readonly BrowserHistoryEntry[]>;
     /** Replay one recorded operation by sequence number. */
@@ -466,8 +482,8 @@ export interface BrowserHistoryEntry {
     readonly seq: number;
     /** The operation name. Replayable: navigate | execute | click | type |
      *  pressKey. Also recorded but not replayable: fill | download |
-     *  flushAuth | restoreAuth | setSpace | doubleClick | hover | uploadFile |
-     *  waitForElement. */
+     *  flushAuth | restoreAuth | clearAuth | setSpace | doubleClick | hover |
+     *  uploadFile | waitForElement. */
     readonly action: string;
     /** The operation's arguments. */
     readonly params: Record<string, unknown>;

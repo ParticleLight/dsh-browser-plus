@@ -94,6 +94,15 @@ declare class RemoteView implements ElectronViewHandle {
     flushAuth(): Promise<ExportedCookie[]>;
     /** Import cookies into the session (restore login state). */
     restoreAuth(cookies: ExportedCookie[]): Promise<number>;
+    /** Remove cookies matching a site scope (stale challenge generations, logout). */
+    clearCookies(filter: {
+        domain?: string;
+        name?: string;
+        all?: boolean;
+    }): Promise<{
+        removed: number;
+        names: string[];
+    }>;
     /** Read (and clear) the most recent auto-accepted JS dialog for the view. */
     clearDialog(): Promise<unknown>;
     /** Set this view's browser-task label; selected task controls the shared title. */
@@ -183,6 +192,14 @@ export declare class DeferredRemoteView implements ElectronViewHandle {
     }>;
     flushAuth(): Promise<ExportedCookie[]>;
     restoreAuth(cookies: ExportedCookie[]): Promise<number>;
+    clearCookies(filter: {
+        domain?: string;
+        name?: string;
+        all?: boolean;
+    }): Promise<{
+        removed: number;
+        names: string[];
+    }>;
     clearDialog(): Promise<unknown>;
     label(label: string): Promise<void>;
 }

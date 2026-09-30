@@ -444,6 +444,16 @@ class RemoteView implements ElectronViewHandle {
     return this.client.call<{ restored: number }>('restoreAuth', { viewId: this.id, cookies }, RPC_COMMAND_TIMEOUT_MS).then(r => r.restored)
   }
 
+  /** Remove cookies matching a site scope (stale challenge generations, logout). */
+  clearCookies(filter: { domain?: string; name?: string; all?: boolean }): Promise<{ removed: number; names: string[] }> {
+    return this.client.call<{ removed: number; names: string[] }>('clearCookies', {
+      viewId: this.id,
+      ...filter.domain !== undefined ? { domain: filter.domain } : {},
+      ...filter.name !== undefined ? { name: filter.name } : {},
+      ...filter.all === true ? { all: true } : {},
+    }, RPC_COMMAND_TIMEOUT_MS)
+  }
+
   /** Read (and clear) the most recent auto-accepted JS dialog for the view. */
   async clearDialog(): Promise<unknown> {
     // client.call resolves the host's reply result directly (no wrapper), so
@@ -756,6 +766,10 @@ export class DeferredRemoteView implements ElectronViewHandle {
 
   async restoreAuth(cookies: ExportedCookie[]): Promise<number> {
     return this.withView(view => view.restoreAuth(cookies))
+  }
+
+  async clearCookies(filter: { domain?: string; name?: string; all?: boolean }): Promise<{ removed: number; names: string[] }> {
+    return this.withView(view => view.clearCookies(filter))
   }
 
   async clearDialog(): Promise<unknown> {

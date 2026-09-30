@@ -70,7 +70,7 @@ RemoteElectronViewHost  ──TCP JSON-RPC──▶  host-main.js
 - **任务状态传递**:页面首次挂载、导航重装 chrome 或任务切换时接收完整 bootstrap；常规状态、任务卡、面板和轨迹变化使用带 epoch/revision 的增量 patch。摘要中的 URL 只保留 origin，避免泄露完整路径与查询参数；
 - **任务缩略图**:缩略图使用原生 `capturePage` 生成 JPEG data URL，最长边限制为 288px、质量 58、上限 180 KiB。仅在任务面板打开时为可见任务按需捕获，单飞、最短 2 秒间隔、32 项缓存；后台任务保留最后成功图像。
 - **孤儿防护**:父进程断开时子进程自动退出,不留僵尸窗口;
-- **cookie 落盘**:子进程使用独立 userData 目录(`<DSH_HOME>/dsh-browser-plus-host`),登录态跨重启保留(另有 `browser_auth` 手动导出/恢复)。
+- **cookie 落盘**:子进程使用独立 userData 目录(`<DSH_HOME>/dsh-browser-plus-host`),登录态跨重启保留(另有 `browser_auth` 手动导出/恢复/按域清理)。
 
 ## 关键设计决策
 

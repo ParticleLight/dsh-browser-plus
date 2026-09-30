@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser-plus/browser-electron
  */
-import type { BrowserChallenge, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -85,6 +85,18 @@ export interface ElectronViewHandle {
      * @returns the dialog detail ({ type, message, prompt? }) or null.
      */
     clearDialog?(): Promise<unknown>;
+    /**
+     * Remove cookies matching a domain/name filter. Optional: hosts without a
+     * deletable cookie store omit it.
+     */
+    clearCookies?(filter: {
+        readonly domain?: string;
+        readonly name?: string;
+        readonly all?: boolean;
+    }): Promise<{
+        readonly removed: number;
+        readonly names: readonly string[];
+    }>;
     /** Set this view's browser task label; it titles the shared window only when selected. Optional. */
     label?(label: string): Promise<void>;
 }
@@ -275,6 +287,12 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
      * Self-hosted only; the desktop shell's embedded views use the real profile.
      */
     flushAuth(session: BrowserSessionId): Promise<readonly ExportedCookie[]>;
+    /**
+     * Remove cookies for one site scope. Challenge cookies that rotate their names
+     * (WAF challenges) otherwise pile up generation after generation, and two live
+     * generations in one request can be rejected by the site. Self-hosted only.
+     */
+    clearAuth(session: BrowserSessionId, request: BrowserClearAuthRequest): Promise<BrowserClearAuthResult>;
     /** Import cookies into the session (restore login state). Self-hosted only. */
     restoreAuth(session: BrowserSessionId, cookies: readonly ExportedCookie[]): Promise<number>;
     /** Capture the current page, optionally full-page. PNG only (CDP JPEG hangs on Electron 43). */

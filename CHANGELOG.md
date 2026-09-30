@@ -12,10 +12,12 @@
 - **下载内存**:子进程下载上限 256MiB → 64MiB,父进程 RPC 缓冲 512MiB → 128MiB(按 base64 推导保留 1.5× 余量)。
 - **`browser_upload_file`**:补 30s 超时与 Agent 输入抑制标记,与其它输入工具一致。
 - **`internals`**:标注 `@internal`;因 `lib/tool-browser/index.d.ts` 仍会导出,未真正移出公共 API 面(后续)。
-
 - **写入路径白名单**:`browser_screenshot` 与 `browser_download` 只能写入 `browser-electron.writeRoots`(默认工作目录 + 系统临时目录)之内的路径;越界抛出 `BROWSER_WRITE_PATH_DENIED` 且不落盘。路径解析会处理最深已存在祖先的真实路径,防 `..` 与符号链接逃逸。
 - **下载共用导航准入**:`browser_download` 与 `browser_navigate` 走同一套 URL 准入(仅 HTTP(S),拒绝 URL 内嵌凭据),不再绕过 `httpOnly`。
 - **测试可信度**:`npm test` 现在先执行 `tsc`(`pretest`),不再对可能过期的构建产物 `lib/` 做假绿测试;快速迭代可用 `npm run test:only`。
+## v0.4.2 (2026-09-17)
+
+- **按站点清理 Cookie**: `browser_auth action="clear"` 支持按 `domain`(含子域)与/或 `name` 精确删除 Cookie;未限定范围时必须显式 `all: true`,避免误清全部登录态。用于清理 WAF 轮换名称留下的旧代挑战 Cookie。
 
 ## v0.4.1 (2026-08-26)
 

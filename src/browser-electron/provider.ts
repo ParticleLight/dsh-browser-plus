@@ -11,6 +11,8 @@ import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import type {
   BrowserChallenge,
+  BrowserClearAuthRequest,
+  BrowserClearAuthResult,
   BrowserContentRequest,
   BrowserContentResult,
   BrowserControlOwner,
@@ -156,6 +158,11 @@ export interface ElectronViewHandle {
    * @returns the dialog detail ({ type, message, prompt? }) or null.
    */
   clearDialog?(): Promise<unknown>
+  /**
+   * Remove cookies matching a domain/name filter. Optional: hosts without a
+   * deletable cookie store omit it.
+   */
+  clearCookies?(filter: { readonly domain?: string; readonly name?: string; readonly all?: boolean }): Promise<{ readonly removed: number; readonly names: readonly string[] }>
   /** Set this view's browser task label; it titles the shared window only when selected. Optional. */
   label?(label: string): Promise<void>
 }
@@ -1232,6 +1239,33 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const cookies = await withTimeout(host.flushAuth(), timeoutMs, undefined, `browser: auth export timed out after ${timeoutMs}ms`)
     this.record(s, 'flushAuth', {}, true, { result: `${cookies.length} cookies` })
     return cookies
+  }
+
+  /**
+   * Remove cookies for one site scope. Challenge cookies that rotate their names
+   * (WAF challenges) otherwise pile up generation after generation, and two live
+   * generations in one request can be rejected by the site. Self-hosted only.
+   */
+  async clearAuth(session: BrowserSessionId, request: BrowserClearAuthRequest): Promise<BrowserClearAuthResult> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    const clearable = handle as { clearCookies?(filter: BrowserClearAuthRequest): Promise<{ removed: number; names: readonly string[] }> }
+    if (typeof clearable.clearCookies !== 'function') {
+      throw new BrowserError('browser: cookie clearing is only available on the self-hosted browser', 'BROWSER_AUTH_UNSUPPORTED')
+    }
+    const timeoutMs = 30_000
+    const result = await withTimeout(
+      clearable.clearCookies(request),
+      timeoutMs,
+      undefined,
+      'browser: cookie clear timed out after ' + String(timeoutMs) + 'ms',
+    )
+    this.record(s, 'clearAuth', {
+      ...request.domain !== undefined ? { domain: request.domain } : {},
+      ...request.name !== undefined ? { name: request.name } : {},
+      ...request.all === true ? { all: true } : {},
+    }, true, { result: String(result.removed) + ' cookies' })
+    return { removed: result.removed, names: [...result.names] }
   }
 
   /** Import cookies into the session (restore login state). Self-hosted only. */
