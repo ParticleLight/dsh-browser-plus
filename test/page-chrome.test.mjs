@@ -179,14 +179,49 @@ test('thumbnail trust gate accepts only host JPEG payloads', () => {
   assert.ok(!script.includes("startsWith('data:image/')"))
 })
 
-test('glass workspace uses frosted materials and responsive dual panels', () => {
+test('secondary menus use the Chrome menu surface, not frosted glass', () => {
   const script = buildPageChromeScript()
-  assert.match(script, /backdrop-filter:blur\(24px\)/)
-  assert.match(script, /backdrop-filter:blur\(30px\)/)
-  assert.match(script, /-apple-system/)
-  assert.match(script, /glass-panel/)
-  assert.match(script, /@media \(max-width:760px\)/)
-  assert.match(script, /height:min\(42vh,320px\)/)
+  // The old look was a translucent blurred card; Chrome's menus are opaque with
+  // an 8px radius, a hairline border and 34px rows.
+  // The CSS ships inside a JSON string (escaped newlines), and the media query
+  // also starts with the same selector list, so match on the shared rule's body.
+  const surface = script.match(/#panel, \.glass-panel, #mainMenu \{[^}]*background:#292a2d[^}]*\}/)?.[0] ?? ''
+  assert.match(surface, /background:#292a2d/, 'opaque Chrome menu surface')
+  assert.match(surface, /border-radius:8px/)
+  assert.match(surface, /border:1px solid #3c4043/)
+  assert.doesNotMatch(surface, /backdrop-filter:blur/, 'no frosted glass on a menu')
+  assert.doesNotMatch(script, /backdrop-filter:blur\(24px\)/, 'the old bookmarks blur is gone')
+  assert.doesNotMatch(script, /backdrop-filter:blur\(30px\)/, 'the old panel blur is gone')
+  const row = script.match(/\.menu-item \{[^}]+\}/)?.[0] ?? ''
+  assert.match(row, /height:34px/, 'Chrome menu rows are 34px')
+  assert.match(row, /border-radius:4px/)
+  assert.match(script, /\.menu-sep \{/)
+  assert.match(script, /@media \(max-width:760px\) \{ #panel, \.glass-panel, #mainMenu/)
+})
+
+test('the ⋮ menu is a Chrome-style menu wired to features we already have', () => {
+  const script = buildPageChromeScript()
+  assert.ok(script.includes('mainMenuBtn'), 'has a three-dot trigger in the toolbar')
+  // The markup ships inside a JSON string, so its quotes arrive escaped.
+  assert.ok(script.includes(String.raw`id=\"mainMenu\"`), 'has a menu surface')
+  assert.ok(script.includes("root.getElementById('mainMenu')"), 'resolves the menu surface')
+  for (const id of ['mmNewTab', 'mmBookmark', 'mmBookmarks', 'mmTrail', 'mmTasks', 'mmFullscreen']) {
+    assert.ok(script.includes(id), 'menu item ' + id + ' exists')
+  }
+  assert.match(script, /mainMenuBtn instanceof HTMLButtonElement/, 'the trigger is type-checked before use')
+  // It is a secondary menu like the other three: anchored, hover-opened, one at a time.
+  assert.match(script, /\{ popup: mainMenu, trigger: mainMenuBtn, width: 264, onOpen: renderMainMenu \}/)
+  // Every item drives something the plugin already had rather than a new feature.
+  assert.match(script, /mmNewTab\.addEventListener\('click', \(\) => \{ closeMenu\(mainMenu\); if \(typeof chromeSelectedTaskKey === 'string'\) emitTabCreate\(chromeSelectedTaskKey\) \}\)/)
+  assert.match(script, /mmBookmark\.addEventListener\('click', \(\) => \{ closeMenu\(mainMenu\); saveCurrentPage\(\) \}\)/)
+  assert.match(script, /mmBookmarks\.addEventListener\('click', \(\) => \{ openMenu\(menus\[0\]\) \}\)/)
+  assert.match(script, /mmTrail\.addEventListener\('click', \(\) => \{ openMenu\(menus\[1\]\) \}\)/)
+  assert.match(script, /mmTasks\.addEventListener\('click', \(\) => \{ openMenu\(menus\[2\]\) \}\)/)
+  assert.match(script, /mmFullscreen\.addEventListener\('click', \(\) => \{ closeMenu\(mainMenu\); toggleFullscreen\(\) \}\)/)
+  // The bookmark handler is shared with the star, so both paths save the same way.
+  assert.match(script, /const saveCurrentPage = \(\) => \{/)
+  assert.match(script, /saveBookmark\.addEventListener\('click', saveCurrentPage\)/)
+  assert.match(script, /renderMainMenu/)
 })
 
 test('glass task cards reserve visual thumbnail space and readable activity timeline', () => {
