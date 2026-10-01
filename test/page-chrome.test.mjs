@@ -86,7 +86,7 @@ test('page chrome script is top-frame-only, closed-shadow, and idempotent', () =
   assert.ok(script.includes('id=\"trail\"') || script.includes('trail'), 'has trail button')
   assert.ok(script.includes('trailClose'), 'has trail close button')
   assert.ok(script.includes('trailBtn'), 'trail button id is unique from panel')
-  assert.ok(script.includes('right:12px'), 'trail dock on the right')
+  assert.ok(script.includes('anchorPopup'), 'secondary menus anchor to their trigger button')
   assert.ok(script.includes('__dshTrail'), 'renders injected trail')
   assert.ok(script.includes('window.stop()'), 'has stop action')
   assert.ok(script.includes("'https://www.bing.com'"), 'has home action')
@@ -109,21 +109,45 @@ test('page chrome auto-handoffs direct user input but excludes scroll gestures',
   assert.ok(script.includes("emitTaskControl(activeTask.key, 'human')"), 'sends human control handoff')
 })
 
-test('task drawer docks left without conflicting with the right trail', () => {
+test('secondary menus are anchored popups, not fixed docks', () => {
   const script = buildPageChromeScript()
+  const panelRule = script.match(/#panel \{[^}]+\}/)?.[0] ?? ''
   const taskRule = script.match(/#taskPanel \{[^}]+\}/)?.[0] ?? ''
   const trailRule = script.match(/#trail \{[^}]+\}/)?.[0] ?? ''
-  assert.match(taskRule, /left:12px/)
-  assert.doesNotMatch(taskRule, /right:12px/)
-  assert.match(trailRule, /right:12px/)
+  // The old model pinned each panel to a viewport edge (centre, left, right) and
+  // stretched the glass panels to the bottom. Chrome anchors a menu to its own
+  // button instead, so no dock geometry may come back.
+  assert.doesNotMatch(panelRule, /left:50%/, 'bookmarks no longer centre on the viewport')
+  assert.doesNotMatch(taskRule, /left:12px/, 'tasks are not pinned to the left edge')
+  assert.doesNotMatch(trailRule, /right:12px/, 'trail is not pinned to the right edge')
+  assert.doesNotMatch(script, /\.glass-panel \{[^}]*bottom:12px/, 'panels are not stretched to the bottom edge')
+  // Geometry is computed from the trigger at open time.
+  assert.match(script, /const anchorPopup = \(popup, trigger, width\)/)
+  assert.match(script, /trigger\.getBoundingClientRect\(\)/)
+  assert.match(script, /popup\.style\.left = left \+ 'px'/)
+  assert.match(script, /popup\.style\.top = top \+ 'px'/)
+  assert.match(script, /const menus = \[/)
 })
 
-test('task and trail panels can remain open together', () => {
+test('secondary menus open on hover over their button', () => {
   const script = buildPageChromeScript()
-  const taskToggle = script.slice(script.indexOf('const toggleTasks'), script.indexOf('const closeTasks'))
-  const trailToggle = script.slice(script.indexOf('const toggleTrail'), script.indexOf('const closeTrail'))
-  assert.doesNotMatch(taskToggle, /trailPanel\.classList\.remove/)
-  assert.doesNotMatch(trailToggle, /taskPanel\.classList\.remove/)
+  assert.match(script, /entry\.trigger\.addEventListener\('pointerenter'/, 'hovering a trigger opens its menu')
+  assert.match(script, /entry\.trigger\.addEventListener\('pointerleave'/, 'leaving a trigger schedules a close')
+  assert.match(script, /entry\.popup\.addEventListener\('pointerenter'/, 'entering the menu cancels the pending close')
+  assert.match(script, /entry\.popup\.addEventListener\('pointerleave'/, 'leaving the menu schedules a close')
+  assert.match(script, /const HOVER_CLOSE_DELAY_MS = 220/, 'the gap between button and menu is forgiven')
+  assert.match(script, /setAttribute\('aria-expanded'/, 'the trigger reports its expanded state')
+  // Click still toggles: hover is an addition, not a replacement (keyboard/touch).
+  assert.match(script, /bookmarks\.addEventListener\('click', togglePanel\)/)
+  assert.match(script, /tasksBtn\.addEventListener\('click', toggleTasks\)/)
+})
+
+test('opening one secondary menu closes the others', () => {
+  const script = buildPageChromeScript()
+  // Hovering across the toolbar would otherwise stack three popups on top of
+  // each other; Chrome shows one menu at a time.
+  const openMenu = script.slice(script.indexOf('const openMenu = (entry, byHover) => {'), script.indexOf('const toggleMenu = entry =>'))
+  assert.match(openMenu, /for \(const other of menus\) if \(other\.popup !== entry\.popup\) closeMenu\(other\.popup\)/)
 })
 
 test('task rows safely render host JPEG thumbnail data', () => {
@@ -232,35 +256,40 @@ test('workspace apply opens both panels from true state while toggles stay indep
   assert.match(applyBlock, /state\.tasks === true/, 'treats only literal true as open for tasks')
   assert.match(applyBlock, /state\.trail === true/, 'treats only literal true as open for trail')
   assert.match(applyBlock, /window\.__dshWorkspacePanels/)
-  const taskToggle = script.slice(script.indexOf('const toggleTasks'), script.indexOf('const closeTasks'))
-  const trailToggle = script.slice(script.indexOf('const toggleTrail'), script.indexOf('const closeTrail'))
-  assert.doesNotMatch(taskToggle, /trailPanel\.classList\.remove/, 'toggleTasks never closes trail')
-  assert.doesNotMatch(trailToggle, /taskPanel\.classList\.remove/, 'toggleTrail never closes tasks')
+  // Each toggle drives its own menu entry; "one at a time" lives in openMenu,
+  // not in the toggles.
+  assert.match(script, /const toggleTasks = \(\) => toggleMenu\(menus\[2\]\)/)
+  assert.match(script, /const toggleTrail = \(\) => toggleMenu\(menus\[1\]\)/)
 })
 
-test('close, toggle, and bookmark-open behaviors sync workspace state after class changes', () => {
+test('menu open and close keep workspace state in sync', () => {
   const script = buildPageChromeScript()
-  const closeTrailBlock = script.slice(script.indexOf('const closeTrail'), script.indexOf('const toggleTasks'))
-  assert.match(closeTrailBlock, /trailPanel\.classList\.remove\('open'\)/, 'closeTrail removes only its own class')
-  assert.doesNotMatch(closeTrailBlock, /taskPanel\.classList\.remove/, 'closeTrail never touches taskPanel')
-  assert.match(closeTrailBlock, /syncWorkspacePanels\(\)/, 'closeTrail syncs workspace state after its class change')
-  const closeTasksBlock = script.slice(script.indexOf('const closeTasks'), script.indexOf('const togglePanel'))
-  assert.match(closeTasksBlock, /taskPanel\.classList\.remove\('open'\)/, 'closeTasks removes only its own class')
-  assert.doesNotMatch(closeTasksBlock, /trailPanel\.classList\.remove/, 'closeTasks never touches trailPanel')
-  assert.match(closeTasksBlock, /syncWorkspacePanels\(\)/, 'closeTasks syncs workspace state after its class change')
-  const toggleTrailBlock = script.slice(script.indexOf('const toggleTrail'), script.indexOf('const closeTrail'))
-  assert.match(toggleTrailBlock, /trailPanel\.classList\.toggle\('open'\)/, 'toggleTrail toggles only its own class')
-  assert.doesNotMatch(toggleTrailBlock, /taskPanel\.classList\.remove/, 'toggleTrail never closes taskPanel')
-  assert.match(toggleTrailBlock, /syncWorkspacePanels\(\)/, 'toggleTrail syncs workspace state after its class change')
-  const toggleTasksBlock = script.slice(script.indexOf('const toggleTasks'), script.indexOf('const closeTasks'))
-  assert.match(toggleTasksBlock, /taskPanel\.classList\.toggle\('open'\)/, 'toggleTasks toggles only its own class')
-  assert.doesNotMatch(toggleTasksBlock, /trailPanel\.classList\.remove/, 'toggleTasks never closes trailPanel')
-  assert.match(toggleTasksBlock, /syncWorkspacePanels\(\)/, 'toggleTasks syncs workspace state after its class change')
-  const panelToggle = script.slice(script.indexOf('const togglePanel'))
-  const panelOpen = panelToggle.slice(panelToggle.indexOf('if (open) {'))
-  assert.match(panelOpen, /trailPanel\.classList\.remove\('open'\)/, 'bookmark open removes trail class')
-  assert.match(panelOpen, /taskPanel\.classList\.remove\('open'\)/, 'bookmark open removes task class')
-  assert.match(panelOpen, /syncWorkspacePanels\(\)/, 'bookmark open syncs the removed workspace state')
+  const closeStart = script.indexOf('const closeMenu = popup => {')
+  const openStart = script.indexOf('const openMenu = (entry, byHover) => {')
+  assert.ok(closeStart !== -1 && openStart > closeStart, 'closeMenu is defined before openMenu')
+
+  const closeBlock = script.slice(closeStart, openStart)
+  assert.match(closeBlock, /popup\.classList\.remove\('open'\)/, 'closeMenu removes the open class')
+  assert.match(closeBlock, /syncWorkspacePanels\(\)/, 'closeMenu syncs workspace state')
+  assert.match(closeBlock, /setAttribute\('aria-expanded', 'false'\)/, 'closeMenu clears the trigger state')
+
+  const openBlock = script.slice(openStart, script.indexOf('const toggleMenu', openStart))
+  assert.match(openBlock, /anchorPopup\(entry\.popup, entry\.trigger, entry\.width\)/, 'openMenu anchors the popup to its trigger')
+  assert.match(openBlock, /entry\.popup\.classList\.add\('open'\)/, 'openMenu opens the popup')
+  assert.match(openBlock, /setAttribute\('aria-expanded', 'true'\)/, 'openMenu marks the trigger expanded')
+  assert.match(openBlock, /syncWorkspacePanels\(\)/, 'openMenu syncs workspace state')
+
+  const toggleStart = script.indexOf('const toggleMenu = entry =>')
+  const toggleBlock = script.slice(toggleStart, script.indexOf('anchorOpenMenus = () =>', toggleStart))
+  // Hover previews, a click pins, a second click closes: without the pin step the
+  // click that follows a hover-open would close the menu the hover just opened.
+  assert.match(toggleBlock, /if \(!entry\.popup\.classList\.contains\('open'\)\) \{ openMenu\(entry\); return \}/, 'toggle opens a closed menu')
+  assert.match(toggleBlock, /if \(entry\.pinned !== true\) \{ entry\.pinned = true; return \}/, 'the first click pins a hover preview')
+  assert.match(toggleBlock, /closeMenu\(entry\.popup\)/, 'a second click closes a pinned menu')
+
+  // Host-driven panel state must anchor too, not just the click path.
+  const anchorBlock = script.slice(script.indexOf('anchorOpenMenus = () =>'), script.indexOf('const toggleTrail'))
+  assert.match(anchorBlock, /anchorPopup\(entry\.popup, entry\.trigger, entry\.width\)/, 'apply re-anchors any open menu')
 })
 
 /**
