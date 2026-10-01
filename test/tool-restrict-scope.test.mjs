@@ -79,7 +79,7 @@ test('browser_restrict only restricts the calling task', async () => {
       /restricted for this task/,
     )
     // The other task never opted in, so it keeps working.
-    assert.deepEqual(await tools.get('browser_click').execute({ x: 1, y: 2 }, taskB), { clicked: true })
+    assert.equal((await tools.get('browser_click').execute({ x: 1, y: 2 }, taskB)).clicked, true, 'the unrestricted task still clicks')
   } finally {
     cleanup()
   }
@@ -93,7 +93,7 @@ test('lifting one task\'s restriction leaves the other task\'s rule intact', asy
     await tools.get('browser_restrict').execute({ allowed: ['browser_snapshot'] }, taskB)
 
     assert.deepEqual(await tools.get('browser_restrict').execute({ allowed: [] }, taskA), { restrictedTo: [] })
-    assert.deepEqual(await tools.get('browser_click').execute({ x: 1, y: 2 }, taskA), { clicked: true })
+    assert.equal((await tools.get('browser_click').execute({ x: 1, y: 2 }, taskA)).clicked, true, 'the unrestricted task still clicks')
     await assert.rejects(
       () => tools.get('browser_click').execute({ x: 1, y: 2 }, taskB),
       /restricted for this task/,
@@ -111,7 +111,7 @@ test('the allowedActions config is a default that a task can override for itself
     await assert.rejects(() => tools.get('browser_click').execute({ x: 1, y: 2 }, taskB), /restricted for this task/)
 
     await tools.get('browser_restrict').execute({ allowed: [] }, taskA)
-    assert.deepEqual(await tools.get('browser_click').execute({ x: 1, y: 2 }, taskA), { clicked: true })
+    assert.equal((await tools.get('browser_click').execute({ x: 1, y: 2 }, taskA)).clicked, true, 'the unrestricted task still clicks')
     await assert.rejects(() => tools.get('browser_click').execute({ x: 1, y: 2 }, taskB), /restricted for this task/)
   } finally {
     cleanup()

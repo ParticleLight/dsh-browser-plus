@@ -450,9 +450,11 @@ function redactTraceParams(action: string, params: Record<string, unknown>): Rec
     stop: [],
     execute: [],
     snapshot: [],
-    click: ['x', 'y'],
-    doubleClick: ['x', 'y'],
-    hover: ['x', 'y'],
+    // `target` is the description of the element the page itself matched, so it
+    // carries nothing the page does not already know.
+    click: ['x', 'y', 'target'],
+    doubleClick: ['x', 'y', 'target'],
+    hover: ['x', 'y', 'target'],
     scroll: ['deltaX', 'deltaY'],
     clickRef: ['snapshotId', 'ref'],
     scrollIntoView: ['snapshotId', 'ref', 'block'],

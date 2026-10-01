@@ -670,3 +670,86 @@ test('concurrency is clamped to a sane worker count', async () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+test('a pointer target resolves a selector in the page and reports what it hit', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const asked = []
+  host.views[0].sendCommand = async (method, params) => {
+    if (method !== 'Runtime.evaluate') return {}
+    const expression = String(params?.expression ?? '')
+    asked.push(expression)
+    // Only the resolver asks for a point; other evaluations get a harmless reply.
+    if (expression.includes('querySelectorAll')) return { result: { value: { x: 120, y: 40, target: 'Sign in' } } }
+    return { result: { value: null } }
+  }
+  const point = await provider.click(session, { selector: '#signin' })
+  assert.deepEqual(point, { x: 120, y: 40, target: 'Sign in' })
+  const resolver = asked.find(expression => expression.includes('querySelectorAll'))
+  assert.ok(resolver !== undefined, 'the selector is resolved in the page, not by the caller')
+  assert.match(resolver, /scrollIntoView/, 'and the element is brought into view before the click')
+})
+
+test('a pointer target needs coordinates, a selector, or text', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  await assert.rejects(
+    () => provider.click(session, {}),
+    error => { assert.equal(error.code, 'BROWSER_TARGET_MISSING'); return true },
+  )
+  await assert.rejects(
+    () => provider.hover(session, { x: 10 }),
+    error => { assert.equal(error.code, 'BROWSER_TARGET_MISSING'); return true },
+  )
+})
+
+test('coordinates pass through untouched, with no page round-trip', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  host.views[0].sendCommand = async (method, params) => {
+    host.log.push({ method, params })
+    return {}
+  }
+  assert.deepEqual(await provider.click(session, { x: 5, y: 6 }), { x: 5, y: 6 })
+  const resolved = host.log.some(entry => entry.method === 'Runtime.evaluate'
+    && String(entry.params?.expression ?? '').includes('querySelectorAll'))
+  assert.equal(resolved, false, 'a coordinate target needs no page round-trip')
+})
+
+test('a target that matches nothing is reported as such', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  host.views[0].sendCommand = async (method, params) => {
+    if (method !== 'Runtime.evaluate') return {}
+    const expression = String(params?.expression ?? '')
+    if (expression.includes('invalid selector')) return { result: { value: { missing: true } } }
+    return { result: { value: { missing: true } } }
+  }
+  await assert.rejects(
+    () => provider.click(session, { text: 'nothing here' }),
+    error => {
+      assert.equal(error.code, 'BROWSER_TARGET_NOT_FOUND')
+      assert.match(error.message, /text "nothing here"/)
+      return true
+    },
+  )
+})
+test('the in-page resolver script is valid JavaScript and cannot be broken out of', async () => {
+  // The script is built as text and only ever parsed inside a page, so a typo
+  // would not surface until runtime, on a real site, far from here. Compiling
+  // it catches that at build time.
+  const { pointerTargetScript } = await import('../lib/browser-electron/provider.js')
+  for (const [selector, text] of [['#a', undefined], [undefined, '登录'], [undefined, undefined]]) {
+    const script = pointerTargetScript(selector, text)
+    assert.doesNotThrow(() => new Function(`return ${script}`), 'the script compiles')
+    assert.match(script, /querySelectorAll/)
+  }
+  // Selector and text are interpolated as JSON literals, so a quote in either
+  // cannot terminate the string and inject code into the page.
+  const hostile = pointerTargetScript('\"; globalThis.__pwned = 1; //', undefined)
+  assert.doesNotThrow(() => new Function(`return ${hostile}`))
+  assert.doesNotMatch(hostile, /__pwned = 1; \/\/$/)
+})

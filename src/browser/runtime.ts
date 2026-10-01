@@ -10,21 +10,20 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {
-  BrowserClickRequest,
   BrowserContentRequest,
   BrowserHandoffState,
   BrowserContentResult,
-  BrowserDoubleClickRequest,
   BrowserDownloadRequest,
   BrowserExecuteRequest,
   BrowserExecuteResult,
   BrowserFillRequest,
   BrowserFillResult,
   BrowserHistoryEntry,
-  BrowserHoverRequest,
   BrowserNavigateRequest,
   BrowserOpenOptions,
   BrowserOpenRequest,
+  BrowserPointerResult,
+  BrowserPointerTarget,
   BrowserPressKeyRequest,
   BrowserClearAuthRequest,
   BrowserScrapeRequest,
@@ -58,12 +57,10 @@ export {
 } from './types.ts'
 export type {
   BrowserChallenge,
-  BrowserClickRequest,
   BrowserContentFormat,
   BrowserControlOwner,
   BrowserContentRequest,
   BrowserContentResult,
-  BrowserDoubleClickRequest,
   BrowserDownloadRequest,
   BrowserExecuteRequest,
   BrowserExecuteResult,
@@ -72,10 +69,11 @@ export type {
   BrowserFillResult,
   BrowserHandoffState,
   BrowserHistoryEntry,
-  BrowserHoverRequest,
   BrowserNavigateRequest,
   BrowserOpenOptions,
   BrowserOpenRequest,
+  BrowserPointerResult,
+  BrowserPointerTarget,
   BrowserPressKeyRequest,
   BrowserClearAuthRequest,
   BrowserScrapeRequest,
@@ -273,17 +271,17 @@ export class BrowserRuntime extends Service {
   }
 
   /** Click at viewport coordinates through the selected provider. */
-  async click(session: BrowserSessionId, request: BrowserClickRequest, signal?: AbortSignal): Promise<void> {
+  async click(session: BrowserSessionId, request: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult> {
     return this.resolveProvider().click(session, request, signal)
   }
 
   /** Double-click at viewport coordinates through the selected provider. */
-  async doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void> {
+  async doubleClick(session: BrowserSessionId, request: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult> {
     return this.resolveProvider().doubleClick(session, request, signal)
   }
 
   /** Move the pointer to viewport coordinates through the selected provider. */
-  async hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void> {
+  async hover(session: BrowserSessionId, request: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult> {
     return this.resolveProvider().hover(session, request, signal)
   }
 

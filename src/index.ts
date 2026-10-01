@@ -12,13 +12,14 @@
 export { BrowserError } from './browser/types.ts'
 export type {
   BrowserChallenge,
-  BrowserClickRequest,
   BrowserContentFormat,
   BrowserControlOwner,
 
   BrowserContentRequest,
   BrowserContentResult,
   BrowserExecuteRequest,
+  BrowserPointerResult,
+  BrowserPointerTarget,
   BrowserExecuteResult,
   BrowserFillField,
   BrowserFillRequest,

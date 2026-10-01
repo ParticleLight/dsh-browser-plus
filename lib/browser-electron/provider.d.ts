@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser-plus/browser-electron
  */
-import type { BrowserChallenge, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserContentRequest, BrowserContentResult, BrowserPointerResult, BrowserPointerTarget, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -270,14 +270,11 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     /** Fetch page content in a requested format. */
     content(session: BrowserSessionId, request: BrowserContentRequest, signal?: AbortSignal): Promise<BrowserContentResult>;
     /** Click at viewport coordinates (CDP mousePressed + mouseReleased). */
-    click(session: BrowserSessionId, request: {
-        readonly x: number;
-        readonly y: number;
-    }, signal?: AbortSignal): Promise<void>;
-    /** Double-click at viewport coordinates (physical input; clickCount 2). */
-    doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void>;
-    /** Move the pointer to viewport coordinates (hover; no click). */
-    hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void>;
+    click(session: BrowserSessionId, target: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult>;
+    /** Double-click a target (physical input; clickCount 2). */
+    doubleClick(session: BrowserSessionId, target: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult>;
+    /** Move the pointer over a target (no click). */
+    hover(session: BrowserSessionId, target: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult>;
     /** Scroll the active page by CSS-pixel deltas and return the final position. */
     scroll(session: BrowserSessionId, request: BrowserScrollRequest, signal?: AbortSignal): Promise<BrowserScrollResult>;
     /**
@@ -439,6 +436,15 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     /** Read the current URL of a view through CDP. */
     private currentUrl;
 }
+/**
+ * The in-page half of {@link resolvePointerTarget}: resolve the element, scroll
+ * it into view, and return its centre.
+ *
+ * Exported so it can be exercised. The matching rule — the innermost visible
+ * element whose label contains the text wins — is the part most likely to be
+ * wrong, and Node has no DOM to check it against.
+ */
+export declare function pointerTargetScript(selector: string | undefined, text: string | undefined): string;
 /**
  * Minimal DOM shape {@link renderMarkdown} reads; a real DOM node fits it.
  */

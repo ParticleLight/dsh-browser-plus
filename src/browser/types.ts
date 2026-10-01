@@ -32,13 +32,6 @@ export interface BrowserNavigateRequest {
  * the session's own coordinate space — the same space the human interacts
  * with, so a real view and a relay agree without scaling.
  */
-export interface BrowserClickRequest {
-  /** Viewport-relative x in CSS pixels. */
-  readonly x: number
-  /** Viewport-relative y in CSS pixels. */
-  readonly y: number
-}
-
 /** Type text into the focused element. */
 export interface BrowserTypeRequest {
   /** The text to insert. */
@@ -55,20 +48,31 @@ export interface BrowserPressKeyRequest {
   readonly modifiers?: readonly ('alt' | 'ctrl' | 'meta' | 'shift')[]
 }
 
-/** Double-click at viewport coordinates (one press/release pair, clickCount 2). */
-export interface BrowserDoubleClickRequest {
-  /** Viewport-relative x in CSS pixels. */
-  readonly x: number
+/**
+ * How a pointer action addresses its target.
+ *
+ * Coordinates are used as given. A selector or text is resolved inside the page
+ * and scrolled into view first, so an agent can act on "the sign-in button"
+ * without spending a snapshot round-trip to learn its ref — the same way
+ * browser_fill already addresses its fields.
+ */
+export interface BrowserPointerTarget {
+  /** Viewport-relative x in CSS pixels; required with y when neither selector nor text is given. */
+  readonly x?: number
   /** Viewport-relative y in CSS pixels. */
-  readonly y: number
+  readonly y?: number
+  /** CSS selector; the first visible match is used. */
+  readonly selector?: string
+  /** Visible text, aria-label or value to match (case-insensitive); the innermost visible match wins. */
+  readonly text?: string
 }
 
-/** Move the pointer to viewport coordinates (no button). */
-export interface BrowserHoverRequest {
-  /** Viewport-relative x in CSS pixels. */
+/** Where a pointer action actually landed. */
+export interface BrowserPointerResult {
   readonly x: number
-  /** Viewport-relative y in CSS pixels. */
   readonly y: number
+  /** Short description of the element that was resolved; absent for a coordinate target. */
+  readonly target?: string
 }
 
 /** Scroll the active page by a CSS-pixel delta. */
@@ -509,15 +513,15 @@ export interface BrowserProvider {
   /** Fetch page content in a requested format. */
   content(session: BrowserSessionId, request: BrowserContentRequest, signal?: AbortSignal): Promise<BrowserContentResult>
   /** Click at viewport coordinates (fallback path; execute is preferred). Honor `signal` for cancellation. */
-  click(session: BrowserSessionId, request: BrowserClickRequest, signal?: AbortSignal): Promise<void>
+  click(session: BrowserSessionId, request: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult>
   /** Type into the focused element (fallback path). Honor `signal` for cancellation. */
   type(session: BrowserSessionId, request: BrowserTypeRequest, signal?: AbortSignal): Promise<void>
   /** Press a key (keyDown + keyUp) into the active tab. Honor `signal` for cancellation. */
   pressKey(session: BrowserSessionId, request: BrowserPressKeyRequest, signal?: AbortSignal): Promise<void>
-  /** Double-click at viewport coordinates. Honor `signal` for cancellation. */
-  doubleClick(session: BrowserSessionId, request: BrowserDoubleClickRequest, signal?: AbortSignal): Promise<void>
-  /** Move the pointer to viewport coordinates (hover). Honor `signal` for cancellation. */
-  hover(session: BrowserSessionId, request: BrowserHoverRequest, signal?: AbortSignal): Promise<void>
+  /** Double-click (one press/release pair, clickCount 2). Honor `signal` for cancellation. */
+  doubleClick(session: BrowserSessionId, request: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult>
+  /** Move the pointer without clicking. Honor `signal` for cancellation. */
+  hover(session: BrowserSessionId, request: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult>
   /** Scroll the active page by CSS-pixel deltas. */
   scroll(session: BrowserSessionId, request: BrowserScrollRequest, signal?: AbortSignal): Promise<BrowserScrollResult>
   /** Attach a local file to a file input. Honor `signal` for cancellation. */
