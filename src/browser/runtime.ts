@@ -22,6 +22,8 @@ import type {
   BrowserNavigateRequest,
   BrowserOpenOptions,
   BrowserOpenRequest,
+  BrowserDragRequest,
+  BrowserDragResult,
   BrowserPointerResult,
   BrowserPointerTarget,
   BrowserPressKeyRequest,
@@ -72,6 +74,8 @@ export type {
   BrowserNavigateRequest,
   BrowserOpenOptions,
   BrowserOpenRequest,
+  BrowserDragRequest,
+  BrowserDragResult,
   BrowserPointerResult,
   BrowserPointerTarget,
   BrowserPressKeyRequest,
@@ -280,7 +284,11 @@ export class BrowserRuntime extends Service {
     return this.resolveProvider().doubleClick(session, request, signal)
   }
 
-  /** Move the pointer to viewport coordinates through the selected provider. */
+  /** Press on one target, move to another, release, through the selected provider. */
+  async drag(session: BrowserSessionId, request: BrowserDragRequest, signal?: AbortSignal): Promise<BrowserDragResult> {
+    return this.resolveProvider().drag(session, request, signal)
+  }
+
   async hover(session: BrowserSessionId, request: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult> {
     return this.resolveProvider().hover(session, request, signal)
   }

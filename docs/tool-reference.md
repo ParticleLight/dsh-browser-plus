@@ -1,6 +1,6 @@
 # 工具参考
 
-全部 36 个 `browser_*` 工具。守卫列:✅ 表示该动作受 `browser_restrict` 白名单约束(白名单**按调用任务隔离**,一个任务的规则不影响其它任务);只读工具永不拦截。
+全部 37 个 `browser_*` 工具。守卫列:✅ 表示该动作受 `browser_restrict` 白名单约束(白名单**按调用任务隔离**,一个任务的规则不影响其它任务);只读工具永不拦截。
 
 ## 页面与导航
 
@@ -27,6 +27,7 @@
 | `browser_click` | `x?`, `y?`, `selector?`, `text?` | `{ clicked, x?, y?, target? }` | ✅ | 点击元素,**三种寻址任选其一**:① `x`+`y` 视口坐标(配合截图做视觉定位,覆盖图标/图片按钮/canvas);② `selector` CSS 选择器;③ `text` 可见文字(或 aria-label/value,不区分大小写)。后两者在**页内解析**并把元素滚入视野,所以「点登录按钮」**不必先 snapshot 拿 ref**(省一轮);返回 `target` 告诉你实际点到了什么。多个匹配时**最内层的可见元素胜出**(文字最短者优先,同长取更深者) |
 | `browser_double_click` | `x?`, `y?`, `selector?`, `text?` | `{ clicked, x?, y?, target? }` | ✅ | 同上寻址方式;用于选中文本、展开忽略单击的 UI |
 | `browser_hover` | `x?`, `y?`, `selector?`, `text?` | `{ hovered, x?, y?, target? }` | ✅ | 同上寻址方式;悬停不点击(触发 hover 态、tooltip、下拉菜单) |
+| `browser_drag` | `from`(必填), `to`(必填), `steps?` | `{ dragged, from?, to? }` | ✅ | 拖拽:`from` 按下 → 中间移动 → 在 `to` 释放。两端都用与 `browser_click` 相同的寻址(`x`+`y` / `selector` / `text`)并先滚入视野。`steps` 默认 12、上限 60 —— 中间移动是滑块/可排序库监听的东西,**瞬移会被忽略**。用于滑块、可排序列表、canvas 编辑器。**只驱动指针式拖拽**:依赖 HTML5 拖放(`dragstart`/`drop`)的页面不会响应,那种页面请用其自带控件 |
 | `browser_type` | `text`(必填) | `{ typed }` | ✅ | 向聚焦元素输入文本(CDP `Input.insertText`) |
 | `browser_press_key` | `key`(必填), `modifiers?` | `{ pressed }` | ✅ | 向聚焦元素物理按键(keyDown+keyUp;Enter/Tab/F1-F12/方向键及 Ctrl+A 等修饰组合) |
 | `browser_fill` | `fields`(必填,数组), `submit?` | `{ fields[], submitted }` | ✅ | 批量填表;字段按 `selector`/`name`/`label`/`placeholder` 匹配,值支持字符串/数字/布尔;单个字段失败不影响其余;`submit: true` 提交表单 |

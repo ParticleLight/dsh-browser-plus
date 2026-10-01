@@ -71,6 +71,26 @@ export interface BrowserPointerTarget {
   readonly modifiers?: readonly ('alt' | 'ctrl' | 'meta' | 'shift')[]
 }
 
+/**
+ * A press-drag-release gesture from one target to another. Both ends use the
+ * same addressing as a click, so a drag can go from "the slider thumb" to a
+ * coordinate, or between two selectors.
+ */
+export interface BrowserDragRequest {
+  /** Where the gesture starts. */
+  readonly from: BrowserPointerTarget
+  /** Where it ends. */
+  readonly to: BrowserPointerTarget
+  /** Intermediate move events. More steps look more like a hand; default 12, max 60. */
+  readonly steps?: number
+}
+
+/** Where a drag started and ended. */
+export interface BrowserDragResult {
+  readonly from: BrowserPointerResult
+  readonly to: BrowserPointerResult
+}
+
 /** Where a pointer action actually landed. */
 export interface BrowserPointerResult {
   readonly x: number
@@ -526,6 +546,11 @@ export interface BrowserProvider {
   doubleClick(session: BrowserSessionId, request: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult>
   /** Move the pointer without clicking. Honor `signal` for cancellation. */
   hover(session: BrowserSessionId, request: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult>
+  /**
+   * Press on one target, move to another, release. Drives sliders, sortable
+   * lists and canvas editors. Honor `signal` for cancellation.
+   */
+  drag(session: BrowserSessionId, request: BrowserDragRequest, signal?: AbortSignal): Promise<BrowserDragResult>
   /** Scroll the active page by CSS-pixel deltas. */
   scroll(session: BrowserSessionId, request: BrowserScrollRequest, signal?: AbortSignal): Promise<BrowserScrollResult>
   /** Attach a local file to a file input. Honor `signal` for cancellation. */

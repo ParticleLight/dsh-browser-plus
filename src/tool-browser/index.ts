@@ -1179,6 +1179,70 @@ export function apply(ctx: Context, config: Config = {}): void {
   }))
 
   ctx.tools.register(defineTool({
+    name: 'browser_drag',
+    description: 'Press on one element, move to another, and release: a drag. Both ends are addressed like browser_click (x and y, a CSS selector, or visible text) and scrolled into view first. Use it for sliders, sortable lists and canvas editors. It drives pointer-based drags; a page that relies on HTML5 drag-and-drop (dragstart/drop) will not respond to it, so use that page own controls instead.',
+    parameters: {
+      from: {
+        type: 'object',
+        required: true,
+        additionalProperties: false,
+        description: 'Where the drag starts.',
+        properties: {
+          x: { type: 'number', description: 'Viewport x coordinate (CSS px).' },
+          y: { type: 'number', description: 'Viewport y coordinate (CSS px).' },
+          selector: { type: 'string', description: 'CSS selector; the first visible match is used and scrolled into view.' },
+          text: { type: 'string', description: 'Visible text (or aria-label/value, case-insensitive); the innermost visible match wins.' },
+        },
+      },
+      to: {
+        type: 'object',
+        required: true,
+        additionalProperties: false,
+        description: 'Where it ends.',
+        properties: {
+          x: { type: 'number', description: 'Viewport x coordinate (CSS px).' },
+          y: { type: 'number', description: 'Viewport y coordinate (CSS px).' },
+          selector: { type: 'string', description: 'CSS selector; the first visible match is used and scrolled into view.' },
+          text: { type: 'string', description: 'Visible text (or aria-label/value, case-insensitive); the innermost visible match wins.' },
+        },
+      },
+      steps: { type: 'number', description: 'Intermediate move events (default 12, max 60). A hand does not teleport, and a listener that reads positions per frame needs more than one.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          dragged: { type: 'boolean', required: true },
+          from: { type: 'string' },
+          to: { type: 'string' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: value.dragged
+        ? `Dragged ${value.from ?? '(point)'} to ${value.to ?? '(point)'}.`
+        : 'Drag failed.' }],
+    },
+    timeoutMs,
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      assertAllowed('browser_drag', exec)
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const target = (point: Record<string, unknown>) => ({
+        ...point.x !== undefined ? { x: point.x as number } : {},
+        ...point.y !== undefined ? { y: point.y as number } : {},
+        ...point.selector !== undefined ? { selector: point.selector as string } : {},
+        ...point.text !== undefined ? { text: point.text as string } : {},
+      })
+      const result = await withTaskAction(browser, taskKey(exec), 'drag page', exec, session => browser.drag(session, {
+        from: target(args.from as Record<string, unknown>),
+        to: target(args.to as Record<string, unknown>),
+        ...args.steps !== undefined ? { steps: args.steps } : {},
+      }, exec.signal))
+      return { dragged: true, ...result.from.target === undefined ? {} : { from: result.from.target }, ...result.to.target === undefined ? {} : { to: result.to.target } }
+    },
+  }))
+  ctx.tools.register(defineTool({
     name: 'browser_screenshot',
     description: 'Capture the current shared-browser page as a PNG screenshot. Use for visual confirmation of layout, charts, designs, or CAPTCHAs, or to feed a vision tool (read_image) that locates elements visually. Supports optional full-page capture and optional save-to-file (the saved path can be passed to read_image for vision-based element location).',
     parameters: {

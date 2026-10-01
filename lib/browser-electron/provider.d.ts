@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser-plus/browser-electron
  */
-import type { BrowserChallenge, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserContentRequest, BrowserContentResult, BrowserPointerResult, BrowserPointerTarget, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserContentRequest, BrowserContentResult, BrowserDragRequest, BrowserDragResult, BrowserPointerResult, BrowserPointerTarget, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -141,6 +141,8 @@ export interface CdpMouseParams {
     readonly y: number;
     readonly button: 'left' | 'right' | 'middle' | 'none';
     readonly clickCount?: number;
+    /** Buttons held during the event; 1 while a left drag is in flight. */
+    readonly buttons?: number;
     /** CDP modifier bitmask (Alt 1, Ctrl 2, Meta 4, Shift 8); see modifierMask. */
     readonly modifiers?: number;
 }
@@ -291,6 +293,16 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     doubleClick(session: BrowserSessionId, target: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult>;
     /** Move the pointer over a target (no click). */
     hover(session: BrowserSessionId, target: BrowserPointerTarget, signal?: AbortSignal): Promise<BrowserPointerResult>;
+    /**
+     * Press on one target, move to another, release.
+     *
+     * A hand does not teleport: the intermediate moves are what pointer-based
+     * sliders and sortable libraries listen for, so a press straight onto the
+     * destination would be ignored. Note this drives *pointer* drags only —
+     * HTML5 drag-and-drop needs dragstart/drop, which synthesized mouse moves do
+     * not produce; use the page's own controls, or a click-based reorder, there.
+     */
+    drag(session: BrowserSessionId, request: BrowserDragRequest, signal?: AbortSignal): Promise<BrowserDragResult>;
     /** Scroll the active page by CSS-pixel deltas and return the final position. */
     scroll(session: BrowserSessionId, request: BrowserScrollRequest, signal?: AbortSignal): Promise<BrowserScrollResult>;
     /**

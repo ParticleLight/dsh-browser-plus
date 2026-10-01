@@ -17,6 +17,8 @@ export type {
 
   BrowserContentRequest,
   BrowserContentResult,
+  BrowserDragRequest,
+  BrowserDragResult,
   BrowserExecuteRequest,
   BrowserPointerResult,
   BrowserPointerTarget,

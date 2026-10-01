@@ -793,3 +793,35 @@ test('a click can use another mouse button or hold modifiers', async () => {
   const releases = sent.filter(entry => entry.method === 'Input.dispatchMouseEvent' && entry.params?.type === 'mouseReleased')
   assert.deepEqual(releases.map(entry => entry.params.button), ['right', 'left', 'left'])
 })
+test('a drag presses, moves in steps, and releases on the destination', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const sent = []
+  host.views[0].sendCommand = async (method, params) => {
+    if (method === 'Runtime.evaluate') {
+      const expression = String(params?.expression ?? '')
+      // Only the target resolver asks for a point; everything else is harmless.
+      return { result: { value: expression.includes('querySelectorAll') ? { x: 10, y: 20 } : null } }
+    }
+    sent.push({ method, params })
+    return {}
+  }
+  const result = await provider.drag(session, { from: { selector: '#a' }, to: { x: 100, y: 200 }, steps: 4 })
+  assert.deepEqual(result.from, { x: 10, y: 20 })
+  assert.deepEqual(result.to, { x: 100, y: 200 })
+  const events = sent.filter(entry => entry.method === 'Input.dispatchMouseEvent').map(entry => entry.params)
+  assert.deepEqual(events.map(event => event.type),
+    ['mouseMoved', 'mousePressed', 'mouseMoved', 'mouseMoved', 'mouseMoved', 'mouseMoved', 'mouseReleased'],
+    'hover the source, press, four moves, release')
+  assert.equal(events[0].buttons, 0, 'nothing is held before the press')
+  assert.equal(events[1].buttons, 1, 'the press holds the button')
+  assert.deepEqual(events.slice(2, 6).map(event => event.buttons), [1, 1, 1, 1], 'the button stays down through the moves')
+  assert.equal(events[5].x, 100, 'the last move lands on the destination')
+  assert.equal(events[5].y, 200)
+  assert.equal(events[6].buttons, 0, 'the release lets go')
+  assert.equal(events[6].x, 100)
+  // A hand does not teleport: one jump would not drive a pointer-based slider.
+  const xs = events.slice(2, 6).map(event => event.x)
+  assert.deepEqual(xs, [32.5, 55, 77.5, 100])
+})

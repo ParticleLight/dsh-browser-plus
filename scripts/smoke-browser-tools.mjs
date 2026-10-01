@@ -138,6 +138,33 @@ await check('modifiers reach the page', async () => {
   if (seen.value !== 'true/true') throw new Error('the page saw ' + JSON.stringify(seen.value) + ' instead of a modified press')
   return seen.value
 })
+await check('drag reaches the page', async () => {
+  await provider.execute(session, { script: `(() => {
+    document.getElementById('__drag_probe')?.remove()
+    const el = document.createElement('div')
+    el.id = '__drag_probe'
+    el.style.cssText = 'position:fixed;left:100px;top:100px;width:120px;height:60px;background:#39f;z-index:2147483647'
+    document.body.appendChild(el)
+    window.__drag = []
+    el.addEventListener('mousedown', event => window.__drag.push('down@' + Math.round(event.clientX) + ',' + Math.round(event.clientY)), true)
+    // On document, not on el: the gesture leaves the source almost immediately,
+    // so an element-scoped listener would only ever see the first move.
+    document.addEventListener('mousemove', event => window.__drag.push('move@' + Math.round(event.clientX)), true)
+    document.addEventListener('mouseup', event => window.__drag.push('up@' + Math.round(event.clientX) + ',' + Math.round(event.clientY)), true)
+    return 'armed'
+  })()` })
+  const result = await provider.drag(session, { from: { selector: '#__drag_probe' }, to: { x: 600, y: 400 }, steps: 6 })
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const seen = await provider.execute(session, { script: 'window.__drag.join(" ")' })
+  await provider.execute(session, { script: "document.getElementById('__drag_probe')?.remove()" })
+  const log = String(seen.value ?? '')
+  const moves = log.split(' ').filter(entry => entry.startsWith('move@')).length
+  // The log opens with the pre-press hover, so the press is not necessarily first.
+  if (!log.includes('down@160,130')) throw new Error('no press on the source: ' + JSON.stringify(log))
+  if (!log.endsWith('up@600,400')) throw new Error('no release on the destination: ' + JSON.stringify(log))
+  if (moves < 5) throw new Error('only ' + String(moves) + ' moves, so the gesture jumped: ' + JSON.stringify(log))
+  return { moves, result: result.from.target + ' -> ' + String(result.to.x) + ',' + String(result.to.y) }
+})
 // --- the tool layer, over the same real provider -------------------------
 // The unit suite drives the tools against a fake browser, and the checks above
 // drive the provider directly. This is the only place the two meet: tool schema

@@ -16,6 +16,8 @@ import type {
   BrowserContentRequest,
   BrowserContentResult,
   BrowserControlOwner,
+  BrowserDragRequest,
+  BrowserDragResult,
   BrowserPointerResult,
   BrowserPointerTarget,
   BrowserExecuteRequest,
@@ -257,6 +259,8 @@ export interface CdpMouseParams {
   readonly y: number
   readonly button: 'left' | 'right' | 'middle' | 'none'
   readonly clickCount?: number
+  /** Buttons held during the event; 1 while a left drag is in flight. */
+  readonly buttons?: number
   /** CDP modifier bitmask (Alt 1, Ctrl 2, Meta 4, Shift 8); see modifierMask. */
   readonly modifiers?: number
 }
@@ -401,6 +405,9 @@ const INPUT_DISPATCH_TIMEOUT_MS = 15_000
  * Weak so a destroyed view does not keep its handle alive.
  */
 const focusEmulatedViews = new WeakSet<ElectronViewHandle>()
+
+/** Gap between the move events of a drag; enough to span several frames. */
+const DRAG_STEP_DELAY_MS = 8
 
 /** Upper bound on concurrent scrape workers; each one costs a tab. */
 const MAX_SCRAPE_WORKERS = 8
@@ -1144,6 +1151,49 @@ export class ElectronBrowserProvider implements BrowserProvider {
     await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y, button: 'none', modifiers: modifierMask(target.modifiers) } satisfies CdpMouseParams, signal)
     this.record(s, 'hover', { x: point.x, y: point.y, ...point.target === undefined ? {} : { target: point.target } }, true)
     return point
+  }
+
+  /**
+   * Press on one target, move to another, release.
+   *
+   * A hand does not teleport: the intermediate moves are what pointer-based
+   * sliders and sortable libraries listen for, so a press straight onto the
+   * destination would be ignored. Note this drives *pointer* drags only —
+   * HTML5 drag-and-drop needs dragstart/drop, which synthesized mouse moves do
+   * not produce; use the page's own controls, or a click-based reorder, there.
+   */
+  async drag(session: BrowserSessionId, request: BrowserDragRequest, signal?: AbortSignal): Promise<BrowserDragResult> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    await this.drainDialog(s, handle)
+    const from = await resolvePointerTarget(handle, request.from, signal)
+    const to = await resolvePointerTarget(handle, request.to, signal)
+    await suppressAutoUserControl(handle, signal)
+    const steps = Math.max(1, Math.min(Math.trunc(request.steps ?? 12) || 12, 60))
+    // Hover the source first: some libraries only arm on an enter.
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: from.x, y: from.y, button: 'none', buttons: 0 } satisfies CdpMouseParams, signal)
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: from.x, y: from.y, button: 'left', clickCount: 1, buttons: 1 } satisfies CdpMouseParams, signal)
+    for (let step = 1; step <= steps; step += 1) {
+      const ratio = step / steps
+      await this.dispatchInput(handle, 'Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: from.x + (to.x - from.x) * ratio,
+        y: from.y + (to.y - from.y) * ratio,
+        button: 'left',
+        buttons: 1,
+      } satisfies CdpMouseParams, signal)
+      // Distinct events, not one burst: a listener that reads positions per
+      // frame needs the gesture to span more than a single tick.
+      await new Promise(resolve => setTimeout(resolve, DRAG_STEP_DELAY_MS))
+    }
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: to.x, y: to.y, button: 'left', clickCount: 1, buttons: 0 } satisfies CdpMouseParams, signal)
+    this.record(s, 'drag', {
+      from: { x: Math.round(from.x), y: Math.round(from.y), ...from.target === undefined ? {} : { target: from.target } },
+      to: { x: Math.round(to.x), y: Math.round(to.y), ...to.target === undefined ? {} : { target: to.target } },
+      steps,
+    }, true)
+    return { from, to }
   }
 
   /** Scroll the active page by CSS-pixel deltas and return the final position. */
