@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ElectronBrowserProvider } from '../lib/browser-electron/provider.js'
@@ -450,6 +450,138 @@ test('importAuth rejects a file that is not a cookie export', async () => {
     await assert.rejects(
       () => provider.importAuth(session, file),
       error => { assert.equal(error.code, 'BROWSER_AUTH_FILE_INVALID'); return true },
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+/** Answer evaluations by expression, so a test never has to count replies. */
+function scrapeView(host, extract, delayMs = 0) {
+  const view = host.views[0]
+  view.sendCommand = async (method, params) => {
+    if (method !== 'Runtime.evaluate') return {}
+    const expression = String(params?.expression ?? '')
+    if (expression === 'document.readyState') return { result: { value: 'complete' } }
+    if (expression.includes('__dsh_browser_chrome_host__')) return { result: { value: null } }
+    if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs))
+    return { result: { value: extract(expression) } }
+  }
+  // Without this, navigate also fires the provider's tokenless chrome copy.
+  view.reinstallChrome = async () => {}
+  return view
+}
+
+/** Wait for a detached batch to leave the running state. */
+async function settle(provider, id) {
+  for (let i = 0; i < 500; i += 1) {
+    const status = await provider.scrapeStatus(id)
+    if (status.state !== 'running') return status
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+  throw new Error('scrape did not settle')
+}
+
+const rowsOf = path => readFileSync(path, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+
+test('a scrape batch writes one JSONL row per URL and never returns the data', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-scrape-'))
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { writeRoots: [dir] })
+    const session = await provider.open()
+    scrapeView(host, () => ({ title: 'extracted' }))
+    const out = join(dir, 'rows.jsonl')
+
+    const started = await provider.startScrape(session, {
+      urls: ['https://a.example/', 'https://b.example/'],
+      script: 'document.title',
+      outPath: out,
+    })
+    assert.equal(started.total, 2)
+    assert.equal(started.state, 'running', 'start returns before the batch finishes')
+    assert.equal(started.path, out)
+
+    const final = await settle(provider, started.id)
+    assert.equal(final.state, 'done')
+    assert.equal(final.done, 2)
+    assert.equal(final.failed, 0)
+    assert.deepEqual(rowsOf(out), [
+      { url: 'https://a.example/', ok: true, data: { title: 'extracted' } },
+      { url: 'https://b.example/', ok: true, data: { title: 'extracted' } },
+    ])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('one bad page does not end the batch', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-scrape-bad-'))
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { writeRoots: [dir] })
+    const session = await provider.open()
+    scrapeView(host, () => 'ok')
+    const out = join(dir, 'rows.jsonl')
+
+    // file:// is refused by URL admission before any navigation happens.
+    const started = await provider.startScrape(session, {
+      urls: ['file:///etc/passwd', 'https://good.example/'],
+      script: '1',
+      outPath: out,
+    })
+    const final = await settle(provider, started.id)
+    assert.equal(final.done, 2, 'the batch continued past the failure')
+    assert.equal(final.failed, 1)
+    const rows = rowsOf(out)
+    assert.equal(rows[0].ok, false)
+    assert.match(rows[0].error, /non-HTTP\(S\)/)
+    assert.deepEqual(rows[1], { url: 'https://good.example/', ok: true, data: 'ok' })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a stopped batch keeps the rows it already wrote', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-scrape-stop-'))
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { writeRoots: [dir] })
+    const session = await provider.open()
+    scrapeView(host, () => 'ok', 2)
+    const out = join(dir, 'rows.jsonl')
+    const urls = Array.from({ length: 60 }, (_, i) => `https://s${String(i)}.example/`)
+
+    const started = await provider.startScrape(session, { urls, script: '1', outPath: out })
+    // Let a few rows land, then stop mid-batch.
+    for (let i = 0; i < 200 && rowsOf(out).length < 3; i += 1) await new Promise(resolve => setTimeout(resolve, 5))
+    const stopped = await provider.stopScrape(started.id)
+    assert.equal(stopped.state, 'stopped')
+    const final = await settle(provider, started.id)
+    assert.equal(final.state, 'stopped')
+    assert.ok(final.done < urls.length, 'the batch did not run to the end')
+    assert.equal(rowsOf(out).length, final.done, 'the file holds exactly the rows it managed')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('scrape rejects an empty batch, an unknown id, and a path outside the write roots', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-scrape-guard-'))
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { writeRoots: [join(dir, 'allowed')] })
+    const session = await provider.open()
+    await assert.rejects(
+      () => provider.startScrape(session, { urls: [], script: '1', outPath: join(dir, 'x.jsonl') }),
+      error => { assert.equal(error.code, 'BROWSER_SCRAPE_EMPTY'); return true },
+    )
+    await assert.rejects(
+      () => provider.startScrape(session, { urls: ['https://a.example/'], script: '1', outPath: join(dir, 'x.jsonl') }),
+      error => { assert.equal(error.code, 'BROWSER_WRITE_PATH_DENIED'); return true },
+    )
+    await assert.rejects(
+      () => provider.scrapeStatus('scrape:nope'),
+      error => { assert.equal(error.code, 'BROWSER_SCRAPE_UNKNOWN'); return true },
     )
   } finally {
     rmSync(dir, { recursive: true, force: true })

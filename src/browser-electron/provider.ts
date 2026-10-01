@@ -8,7 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import type {
   BrowserChallenge,
   BrowserClearAuthRequest,
@@ -29,6 +29,8 @@ import type {
   BrowserPressKeyRequest,
   BrowserProvider,
   BrowserRefRequest,
+  BrowserScrapeRequest,
+  BrowserScrapeStatus,
   BrowserScrollIntoViewRequest,
   BrowserScrollRequest,
   BrowserScrollResult,
@@ -391,6 +393,47 @@ const SNAPSHOT_LABEL_MAX = 120
 /** An input dispatch must not outlive this: a blocked renderer never acknowledges. */
 const INPUT_DISPATCH_TIMEOUT_MS = 15_000
 
+/** Mutable progress for one background scrape batch. */
+interface ScrapeJob {
+  readonly id: string
+  readonly session: BrowserSessionId
+  readonly path: string
+  state: 'running' | 'done' | 'stopped'
+  readonly total: number
+  done: number
+  failed: number
+  error?: string
+}
+
+/** The immutable view of a job the seam hands out. */
+function scrapeStatusOf(job: ScrapeJob): BrowserScrapeStatus {
+  return {
+    id: job.id,
+    state: job.state,
+    total: job.total,
+    done: job.done,
+    failed: job.failed,
+    path: job.path,
+    ...job.error === undefined ? {} : { error: job.error },
+  }
+}
+
+/**
+ * One JSONL row. A page can return a value JSON cannot carry (a circular object,
+ * a BigInt); that must not kill a batch that has already written hundreds of rows.
+ */
+function scrapeRow(row: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(row) + '\n'
+  } catch (error) {
+    return JSON.stringify({
+      url: row.url,
+      ok: false,
+      error: `unserializable result: ${String((error as Error)?.message ?? error)}`,
+    }) + '\n'
+  }
+}
+
 /** Whether one entry of a cookie export can be handed to cookies.set. */
 function isExportedCookie(value: unknown): value is ExportedCookie {
   if (typeof value !== 'object' || value === null) return false
@@ -443,6 +486,8 @@ export class ElectronBrowserProvider implements BrowserProvider {
   private readonly contentMaxChars: number
   private readonly writeRoots: readonly string[]
   private readonly readRoots: readonly string[]
+  /** Background scrape batches, keyed by id; rows live on disk, not here. */
+  private readonly scrapes = new Map<string, ScrapeJob>()
 
   constructor(
     private readonly host: ElectronBrowserViewHost,
@@ -1490,6 +1535,98 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const restored = await withTimeout(host.restoreAuth(cookies), timeoutMs, undefined, `browser: auth restore timed out after ${timeoutMs}ms`)
     this.record(s, 'restoreAuth', { count: cookies.length }, true, { result: `${restored} cookies` })
     return restored
+  }
+
+  /**
+   * Start a background scrape batch.
+   *
+   * It runs detached on purpose: one tool call has a ~60s budget while a large
+   * batch takes minutes. Progress is polled with scrapeStatus, and each row is
+   * appended the moment it is produced, so a stopped or interrupted batch keeps
+   * everything it managed. `outPath` is write-guarded like any other browser
+   * write, and truncated up front so a re-run never mixes two batches.
+   */
+  async startScrape(session: BrowserSessionId, request: BrowserScrapeRequest): Promise<BrowserScrapeStatus> {
+    const s = this.session(session)
+    const urls = request.urls.filter(url => typeof url === 'string' && url.trim() !== '')
+    if (urls.length === 0) {
+      throw new BrowserError('browser: scrape needs at least one URL', 'BROWSER_SCRAPE_EMPTY')
+    }
+    if (typeof request.script !== 'string' || request.script.trim() === '') {
+      throw new BrowserError('browser: scrape needs an extraction script', 'BROWSER_SCRAPE_EMPTY')
+    }
+    const target = resolveWritePath(request.outPath, this.writeRoots)
+    writeFileSync(target, '')
+    const job: ScrapeJob = {
+      id: `scrape:${randomUUID()}`,
+      session: s.id,
+      path: target,
+      state: 'running',
+      total: urls.length,
+      done: 0,
+      failed: 0,
+    }
+    this.scrapes.set(job.id, job)
+    void this.runScrape(job, urls, request).catch(error => {
+      job.state = 'done'
+      job.error = String((error as Error)?.message ?? error)
+    })
+    this.record(s, 'scrape', { total: urls.length }, true, { result: `${urls.length} urls` })
+    return scrapeStatusOf(job)
+  }
+
+  /** Progress of one batch. */
+  async scrapeStatus(id: string): Promise<BrowserScrapeStatus> {
+    return scrapeStatusOf(this.scrapeJob(id))
+  }
+
+  /** Ask a running batch to stop; rows already written stay. */
+  async stopScrape(id: string): Promise<BrowserScrapeStatus> {
+    const job = this.scrapeJob(id)
+    if (job.state === 'running') job.state = 'stopped'
+    return scrapeStatusOf(job)
+  }
+
+  /** Every batch this process knows about, oldest first. */
+  async listScrapes(): Promise<readonly BrowserScrapeStatus[]> {
+    return [...this.scrapes.values()].map(scrapeStatusOf)
+  }
+
+  private scrapeJob(id: string): ScrapeJob {
+    const job = this.scrapes.get(id)
+    if (job === undefined) {
+      throw new BrowserError(`browser: unknown scrape ${id}`, 'BROWSER_SCRAPE_UNKNOWN')
+    }
+    return job
+  }
+
+  /** Visit each URL once, appending one JSONL row per page. */
+  private async runScrape(job: ScrapeJob, urls: readonly string[], request: BrowserScrapeRequest): Promise<void> {
+    const perUrl = request.timeoutMs ?? 30_000
+    for (const url of urls) {
+      if (job.state !== 'running') return
+      let row: Record<string, unknown>
+      try {
+        await this.navigate(job.session, { url })
+        if (request.waitFor !== undefined) {
+          await this.waitForElement(job.session, { selector: request.waitFor, timeoutMs: perUrl })
+        }
+        const result = await this.execute(job.session, { script: request.script, timeoutMs: perUrl })
+        if (result.ok) {
+          row = { url, ok: true, data: result.value }
+        } else {
+          job.failed += 1
+          row = { url, ok: false, error: result.exception }
+        }
+      } catch (error) {
+        // One bad page must not end the batch: record it and keep going.
+        job.failed += 1
+        row = { url, ok: false, error: String((error as Error)?.message ?? error) }
+      }
+      appendFileSync(job.path, scrapeRow(row))
+      job.done += 1
+    }
+    job.state = 'done'
   }
 
   /** Capture the current page, optionally full-page. PNG only (CDP JPEG hangs on Electron 43). */

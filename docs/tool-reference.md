@@ -1,6 +1,6 @@
 # 工具参考
 
-全部 35 个 `browser_*` 工具。守卫列:✅ 表示该动作受 `browser_restrict` 白名单约束(白名单**按调用任务隔离**,一个任务的规则不影响其它任务);只读工具永不拦截。
+全部 36 个 `browser_*` 工具。守卫列:✅ 表示该动作受 `browser_restrict` 白名单约束(白名单**按调用任务隔离**,一个任务的规则不影响其它任务);只读工具永不拦截。
 
 ## 页面与导航
 
@@ -60,6 +60,12 @@
 | --- | --- | --- | --- | --- |
 | `browser_auth` | `action`(flush/restore/clear,必填), `cookies?`, `file?`, `domain?`, `name?`, `all?` | `{ cookies[]? / restored? / failed? / removed? , names[]? }` | ✅ | 导出/恢复/清理 cookie(自托管可用);flush 返回列表,restore 写回,clear 按 domain(含子域)与/或 name 精确删除,未限定范围时必须显式 `all: true` |
 | `browser_restrict` | `allowed?` | `{ restrictedTo[] }` | – | 设置**本任务**的动作白名单;空列表解除本任务的限制;未知工具名报错 |
+
+## 批量抓取
+
+| 工具 | 参数 | 输出 | 守卫 | 说明 |
+| --- | --- | --- | --- | --- |
+| `browser_scrape` | `action?`(start/status/stop/list), `urls?`, `script?`, `outPath?`, `waitFor?`, `timeoutMs?`, `id?` | `{ id?, state?, total?, done?, failed?, path?, error?, jobs[]? }` | ✅ | 后台批量访问 URL,把**每页一行 JSON** 追加到文件,结果**不经模型往返**——一千条与一条的 token 成本相同。`action=start` 立即返回,用 `action=status` 轮询。每行是 `{ url, ok, data }` 或 `{ url, ok, error }`,**产生即落盘**,所以 `stop` 或中断都保留已抓到的行;单页失败不终止整批(计入 `failed`)。`outPath` 受 `writeRoots` 限制并在开始时截断。批次占用该任务的当前标签页,运行期间可见页面会随之前进。
 
 ## 截图
 

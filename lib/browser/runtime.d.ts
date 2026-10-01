@@ -8,9 +8,9 @@
  */
 import { Context, Service } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import type { BrowserClickRequest, BrowserContentRequest, BrowserHandoffState, BrowserContentResult, BrowserDoubleClickRequest, BrowserDownloadRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserNavigateRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserProvider, BrowserRefRequest, BrowserScreenshotRequest, BrowserScreenshotResult, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTaskInfo, BrowserTaskUpdate, BrowserTab, BrowserTypeRequest, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, BrowserChallenge, ExportedCookie } from './types.ts';
+import type { BrowserClickRequest, BrowserContentRequest, BrowserHandoffState, BrowserContentResult, BrowserDoubleClickRequest, BrowserDownloadRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserHoverRequest, BrowserNavigateRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserClearAuthRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserClearAuthResult, BrowserProvider, BrowserRefRequest, BrowserScreenshotRequest, BrowserScreenshotResult, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTaskInfo, BrowserTaskUpdate, BrowserTab, BrowserTypeRequest, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, BrowserChallenge, ExportedCookie } from './types.ts';
 export { BrowserError, } from './types.ts';
-export type { BrowserChallenge, BrowserClickRequest, BrowserContentFormat, BrowserControlOwner, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserDownloadRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillField, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserHoverRequest, BrowserNavigateRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserProvider, BrowserRefRequest, BrowserScreenshotRequest, BrowserScreenshotResult, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotElement, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTaskInfo, BrowserTaskStatus, BrowserTaskUpdate, BrowserTab, BrowserTypeRequest, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie, } from './types.ts';
+export type { BrowserChallenge, BrowserClickRequest, BrowserContentFormat, BrowserControlOwner, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserDownloadRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillField, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserHoverRequest, BrowserNavigateRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserClearAuthRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserClearAuthResult, BrowserProvider, BrowserRefRequest, BrowserScreenshotRequest, BrowserScreenshotResult, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotElement, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTaskInfo, BrowserTaskStatus, BrowserTaskUpdate, BrowserTab, BrowserTypeRequest, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie, } from './types.ts';
 declare module '@deepseek-ai/cordis' {
     interface Context {
         browser: BrowserRuntime;
@@ -123,6 +123,14 @@ export declare class BrowserRuntime extends Service {
         restored: number;
         failed: number;
     }>;
+    /** Start a background scrape batch through the provider. */
+    startScrape(session: BrowserSessionId, request: BrowserScrapeRequest): Promise<BrowserScrapeStatus>;
+    /** Progress of one scrape batch through the provider. */
+    scrapeStatus(id: string): Promise<BrowserScrapeStatus>;
+    /** Ask a running scrape batch to stop through the provider. */
+    stopScrape(id: string): Promise<BrowserScrapeStatus>;
+    /** Every scrape batch the provider knows about. */
+    listScrapes(): Promise<readonly BrowserScrapeStatus[]>;
     /** Remove cookies for one site scope through the provider. */
     clearAuth(session: BrowserSessionId, request: BrowserClearAuthRequest): Promise<BrowserClearAuthResult>;
     /** Set the session's browser task label through the selected provider. */

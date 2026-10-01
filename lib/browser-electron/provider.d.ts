@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser-plus/browser-electron
  */
-import type { BrowserChallenge, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserContentRequest, BrowserContentResult, BrowserDoubleClickRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserHoverRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -184,6 +184,8 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     private readonly contentMaxChars;
     private readonly writeRoots;
     private readonly readRoots;
+    /** Background scrape batches, keyed by id; rows live on disk, not here. */
+    private readonly scrapes;
     constructor(host: ElectronBrowserViewHost, config?: ElectronBrowserProviderConfig);
     /**
      * Usable whenever the host can create views. A host that exposes a local
@@ -333,6 +335,25 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     }>;
     /** Import cookies into the session (restore login state). Self-hosted only. */
     restoreAuth(session: BrowserSessionId, cookies: readonly ExportedCookie[]): Promise<number>;
+    /**
+     * Start a background scrape batch.
+     *
+     * It runs detached on purpose: one tool call has a ~60s budget while a large
+     * batch takes minutes. Progress is polled with scrapeStatus, and each row is
+     * appended the moment it is produced, so a stopped or interrupted batch keeps
+     * everything it managed. `outPath` is write-guarded like any other browser
+     * write, and truncated up front so a re-run never mixes two batches.
+     */
+    startScrape(session: BrowserSessionId, request: BrowserScrapeRequest): Promise<BrowserScrapeStatus>;
+    /** Progress of one batch. */
+    scrapeStatus(id: string): Promise<BrowserScrapeStatus>;
+    /** Ask a running batch to stop; rows already written stay. */
+    stopScrape(id: string): Promise<BrowserScrapeStatus>;
+    /** Every batch this process knows about, oldest first. */
+    listScrapes(): Promise<readonly BrowserScrapeStatus[]>;
+    private scrapeJob;
+    /** Visit each URL once, appending one JSONL row per page. */
+    private runScrape;
     /** Capture the current page, optionally full-page. PNG only (CDP JPEG hangs on Electron 43). */
     screenshot(session: BrowserSessionId, request?: {
         readonly fullPage?: boolean;

@@ -241,6 +241,39 @@ export type BrowserExecuteResult = {
     readonly exception: string;
 };
 /**
+ * A background scrape batch. The point is that results never travel back
+ * through the model: each page appends one JSON line to `outPath`, so a batch
+ * of thousands costs the same number of tokens as a batch of one.
+ */
+export interface BrowserScrapeRequest {
+    /** URLs to visit, in order. */
+    readonly urls: readonly string[];
+    /**
+     * Expression evaluated on each page once it is ready. Its JSON value becomes
+     * the record's `data`; an async IIFE is fine, the evaluation awaits promises.
+     */
+    readonly script: string;
+    /** JSONL destination; must resolve inside the browser-electron write roots. */
+    readonly outPath: string;
+    /** Optional CSS selector awaited on each page before the script runs. */
+    readonly waitFor?: string;
+    /** Per-URL budget in ms for the wait and the extraction. Default 30000. */
+    readonly timeoutMs?: number;
+}
+/** Progress of one scrape batch. The rows themselves live in the file. */
+export interface BrowserScrapeStatus {
+    readonly id: string;
+    /** `stopped` means it was asked to stop; rows already written are kept. */
+    readonly state: 'running' | 'done' | 'stopped';
+    readonly total: number;
+    readonly done: number;
+    /** Pages whose navigation or extraction failed; they still get a row. */
+    readonly failed: number;
+    readonly path: string;
+    /** Set when the whole batch aborted for a reason other than a page error. */
+    readonly error?: string;
+}
+/**
  * One interactive element in a snapshot, with a stable reference number the
  * tool layer (and the model) can cite to target the element.
  */
@@ -463,6 +496,14 @@ export interface BrowserProvider {
         readonly restored: number;
         readonly failed: number;
     }>;
+    /** Start a background scrape batch; it writes its rows itself. */
+    startScrape(session: BrowserSessionId, request: BrowserScrapeRequest): Promise<BrowserScrapeStatus>;
+    /** Progress of one batch. */
+    scrapeStatus(id: string): Promise<BrowserScrapeStatus>;
+    /** Ask a running batch to stop; rows already written are kept. */
+    stopScrape(id: string): Promise<BrowserScrapeStatus>;
+    /** Every batch this process knows about, oldest first. */
+    listScrapes(): Promise<readonly BrowserScrapeStatus[]>;
     /** Remove cookies for a site scope; returns how many went and their names. */
     clearAuth(session: BrowserSessionId, request: BrowserClearAuthRequest): Promise<BrowserClearAuthResult>;
     /** Return the session's chronological operation log. */

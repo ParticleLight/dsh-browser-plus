@@ -27,6 +27,8 @@ import type {
   BrowserOpenRequest,
   BrowserPressKeyRequest,
   BrowserClearAuthRequest,
+  BrowserScrapeRequest,
+  BrowserScrapeStatus,
   BrowserClearAuthResult,
   BrowserProvider,
   BrowserRefRequest,
@@ -76,6 +78,8 @@ export type {
   BrowserOpenRequest,
   BrowserPressKeyRequest,
   BrowserClearAuthRequest,
+  BrowserScrapeRequest,
+  BrowserScrapeStatus,
   BrowserClearAuthResult,
   BrowserProvider,
   BrowserRefRequest,
@@ -351,6 +355,26 @@ export class BrowserRuntime extends Service {
   /** Import cookies from a JSON export on disk through the provider. */
   async importAuth(session: BrowserSessionId, path: string): Promise<{ restored: number; failed: number }> {
     return this.resolveProvider().importAuth(session, path)
+  }
+
+  /** Start a background scrape batch through the provider. */
+  async startScrape(session: BrowserSessionId, request: BrowserScrapeRequest): Promise<BrowserScrapeStatus> {
+    return this.resolveProvider().startScrape(session, request)
+  }
+
+  /** Progress of one scrape batch through the provider. */
+  async scrapeStatus(id: string): Promise<BrowserScrapeStatus> {
+    return this.resolveProvider().scrapeStatus(id)
+  }
+
+  /** Ask a running scrape batch to stop through the provider. */
+  async stopScrape(id: string): Promise<BrowserScrapeStatus> {
+    return this.resolveProvider().stopScrape(id)
+  }
+
+  /** Every scrape batch the provider knows about. */
+  async listScrapes(): Promise<readonly BrowserScrapeStatus[]> {
+    return this.resolveProvider().listScrapes()
   }
 
   /** Remove cookies for one site scope through the provider. */

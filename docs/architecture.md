@@ -44,7 +44,7 @@ agent (browser_* 工具)
 
 ### 工具层(`src/tool-browser/`)
 
-35 个 `browser_*` 工具,按**调用方任务**(`exec.agent.id`)维护独立浏览器会话:
+36 个 `browser_*` 工具,按**调用方任务**(`exec.agent.id`)维护独立浏览器会话:
 
 - 会话缓存 `sessionsByTask`:同一任务复用同一会话,并发首开去重;
 - 变更型调用经过每任务 FIFO 操作通道;相同 in-flight snapshot/content/无落盘截图会合并，避免重复 CDP 与渲染工作;

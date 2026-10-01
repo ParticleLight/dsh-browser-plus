@@ -1542,6 +1542,74 @@ export function apply(ctx: Context, config: Config = {}): void {
       return { restored }
     },
   }))
+
+  ctx.tools.register(defineTool({
+    name: 'browser_scrape',
+    description: 'Visit many URLs in the background and append one JSON line per page to a file, so the results never travel back through the model: a batch of a thousand costs the same number of tokens as a batch of one. Start with action=start, then poll action=status. Each row is { url, ok, data } or { url, ok, error }. Rows are appended the moment they are produced, so a stopped batch keeps everything it managed. The batch drives the task\'s active tab, so the visible page changes while it runs.',
+    parameters: {
+      action: { type: 'string', enum: ['start', 'status', 'stop', 'list'], description: 'start (default) begins a batch; status and stop need id; list shows every batch this process knows.' },
+      urls: { type: 'array', items: { type: 'string' }, description: 'start: URLs to visit, in order.' },
+      script: { type: 'string', description: 'start: expression evaluated on each page once it is ready; its JSON value becomes the row\'s data. An async IIFE is fine (promises are awaited).' },
+      outPath: { type: 'string', description: 'start: JSONL destination, inside browser-electron.writeRoots. Truncated when the batch starts.' },
+      waitFor: { type: 'string', description: 'start: optional CSS selector awaited on each page before the script runs.' },
+      timeoutMs: { type: 'number', description: 'start: per-URL budget in ms for the wait and the extraction (default 30000).' },
+      id: { type: 'string', description: 'status/stop: the batch id returned by start.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string' },
+          state: { type: 'string' },
+          total: { type: 'number' },
+          done: { type: 'number' },
+          failed: { type: 'number' },
+          path: { type: 'string' },
+          error: { type: 'string' },
+          jobs: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        },
+      },
+      render: (_args, value) => {
+        if (Array.isArray(value.jobs)) {
+          return [{ type: 'text', text: value.jobs.length === 0 ? 'No scrape batches.' : `${value.jobs.length} scrape batch(es).` }]
+        }
+        const parts = [`Scrape ${value.state}: ${value.done}/${value.total} rows`]
+        if (typeof value.failed === 'number' && value.failed > 0) parts.push(`${value.failed} failed`)
+        if (typeof value.path === 'string') parts.push(value.path)
+        if (typeof value.error === 'string') parts.push(`error: ${value.error}`)
+        return [{ type: 'text', text: parts.join(' — ') + '.' }]
+      },
+    },
+    timeoutMs,
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      assertAllowed('browser_scrape', exec)
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const action = typeof args.action === 'string' ? args.action : 'start'
+      if (action === 'list') {
+        return { jobs: (await browser.listScrapes()).map(job => ({ ...job })) as never }
+      }
+      if (action === 'status' || action === 'stop') {
+        const id = typeof args.id === 'string' && args.id !== '' ? args.id : undefined
+        if (id === undefined) throw new Error(`browser_scrape ${action} requires id`)
+        const status = action === 'stop' ? await browser.stopScrape(id) : await browser.scrapeStatus(id)
+        return { ...status }
+      }
+      const outPath = typeof args.outPath === 'string' && args.outPath !== '' ? args.outPath : undefined
+      if (outPath === undefined) throw new Error('browser_scrape start requires outPath')
+      const session = await ensureSession(browser, taskKey(exec))
+      const status = await browser.startScrape(session, {
+        urls: (args.urls ?? []) as string[],
+        script: typeof args.script === 'string' ? args.script : '',
+        outPath,
+        ...args.waitFor !== undefined ? { waitFor: args.waitFor } : {},
+        ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
+      })
+      return { ...status }
+    },
+  }))
 }
 
 /**
