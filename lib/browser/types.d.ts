@@ -59,6 +59,10 @@ export interface BrowserPointerTarget {
     readonly selector?: string;
     /** Visible text, aria-label or value to match (case-insensitive); the innermost visible match wins. */
     readonly text?: string;
+    /** Mouse button. Default left; right opens the page's own context menu. */
+    readonly button?: 'left' | 'right' | 'middle';
+    /** Modifiers held during the action: ctrl-click opens a link in a new tab, shift extends a selection. */
+    readonly modifiers?: readonly ('alt' | 'ctrl' | 'meta' | 'shift')[];
 }
 /** Where a pointer action actually landed. */
 export interface BrowserPointerResult {

@@ -136,11 +136,13 @@ export interface CdpNavigateParams {
  * CDP method/params for `Input.dispatchMouseEvent` (a click press+release pair).
  */
 export interface CdpMouseParams {
-    readonly type: 'mousePressed' | 'mouseReleased';
+    readonly type: 'mousePressed' | 'mouseReleased' | 'mouseMoved';
     readonly x: number;
     readonly y: number;
-    readonly button: 'left';
-    readonly clickCount: number;
+    readonly button: 'left' | 'right' | 'middle' | 'none';
+    readonly clickCount?: number;
+    /** CDP modifier bitmask (Alt 1, Ctrl 2, Meta 4, Shift 8); see modifierMask. */
+    readonly modifiers?: number;
 }
 /** CDP method/params for `Input.insertText`. */
 export interface CdpInsertTextParams {

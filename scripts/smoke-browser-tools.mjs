@@ -95,6 +95,28 @@ try {
     return { exported: exported.length, probe: probe(), afterClear, restored: imported.restored, failed: imported.failed, afterImport }
   })
   await check('chromeWorld config reachable', async () => (await provider.listTabs(session)).length)
+await check('right-click reaches the page context menu', async () => {
+  await provider.execute(session, { script: `(() => {
+    window.__ctx = []
+    document.addEventListener('contextmenu', event => window.__ctx.push('button:' + String(event.button)), { once: true })
+    return 'armed'
+  })()` })
+  await provider.click(session, { selector: 'body', button: 'right' })
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const seen = await provider.execute(session, { script: 'window.__ctx.join(",")' })
+  return seen.value
+})
+await check('modifiers reach the page', async () => {
+  await provider.execute(session, { script: `(() => {
+    window.__mods = []
+    document.addEventListener('mousedown', event => window.__mods.push(String(event.shiftKey) + '/' + String(event.ctrlKey)), { once: true })
+    return 'armed'
+  })()` })
+  await provider.click(session, { selector: 'body', modifiers: ['shift', 'ctrl'] })
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const seen = await provider.execute(session, { script: 'window.__mods.join(",")' })
+  return seen.value
+})
 // --- the tool layer, over the same real provider -------------------------
 // The unit suite drives the tools against a fake browser, and the checks above
 // drive the provider directly. This is the only place the two meet: tool schema

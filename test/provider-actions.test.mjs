@@ -753,3 +753,26 @@ test('the in-page resolver script is valid JavaScript and cannot be broken out o
   assert.doesNotThrow(() => new Function(`return ${hostile}`))
   assert.doesNotMatch(hostile, /__pwned = 1; \/\/$/)
 })
+test('a click can use another mouse button or hold modifiers', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const sent = []
+  host.views[0].sendCommand = async (method, params) => {
+    if (method !== 'Runtime.evaluate') sent.push({ method, params })
+    return { result: { value: null } }
+  }
+  await provider.click(session, { x: 10, y: 20, button: 'right' })
+  await provider.click(session, { x: 10, y: 20, modifiers: ['ctrl', 'shift'] })
+  await provider.click(session, { x: 10, y: 20, modifiers: ['alt', 'ctrl', 'meta', 'shift'] })
+  const presses = sent.filter(entry => entry.method === 'Input.dispatchMouseEvent' && entry.params?.type === 'mousePressed')
+  assert.equal(presses.length, 3)
+  assert.equal(presses[0].params.button, 'right')
+  assert.equal(presses[0].params.modifiers, 0, 'no modifiers is the zero mask')
+  assert.equal(presses[1].params.button, 'left', 'the default button stays left')
+  assert.equal(presses[1].params.modifiers, 2 | 8, 'ctrl is 2 and shift is 8')
+  assert.equal(presses[2].params.modifiers, 1 | 2 | 4 | 8)
+  // The release must carry the same button, or the page sees a stuck press.
+  const releases = sent.filter(entry => entry.method === 'Input.dispatchMouseEvent' && entry.params?.type === 'mouseReleased')
+  assert.deepEqual(releases.map(entry => entry.params.button), ['right', 'left', 'left'])
+})

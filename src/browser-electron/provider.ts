@@ -252,11 +252,13 @@ export interface CdpNavigateParams {
  * CDP method/params for `Input.dispatchMouseEvent` (a click press+release pair).
  */
 export interface CdpMouseParams {
-  readonly type: 'mousePressed' | 'mouseReleased'
+  readonly type: 'mousePressed' | 'mouseReleased' | 'mouseMoved'
   readonly x: number
   readonly y: number
-  readonly button: 'left'
-  readonly clickCount: number
+  readonly button: 'left' | 'right' | 'middle' | 'none'
+  readonly clickCount?: number
+  /** CDP modifier bitmask (Alt 1, Ctrl 2, Meta 4, Shift 8); see modifierMask. */
+  readonly modifiers?: number
 }
 
 /** CDP method/params for `Input.insertText`. */
@@ -1079,9 +1081,13 @@ export class ElectronBrowserProvider implements BrowserProvider {
     await this.drainDialog(s, handle)
     const point = await resolvePointerTarget(handle, target, signal)
     await suppressAutoUserControl(handle, signal)
-    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams, signal)
-    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 } satisfies CdpMouseParams, signal)
-    this.record(s, 'click', { x: point.x, y: point.y, ...point.target === undefined ? {} : { target: point.target } }, true)
+    // Electron installs no native context menu, so a right-click reaches the
+    // page's own handler — which is exactly what an agent wants to drive.
+    const button = target.button ?? 'left'
+    const modifiers = modifierMask(target.modifiers)
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button, clickCount: 1, modifiers } satisfies CdpMouseParams, signal)
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button, clickCount: 1, modifiers } satisfies CdpMouseParams, signal)
+    this.record(s, 'click', { x: point.x, y: point.y, ...point.target === undefined ? {} : { target: point.target }, button, ...target.modifiers !== undefined && target.modifiers.length > 0 ? { modifiers: target.modifiers } : {} }, true)
     return point
   }
 
@@ -1093,9 +1099,11 @@ export class ElectronBrowserProvider implements BrowserProvider {
     await this.drainDialog(s, handle)
     const point = await resolvePointerTarget(handle, target, signal)
     await suppressAutoUserControl(handle, signal)
-    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 2 } satisfies CdpMouseParams, signal)
-    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 2 } satisfies CdpMouseParams, signal)
-    this.record(s, 'doubleClick', { x: point.x, y: point.y, ...point.target === undefined ? {} : { target: point.target } }, true)
+    const button = target.button ?? 'left'
+    const modifiers = modifierMask(target.modifiers)
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button, clickCount: 2, modifiers } satisfies CdpMouseParams, signal)
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button, clickCount: 2, modifiers } satisfies CdpMouseParams, signal)
+    this.record(s, 'doubleClick', { x: point.x, y: point.y, ...point.target === undefined ? {} : { target: point.target }, button, ...target.modifiers !== undefined && target.modifiers.length > 0 ? { modifiers: target.modifiers } : {} }, true)
     return point
   }
 
@@ -1106,7 +1114,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     signal?.throwIfAborted()
     await this.drainDialog(s, handle)
     const point = await resolvePointerTarget(handle, target, signal)
-    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y, button: 'none' }, signal)
+    await this.dispatchInput(handle, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y, button: 'none', modifiers: modifierMask(target.modifiers) } satisfies CdpMouseParams, signal)
     this.record(s, 'hover', { x: point.x, y: point.y, ...point.target === undefined ? {} : { target: point.target } }, true)
     return point
   }

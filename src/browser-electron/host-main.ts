@@ -460,8 +460,8 @@ function redactTraceParams(action: string, params: Record<string, unknown>): Rec
     snapshot: [],
     // `target` is the description of the element the page itself matched, so it
     // carries nothing the page does not already know.
-    click: ['x', 'y', 'target'],
-    doubleClick: ['x', 'y', 'target'],
+    click: ['x', 'y', 'target', 'button', 'modifiers'],
+    doubleClick: ['x', 'y', 'target', 'button', 'modifiers'],
     hover: ['x', 'y', 'target'],
     scroll: ['deltaX', 'deltaY'],
     clickRef: ['snapshotId', 'ref'],

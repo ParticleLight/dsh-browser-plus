@@ -829,6 +829,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     parameters: {
       x: { type: 'number', description: 'Viewport x coordinate (CSS px). Give with y, or give selector/text instead.' },
       y: { type: 'number', description: 'Viewport y coordinate (CSS px).' },
+      button: { type: 'string', enum: ['left', 'right', 'middle'], description: 'Mouse button, default left. A right-click reaches the page own context-menu handler: Electron installs no native menu, so whatever the page shows is what you interact with next.' },
+      modifiers: { type: 'array', items: { type: 'string', enum: ['alt', 'ctrl', 'meta', 'shift'] }, description: 'Modifiers held during the action. ctrl/meta-click opens a link in a new tab (check browser_list_tabs afterwards); shift-click extends a selection.' },
       selector: { type: 'string', description: 'CSS selector to click instead of coordinates; the first visible match is used and scrolled into view.' },
       text: { type: 'string', description: 'Visible text (or aria-label/value, case-insensitive) to click instead of coordinates; the innermost visible match wins. Saves a browser_snapshot round-trip when you know the label.' },
     },
@@ -858,6 +860,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...args.y !== undefined ? { y: args.y } : {},
         ...args.selector !== undefined ? { selector: args.selector } : {},
         ...args.text !== undefined ? { text: args.text } : {},
+        ...args.button !== undefined ? { button: args.button as 'left' | 'right' | 'middle' } : {},
+        ...args.modifiers !== undefined ? { modifiers: args.modifiers as Array<'alt' | 'ctrl' | 'meta' | 'shift'> } : {},
       }
       const point = await withTaskAction(browser, taskKey(exec), 'click page', exec, session => browser.click(session, target, exec.signal))
       return { clicked: true, ...point }
@@ -870,6 +874,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     parameters: {
       x: { type: 'number', description: 'Viewport x coordinate (CSS px). Give with y, or give selector/text instead.' },
       y: { type: 'number', description: 'Viewport y coordinate (CSS px).' },
+      button: { type: 'string', enum: ['left', 'right', 'middle'], description: 'Mouse button, default left. A right-click reaches the page own context-menu handler: Electron installs no native menu, so whatever the page shows is what you interact with next.' },
+      modifiers: { type: 'array', items: { type: 'string', enum: ['alt', 'ctrl', 'meta', 'shift'] }, description: 'Modifiers held during the action. ctrl/meta-click opens a link in a new tab (check browser_list_tabs afterwards); shift-click extends a selection.' },
       selector: { type: 'string', description: 'CSS selector to double-click instead of coordinates; the first visible match is used and scrolled into view.' },
       text: { type: 'string', description: 'Visible text (or aria-label/value, case-insensitive) to double-click instead of coordinates; the innermost visible match wins. Saves a browser_snapshot round-trip when you know the label.' },
     },
@@ -899,6 +905,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...args.y !== undefined ? { y: args.y } : {},
         ...args.selector !== undefined ? { selector: args.selector } : {},
         ...args.text !== undefined ? { text: args.text } : {},
+        ...args.button !== undefined ? { button: args.button as 'left' | 'right' | 'middle' } : {},
+        ...args.modifiers !== undefined ? { modifiers: args.modifiers as Array<'alt' | 'ctrl' | 'meta' | 'shift'> } : {},
       }
       const point = await withTaskAction(browser, taskKey(exec), 'double-click page', exec, session => browser.doubleClick(session, target, exec.signal))
       return { clicked: true, ...point }
@@ -911,6 +919,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     parameters: {
       x: { type: 'number', description: 'Viewport x coordinate (CSS px). Give with y, or give selector/text instead.' },
       y: { type: 'number', description: 'Viewport y coordinate (CSS px).' },
+      button: { type: 'string', enum: ['left', 'right', 'middle'], description: 'Mouse button, default left. A right-click reaches the page own context-menu handler: Electron installs no native menu, so whatever the page shows is what you interact with next.' },
+      modifiers: { type: 'array', items: { type: 'string', enum: ['alt', 'ctrl', 'meta', 'shift'] }, description: 'Modifiers held during the action. ctrl/meta-click opens a link in a new tab (check browser_list_tabs afterwards); shift-click extends a selection.' },
       selector: { type: 'string', description: 'CSS selector to hover over instead of coordinates; the first visible match is used and scrolled into view.' },
       text: { type: 'string', description: 'Visible text (or aria-label/value, case-insensitive) to hover over instead of coordinates; the innermost visible match wins. Saves a browser_snapshot round-trip when you know the label.' },
     },
@@ -940,6 +950,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...args.y !== undefined ? { y: args.y } : {},
         ...args.selector !== undefined ? { selector: args.selector } : {},
         ...args.text !== undefined ? { text: args.text } : {},
+        ...args.button !== undefined ? { button: args.button as 'left' | 'right' | 'middle' } : {},
+        ...args.modifiers !== undefined ? { modifiers: args.modifiers as Array<'alt' | 'ctrl' | 'meta' | 'shift'> } : {},
       }
       const point = await withTaskAction(browser, taskKey(exec), 'hover page', exec, session => browser.hover(session, target, exec.signal))
       return { hovered: true, ...point }
