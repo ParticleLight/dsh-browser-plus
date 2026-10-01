@@ -232,6 +232,28 @@ test('the tab strip is the window frame: draggable, with room for the caption bu
   assert.match(script, /host\.dataset\.dshCaption = /, 'the chrome decides which side')
 })
 
+test('the address bar hides the scheme and shows a real security indicator', () => {
+  const script = buildPageChromeScript()
+  // Chrome drops the scheme while the omnibox is unfocused and restores the full
+  // URL when it is focused.
+  assert.match(script, /const prettifyAddress = href => href\.replace\(\/\^https\?:\[\/\]\[\/\]\/, ''\)/, 'the scheme is stripped')
+  assert.match(script, /address\.value = internal \? '' : prettifyAddress\(location\.href\)/, 'unfocused shows the pretty form')
+  assert.match(script, /address\.addEventListener\('focus', \(\) => \{ if \(!isInternalLocation\(\)\) address\.value = location\.href \}\)/, 'focus expands it')
+  assert.match(script, /address\.addEventListener\('blur', refreshAddress\)/, 'blur collapses it again')
+  // A padlock on an http page is a lie: the lock and the info glyph are both in
+  // the markup and CSS swaps them.
+  // Escaped quotes: the markup ships inside a JSON string.
+  assert.ok(
+    script.includes(String.raw`class=\"lock\"`) && script.includes(String.raw`class=\"info\"`),
+    'both glyphs ship',
+  )
+  assert.match(script, /#secIcon\.insecure \.lock \{ display:none; \}/)
+  assert.match(script, /#secIcon\.insecure \.info \{ display:block; \}/)
+  assert.match(script, /const insecure = !internal && location\.protocol !== 'https:'/)
+  assert.match(script, /secIcon\.classList\.toggle\('insecure', insecure\)/)
+  assert.match(script, /secIcon\.setAttribute\('aria-label', label\)/)
+})
+
 test('clicking the address bar selects it, without touching the focus event', () => {
   const script = buildPageChromeScript()
   // Chrome selects the whole omnibox on the first click, so typing replaces it.
