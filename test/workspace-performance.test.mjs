@@ -114,3 +114,13 @@ test('the chrome world travels to the child as an argument', async () => {
   assert.match(source, /this\.chromeWorld === 'isolated'/, 'and only for the opt-in mode')
   assert.match(source, /chromeWorld\?: 'main' \| 'isolated'/, 'the option is typed')
 })
+test('a fresh view commits a dark start page instead of staying blank', async () => {
+  const source = await readFile(hostPath, 'utf8')
+  // A WebContentsView with no committed document paints white AND leaves CDP
+  // with no frame to evaluate against, so an un-navigated window made every
+  // browser_* call time out. The empty state is a real document for that reason.
+  assert.match(source, /const START_PAGE_URL = 'data:text\/html;charset=utf-8,' \+ encodeURIComponent\(START_PAGE_HTML\)/)
+  assert.match(source, /void view\.webContents\.loadURL\(START_PAGE_URL\)/, 'createView loads it')
+  assert.match(source, /backgroundColor: '#0e1218'/, 'the window frame is dark too')
+  assert.match(source, /START_PAGE_HTML[\s\S]{0,600}background:radial-gradient/, 'and the page itself is dark')
+})

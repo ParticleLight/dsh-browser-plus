@@ -2,6 +2,7 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **新增深色空状态页,并修复空白视图上所有操作超时**:新建的 `WebContentsView` 在首次导航前**没有提交任何文档** —— 既按默认白底渲染(和整套深色 UI 格格不入),又让 CDP **没有 frame 可 evaluate**,于是 `browser_execute`/`browser_snapshot`/`browser_content` 全部 30s 超时、`browser_screenshot` 直接报错。现在视图创建时立即加载一个惰性(无可交互元素)的深色空状态页,窗口也设了深色 `backgroundColor`。**两个症状是同一个根因**。
 - **修复写盘白名单默认值从未生效**:`entry.ts` 的 `writeRoots`/`readRoots` 声明为 `z.array(z.string())` 而没有默认值,而 schemastery 会把**缺省键物化成 `[]`**;`[]` 不是 nullish,于是 provider 的 `config.writeRoots ?? defaultWriteRoots()` **永远走不到默认分支** —— 结果是文档承诺的「默认 = 工作目录 + 系统临时目录」从来不成立,`browser_screenshot(savePath)` / `browser_download` / `browser_upload_file` 一律以「none configured」被拒。现在默认值在 **schema 层**物化,既让缺省等于文档默认值,又保住「显式 `[]` = 全禁」这个真实语义。
 - **可选:把注入 chrome 移进隔离世界**(`browser-electron.chromeWorld: isolated`,**默认仍是 main**)。开启后 chrome 经 `Page.createIsolatedWorld` 注入自己的 JS 世界,`Runtime.addBinding` 也用 `executionContextName` 限定在其中——被访问页面**读不到** `window.__dshTasks` / `window.__dshTrail` / `window.__dshBrowserTaskAction`,连「提前 hook JSON.stringify 偷 binding token」这条残留路径也一并消失。四条注入路径(挂载、bootstrap、patch、active 标记)统一走 `runChromeScript`,导航时丢弃旧 world 以便为新文档重建。**默认未切换**:该改动重写工具栏注入路径,必须在真实窗口按 `docs/SOAK-CHECKLIST.md` 第 8 节逐项验证后再考虑改默认值。
 - **下载改由子进程直接落盘**:此前子进程把整包 base64 塞进一行 JSON 回传,父进程再解码写盘——64MiB 的下载在 host→parent→disk 路径上要复制约 8 份(含 RPC 行缓冲)。现在子进程自己写文件、只回 `{ bytes }`,下载体**完全不再经过 RPC socket**,峰值内存与 `MAX_RPC_BUFFER_BYTES` 的压力同时消失。

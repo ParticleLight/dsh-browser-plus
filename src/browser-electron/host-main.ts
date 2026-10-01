@@ -136,6 +136,32 @@ const traces = new Map<string, unknown[]>()
 /** Last active flag pushed to each view's chrome, so unchanged views skip the IPC. */
 const chromeActiveApplied = new WeakMap<WebContentsView, boolean>()
 
+/**
+ * The empty state a fresh view shows before its first navigation. A
+ * WebContentsView with no committed document paints white AND leaves CDP with
+ * no frame to evaluate against, so an un-navigated window was both unpleasant
+ * and unusable — every browser_* call timed out on it.
+ */
+const START_PAGE_HTML = [
+  '<!doctype html><meta charset="utf-8"><title></title>',
+  '<style>',
+  'html,body{height:100%;margin:0}',
+  'body{display:flex;align-items:center;justify-content:center;text-align:center;',
+  'background:radial-gradient(120% 90% at 50% 0%,#182030 0%,#0e1218 62%,#0b0e13 100%);',
+  'color:#8b97a9;font:13px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;',
+  '-webkit-user-select:none;user-select:none}',
+  '.mark{font:600 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;',
+  'letter-spacing:.32em;color:#3f4a5c;margin-bottom:14px}',
+  '.sub{margin-top:6px;color:#5b6675;font-size:12px}',
+  '</style>',
+  '<div><div class="mark">DSH BROWSER</div>',
+  '<div>等待打开页面</div>',
+  '<div class="sub">在上方地址栏输入网址，或让 Agent 打开一个页面</div></div>',
+].join('')
+
+/** data: URL for that empty state; its opaque origin simply has no bookmarks. */
+const START_PAGE_URL = 'data:text/html;charset=utf-8,' + encodeURIComponent(START_PAGE_HTML)
+
 /** Latest unread JS dialog per view (auto-accepted; read by drainDialog). */
 const dialogLogs = new Map<string, unknown>()
 
@@ -176,6 +202,9 @@ function makeWindow(): BrowserWindow {
     height: 900,
     show: true,
     title: 'dsh-browser-plus',
+    // Matches the chrome's palette: the window frame and any not-yet-painted
+    // area are dark instead of the default white.
+    backgroundColor: '#0e1218',
     ...(icon === undefined ? {} : { icon }),
   })
   win.setMenu(null)
@@ -766,6 +795,11 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (visibleTaskKey === undefined) switchVisibleTask(taskKey)
         // Fire-and-forget chrome registration: chrome must never block first paint.
         void installPageChrome(view, viewId)
+        // Commit a document immediately. Until something is loaded the view has
+        // no frame, which is what made the empty window white and made every
+        // CDP call hang; the start page is inert (no interactive elements), so a
+        // snapshot of it is empty.
+        void view.webContents.loadURL(START_PAGE_URL).catch(() => undefined)
         pushVisibleChromeState()
         reply(msg.id, { ok: true })
         return
