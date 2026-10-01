@@ -53,6 +53,16 @@ export interface ChromeTabSummary {
   readonly title: string
   readonly url: string
   readonly active: boolean
+  /**
+   * The page's own favicon, re-encoded by the host as a small data: URL.
+   *
+   * The host fetches it through the view's own session and admits only a few
+   * raster types under a byte cap, so this never becomes a general-purpose
+   * network read. Like the title, it is visible to the page the chrome is
+   * injected into; a favicon is public artwork for a site the page could fetch
+   * itself, and the URL beside it is already reduced to an origin.
+   */
+  readonly favicon?: string
 }
 
 export interface ChromeWorkspaceState {

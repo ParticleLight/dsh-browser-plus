@@ -90,10 +90,34 @@ const AGENT_INPUT_SUPPRESSION_MS = 900
 export const ELECTRON_BROWSER_PROVIDER_ID = 'electron'
 
 /**
+ * One tab request raised by the injected chrome because a human used it.
+ *
+ * The host owns the pixels, the tab strip and the per-view secret, so it is the
+ * only party that can authenticate such a request; the provider owns the tab
+ * model, so it is the only party that may act on one. `tabId` is the host's own
+ * view id, which is also the provider's `ElectronViewHandle.id`, so no extra
+ * mapping table is needed.
+ */
+export interface ChromeHostEvent {
+  readonly type: 'new-tab' | 'close-tab' | 'activate-tab'
+  /** Task key of the chrome that raised it. */
+  readonly taskKey: string
+  /** Host view id of the tab; absent for `new-tab`. */
+  readonly tabId?: string
+}
+
+/**
  * The minimal Electron surface this provider needs. Implemented by the
  * desktop shell with a real `WebContentsView`; a fake implements it in tests.
  */
 export interface ElectronBrowserViewHost {
+  /**
+   * Subscribe to tab requests the host raises without being asked (a human
+   * clicking the chrome's own `+`, `×` or tab strip). Optional: a host whose
+   * chrome cannot speak first simply never raises one.
+   * @param listener - invoked once per authenticated chrome request.
+   */
+  onChromeEvent?(listener: (event: ChromeHostEvent) => void): void
   /**
    * Create a new browser view and return a handle to its webContents-like
    * surface. `key` (default 'default') identifies an isolated browser task in
@@ -568,6 +592,47 @@ export class ElectronBrowserProvider implements BrowserProvider {
     this.contentMaxChars = config.contentMaxChars ?? 100_000
     this.writeRoots = config.writeRoots ?? defaultWriteRoots()
     this.readRoots = config.readRoots ?? defaultWriteRoots()
+    // A human clicking the injected chrome's own tabs is the one case where the
+    // host must tell the provider something: the host can show a different view,
+    // but only the provider owns the session's tab list and active index.
+    this.host.onChromeEvent?.(event => this.handleChromeEvent(event))
+  }
+
+  /**
+   * Apply one authenticated chrome request to the session that owns its task.
+   *
+   * Every field is re-checked here: the host authenticates the sender, this
+   * method decides whether the request still makes sense against the live tab
+   * model. A request that resolves to nothing (a stale strip, a tab closed a
+   * moment ago, a task with no session) is dropped rather than thrown, because
+   * a human click must never surface as an error inside a running tool call.
+   */
+  private handleChromeEvent(event: ChromeHostEvent): void {
+    if (typeof event !== 'object' || event === null) return
+    if (typeof event.taskKey !== 'string' || event.taskKey === '') return
+    const sessionId = this.sessionsByTask.get(event.taskKey)
+    if (sessionId === undefined) return
+    const s = this.sessions.get(sessionId)
+    if (s === undefined) return
+    try {
+      if (event.type === 'new-tab') {
+        this.newTab(s)
+        return
+      }
+      if (typeof event.tabId !== 'string') return
+      const tab = s.tabs.find(candidate => candidate.handle.id === event.tabId)
+      if (tab === undefined) return
+      if (event.type === 'close-tab') {
+        void this.closeTab(sessionId, tab.id)
+        return
+      }
+      if (event.type === 'activate-tab') {
+        const index = s.tabs.indexOf(tab)
+        if (index >= 0) s.activeIndex = index
+      }
+    } catch {
+      // A chrome request is best-effort: never let one break the provider.
+    }
   }
 
   /**

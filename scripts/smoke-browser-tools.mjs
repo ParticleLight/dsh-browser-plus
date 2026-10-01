@@ -96,6 +96,35 @@ try {
     return { exported: exported.length, probe: probe(), afterClear, restored: imported.restored, failed: imported.failed, afterImport }
   })
   await check('chromeWorld config reachable', async () => (await provider.listTabs(session)).length)
+// The chrome lives in the page's closed shadow root, so the only honest way to
+// prove its + and × buttons work is to click where they are. That click travels
+// the whole chain: CDP -> page chrome -> host binding -> host -> provider event
+// -> tab model. The strip geometry is fixed (8px padding, 240px tabs, 2px gaps,
+// a 28px + button with a 4px left margin, 18px close buttons 10px from the tab
+// edge), so these candidates bracket the expected centres rather than betting
+// the whole check on one pixel.
+const CHROME_ROW_Y = 20
+await check('chrome + creates a provider tab', async () => {
+  const before = (await provider.listTabs(session)).length
+  for (const x of [258, 252, 266, 246]) {
+    await provider.click(session, { x, y: CHROME_ROW_Y })
+    await new Promise(resolve => setTimeout(resolve, 500))
+    const after = (await provider.listTabs(session)).length
+    if (after > before) return { before, after, x }
+  }
+  throw new Error('no tab was created: the + button was never hit (tabs=' + String(before) + ')')
+})
+await check('chrome x closes the tab it belongs to', async () => {
+  const before = (await provider.listTabs(session)).length
+  if (before < 2) throw new Error('needs two tabs to close one, has ' + String(before))
+  for (const x of [453, 447, 459, 441]) {
+    await provider.click(session, { x, y: CHROME_ROW_Y })
+    await new Promise(resolve => setTimeout(resolve, 500))
+    const after = (await provider.listTabs(session)).length
+    if (after < before) return { before, after, x }
+  }
+  throw new Error('no tab was closed: the × was never hit (tabs=' + String(before) + ')')
+})
 // The three checks below assert that the page RECEIVED the event. Resolution
 // alone is not a click: browser_click can resolve the right element, report
 // success, and still leave the page untouched.
@@ -205,7 +234,11 @@ await check('click_ref reaches the page', async () => {
     const button = document.createElement('button')
     button.id = '__ref_probe'
     button.textContent = 'Ref Probe'
-    button.style.cssText = 'position:fixed;left:60px;top:60px;width:140px;height:40px;z-index:2147483647'
+    // Deliberately BELOW the injected chrome (0-84px). A fixed probe at top:60
+    // sits under the toolbar, so the click lands on the chrome and this check
+    // would be measuring the occlusion instead of click_ref; the occlusion has
+    // its own check right below.
+    button.style.cssText = 'position:fixed;left:60px;top:200px;width:140px;height:40px;z-index:2147483647'
     document.body.appendChild(button)
     window.__ref = []
     button.addEventListener('mousedown', () => window.__ref.push('mousedown'), true)
@@ -221,6 +254,34 @@ await check('click_ref reaches the page', async () => {
   await provider.execute(session, { script: "document.getElementById('__ref_probe')?.remove()" })
   if (seen.value !== 'mousedown,click') throw new Error('the page saw ' + JSON.stringify(seen.value))
   return seen.value
+})
+// Characterisation of a known limitation, not an endorsement: the chrome is
+// injected INTO the page, so it covers the top 84 CSS pixels of the viewport and
+// a page's own position:fixed element there is both hidden and unreachable.
+// Shrinking the real viewport (chrome as its own WebContentsView) is what fixes
+// it. If this check ever starts failing, the occlusion is gone and this block
+// should be replaced by one that asserts the click DOES reach the page.
+await check('fixed element under the chrome is occluded (known)', async () => {
+  await provider.execute(session, { script: `(() => {
+    document.getElementById('__occl_probe')?.remove()
+    const button = document.createElement('button')
+    button.id = '__occl_probe'
+    button.textContent = 'Occluded Probe'
+    button.style.cssText = 'position:fixed;left:60px;top:60px;width:140px;height:40px;z-index:2147483647'
+    document.body.appendChild(button)
+    window.__occl = []
+    button.addEventListener('click', () => window.__occl.push('click'), true)
+    return 'armed'
+  })()` })
+  // Centre of the probe: (130, 80) -- inside the chrome band.
+  await provider.click(session, { x: 130, y: 80 })
+  await new Promise(resolve => setTimeout(resolve, 400))
+  const seen = await provider.execute(session, { script: 'window.__occl.join(",")' })
+  await provider.execute(session, { script: "document.getElementById('__occl_probe')?.remove()" })
+  if (seen.value !== '') {
+    throw new Error('the covered element received the click (' + JSON.stringify(seen.value) + '), so the chrome no longer occludes it')
+  }
+  return 'covered: the page saw nothing'
 })
 await check('double-click reaches the page', async () => {
   await provider.execute(session, { script: `(() => {

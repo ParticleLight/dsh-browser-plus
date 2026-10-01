@@ -2,3 +2,7 @@ node_modules/
 .superpowers/
 *.log
 *.tgz
+# Local verification artefacts: window captures and crops from scripts/*.ps1.
+.tmp/
+# Workspace memory: shared by every session in this checkout, never shipped.
+AGENTS.md

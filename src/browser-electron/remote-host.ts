@@ -22,7 +22,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createServer, type Server, type Socket } from 'node:net'
 import { fileURLToPath } from 'node:url'
-import type { ElectronBrowserViewHost, ElectronViewHandle } from './provider.ts'
+import type { ChromeHostEvent, ElectronBrowserViewHost, ElectronViewHandle } from './provider.ts'
 import { BrowserError } from '../browser/types.ts'
 import type { BrowserTaskInfo, BrowserTaskUpdate, ExportedCookie } from '../browser/types.ts'
 
@@ -261,6 +261,12 @@ class ElectronChildClient {
   private readonly pending = new Map<number, Pending>()
   private readonly chromeWorld: 'main' | 'isolated' | undefined
   private readonly fingerprintArgs: readonly string[]
+  /**
+   * Receives messages the child sends without a request id. Today that is only
+   * the chrome's own tab requests, raised when a human clicks the injected
+   * toolbar; a reply always carries the id of the call it answers.
+   */
+  private onEvent: ((event: unknown) => void) | undefined
   private nextId = 1
   private buffer = ''
   private socket: import('node:net').Socket | undefined
@@ -310,6 +316,11 @@ class ElectronChildClient {
     this.child.on('exit', (code, signal) => {
       this.fail(new Error(`dsh-browser-plus: browser host exited (code=${String(code)} signal=${String(signal)})`))
     })
+  }
+
+  /** Route unsolicited child messages (see {@link onEvent}). */
+  setEventListener(listener: (event: unknown) => void): void {
+    this.onEvent = listener
   }
 
   /** Reject everything in flight, mark the client dead, and notify the host. */
@@ -369,14 +380,24 @@ class ElectronChildClient {
       const line = this.buffer.slice(0, nl).trim()
       this.buffer = this.buffer.slice(nl + 1)
       if (line === '') continue
-      let msg: { id?: number; ok?: boolean; result?: unknown; err?: string }
+      let msg: { id?: number; ok?: boolean; result?: unknown; err?: string; event?: unknown; action?: unknown }
       try {
         msg = JSON.parse(line) as typeof msg
       } catch {
         // Non-protocol line; ignore.
         continue
       }
-      if (typeof msg.id !== 'number') continue
+      if (typeof msg.id !== 'number') {
+        // The child speaks first only for chrome-originated tab requests. A
+        // listener that throws must not kill the socket, and an unknown event
+        // name is ignored like any other non-protocol line.
+        if (msg.event === 'chrome' && this.onEvent !== undefined) {
+          try {
+            this.onEvent(msg.action)
+          } catch { /* listener's problem, not the stream's */ }
+        }
+        continue
+      }
       const pending = this.pending.get(msg.id)
       if (pending === undefined) continue
       this.pending.delete(msg.id)
@@ -512,6 +533,8 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
   private disposed = false
   /** Cached local-backend probe; locating Electron walks the filesystem. */
   private availableProbe: boolean | undefined
+  /** Chrome listener; re-attached to every child this host spawns. */
+  private chromeEventListener: ((event: ChromeHostEvent) => void) | undefined
 
   /**
    * @param hostMainPath - the child entry script.
@@ -539,6 +562,38 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
   isAvailable(): boolean {
     this.availableProbe ??= probeElectronAvailability()
     return this.availableProbe
+  }
+
+  /**
+   * Forward the child's chrome tab requests to the provider.
+   *
+   * The child is respawned after a crash, so the listener is kept here and
+   * re-attached to each new client rather than handed to one client instance.
+   */
+  onChromeEvent(listener: (event: ChromeHostEvent) => void): void {
+    this.chromeEventListener = listener
+    this.client?.setEventListener(event => this.dispatchChromeEvent(event))
+  }
+
+  /**
+   * Validate one child-raised action before it reaches the provider.
+   *
+   * The child is trusted (it is our own process), but a malformed or truncated
+   * line must still not reach the tab model as a half-built request.
+   */
+  private dispatchChromeEvent(event: unknown): void {
+    const listener = this.chromeEventListener
+    if (listener === undefined) return
+    if (typeof event !== 'object' || event === null || Array.isArray(event)) return
+    const record = event as { type?: unknown; taskKey?: unknown; tabId?: unknown }
+    const type = record.type
+    if (type !== 'new-tab' && type !== 'close-tab' && type !== 'activate-tab') return
+    if (typeof record.taskKey !== 'string' || record.taskKey === '') return
+    listener({
+      type,
+      taskKey: record.taskKey,
+      ...typeof record.tabId === 'string' ? { tabId: record.tabId } : {},
+    })
   }
 
   /** Ensure the child is up and ready (lazy on first use; restarts after a crash). */
@@ -594,6 +649,7 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
       this.options.chromeWorld,
       fingerprintArgs(this.options),
     )
+    this.client.setEventListener(event => this.dispatchChromeEvent(event))
     if (this.pendingSocket !== undefined) {
       this.client.attach(this.pendingSocket)
       this.pendingSocket = undefined

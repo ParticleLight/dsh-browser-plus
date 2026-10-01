@@ -15,7 +15,7 @@
  * WebContentsViews, and webContents.debugger (CDP).
  * @module dsh-browser-plus/browser-electron/remote-host
  */
-import type { ElectronBrowserViewHost, ElectronViewHandle } from './provider.ts';
+import type { ChromeHostEvent, ElectronBrowserViewHost, ElectronViewHandle } from './provider.ts';
 import type { BrowserTaskInfo, BrowserTaskUpdate } from '../browser/types.ts';
 /**
  * Whether a usable Electron binary can be located right now. Cheap and local:
@@ -62,6 +62,8 @@ export declare class RemoteElectronViewHost implements ElectronBrowserViewHost {
     private disposed;
     /** Cached local-backend probe; locating Electron walks the filesystem. */
     private availableProbe;
+    /** Chrome listener; re-attached to every child this host spawns. */
+    private chromeEventListener;
     /**
      * @param hostMainPath - the child entry script.
      * @param options - `chromeWorld: 'isolated'` runs the injected chrome in its
@@ -82,6 +84,20 @@ export declare class RemoteElectronViewHost implements ElectronBrowserViewHost {
      * at provider-selection time.
      */
     isAvailable(): boolean;
+    /**
+     * Forward the child's chrome tab requests to the provider.
+     *
+     * The child is respawned after a crash, so the listener is kept here and
+     * re-attached to each new client rather than handed to one client instance.
+     */
+    onChromeEvent(listener: (event: ChromeHostEvent) => void): void;
+    /**
+     * Validate one child-raised action before it reaches the provider.
+     *
+     * The child is trusted (it is our own process), but a malformed or truncated
+     * line must still not reach the tab model as a half-built request.
+     */
+    private dispatchChromeEvent;
     /** Ensure the child is up and ready (lazy on first use; restarts after a crash). */
     private ready;
     private start;
