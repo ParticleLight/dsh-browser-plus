@@ -47,6 +47,8 @@ export interface ChromeTabSummary {
     readonly id: string;
     readonly title: string;
     readonly url: string;
+    /** Favicon URL reported by the page, when it has one. Page-controlled. */
+    readonly favicon?: string;
     readonly active: boolean;
 }
 export interface ChromeWorkspaceState {

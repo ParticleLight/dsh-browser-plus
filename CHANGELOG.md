@@ -2,6 +2,9 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **标签栏显示 favicon**（Chrome 的标签几乎由 favicon 主导，这是「像不像」最显眼的一块）。宿主监听 `page-favicon-updated` ✓，把图标 URL 放进 `ChromeTabSummary.favicon` ✓，chrome 用 `createElement('img')` + `.src` 渲染 ✓（**绝不拼 innerHTML** —— 该 URL 由页面控制 ✓）。页面没给图标时回退**内联 SVG 地球** ✓（与 Chrome 一致）。
+  - `data:,`（空 data URI）被显式忽略 ✓ —— 有些页面用它代替真图标 ✓，当成图标会渲染出**破图** ✗（实测 example.com 就是这样 ✓）。
+  - **实测**：GitHub 标签显示猫图标 ✓、Example Domain 显示地球 ✓。
 - 🔴 **修复：窗口从最小化恢复后，视图不会被重新布局（一直是 0×0）**。宿主只订阅了 `resize` ✗，而**最小化时 `getContentSize()` 返回 0** ✓ → 此时创建的视图被布局成 0×0 ✓，恢复窗口**不会触发 `resize`** ✗ → 该视图**永远**是 0 宽 ✓。**实测**：正常时创建的视图 `innerWidth=1388` ✓；最小化时创建的 `0` ✓；**恢复后同一视图仍是 0** ✗（修复前）。
   - **修法**：除 `resize` 外，补订阅 `restore` / `show` / `maximize` / `unmaximize` 触发 `layoutViews()` ✓。
   - **验证（按效果）**：最小化时创建视图 → `0` ✓ → **恢复窗口后同一视图变为 `1388×831`** ✓✓。
