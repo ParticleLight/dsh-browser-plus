@@ -145,6 +145,18 @@ await check('address bar select-all keeps CDP typing working', async () => {
   const url = (await provider.listTabs(session)).find(tab => tab.active)?.url ?? '(unknown)'
   throw new Error('the address bar did not navigate to example.com (now at ' + url + ')')
 })
+// The host pushes the loading flag from did-start/did-stop-loading; a flag that
+// never clears would leave the strip spinning forever. (That the flag appears at
+// all is checked against a deliberately slow page by hand — polling it here would
+// race the navigation.)
+await check('a settled tab is not stuck loading', async () => {
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 600))
+  const flags = await provider.execute(session, { script: 'JSON.stringify((window.__dshTabs || []).map(tab => tab.loading === true))' })
+  const loading = JSON.parse(String(flags.value ?? '[]'))
+  if (loading.some(Boolean)) throw new Error('the strip still shows a tab as loading: ' + String(flags.value))
+  return { tabs: loading.length, loading: 0 }
+})
 await check('left-click reaches the page', async () => {
   await provider.execute(session, { script: `(() => {
     window.__left = []

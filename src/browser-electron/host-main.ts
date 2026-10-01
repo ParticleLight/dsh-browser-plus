@@ -142,9 +142,25 @@ async function ensureChromeContext(view: WebContentsView): Promise<number | unde
  */
 function runChromeScript(view: WebContentsView, snippet: string): void {
   if (CHROME_WORLD === 'main') {
-    try {
-      void view.webContents.executeJavaScript(snippet).catch(() => undefined)
-    } catch { /* closing */ }
+    // CDP evaluate, not webContents.executeJavaScript.
+    //
+    // Electron defers executeJavaScript until the page has finished LOADING,
+    // not merely committed. The chrome is injected from did-navigate (the
+    // commit), so with the native call the toolbar and tab strip were missing
+    // for the whole of every load — measured against a page whose body took 6s:
+    // a screenshot taken 2.5s in showed the page and no chrome at all. A CDP
+    // evaluate runs as soon as the committed context exists, so the frame stays
+    // on screen (and can show its loading state) while the page streams.
+    //
+    // The native call stays as the fallback for the one case CDP is worse at: a
+    // context that is not ready yet, where an evaluate can hang rather than fail.
+    void (async () => {
+      try {
+        await view.webContents.debugger.sendCommand('Runtime.evaluate', { expression: snippet, returnByValue: true })
+      } catch {
+        try { void view.webContents.executeJavaScript(snippet).catch(() => undefined) } catch { /* closing */ }
+      }
+    })()
     return
   }
   void (async () => {
@@ -167,6 +183,14 @@ function runChromeScript(view: WebContentsView, snippet: string): void {
  * is what Chrome does too.
  */
 const viewFavicons = new Map<string, string>()
+
+/**
+ * Views whose document is still loading.
+ *
+ * Chromium reports this per view; the strip shows it as a spinner where the
+ * favicon goes and as reload-into-stop in the toolbar, exactly like Chrome.
+ */
+const loadingViews = new Set<string>()
 
 /** Only these raster types are admitted; anything else keeps the letter fallback. */
 const FAVICON_TYPES: readonly string[] = [
@@ -350,6 +374,7 @@ function makeWindow(): BrowserWindow {
     taskLabels.clear()
     views.clear()
     viewFavicons.clear()
+    loadingViews.clear()
     traces.clear()
     dialogLogs.clear()
     workspacePanels = { tasks: false, trail: false }
@@ -561,6 +586,7 @@ function tabSummaries(taskKey: string | undefined): ChromeTabSummary[] {
       url: url ?? '',
       active: viewId === activeViewId,
       ...favicon === undefined ? {} : { favicon },
+      ...loadingViews.has(viewId) ? { loading: true } : {},
     })
   }
   return tabs
@@ -1139,6 +1165,16 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         view.webContents.on('did-navigate', () => {
           if (viewFavicons.delete(viewId) && views.get(viewId)?.taskKey === visibleTaskKey) queueTabsSet()
         })
+        // Loading state: the strip turns the favicon into a spinner and the
+        // toolbar turns reload into stop, so both ends need the transition.
+        const setLoading = (loading: boolean): void => {
+          const changed = loading ? !loadingViews.has(viewId) : loadingViews.has(viewId)
+          if (loading) loadingViews.add(viewId)
+          else loadingViews.delete(viewId)
+          if (changed && views.get(viewId)?.taskKey === visibleTaskKey) queueTabsSet()
+        }
+        view.webContents.on('did-start-loading', () => setLoading(true))
+        view.webContents.on('did-stop-loading', () => setLoading(false))
         // Commit a document immediately. Until something is loaded the view has
         // no frame, which is what made the empty window white and made every
         // CDP call hang; the start page is inert (no interactive elements), so a
@@ -1165,6 +1201,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           dialogLogs.delete(viewId)
           traces.delete(viewId)
           viewFavicons.delete(viewId)
+          loadingViews.delete(viewId)
           try { window?.contentView.removeChildView(entry.webContentsView) } catch { /* already removed */ }
           try { entry.webContentsView.webContents.debugger.detach() } catch { /* already detached */ }
           entry.webContentsView.webContents.close()

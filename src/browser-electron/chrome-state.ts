@@ -54,6 +54,13 @@ export interface ChromeTabSummary {
   readonly url: string
   readonly active: boolean
   /**
+   * True while this tab's document is still loading.
+   *
+   * Drives the two Chrome affordances the strip mirrors: a spinner in place of
+   * the favicon, and the toolbar's reload button turning into stop.
+   */
+  readonly loading?: boolean
+  /**
    * The page's own favicon, re-encoded by the host as a small data: URL.
    *
    * The host fetches it through the view's own session and admits only a few

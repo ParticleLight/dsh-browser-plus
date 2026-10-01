@@ -199,6 +199,22 @@ test('secondary menus use the Chrome menu surface, not frosted glass', () => {
   assert.match(script, /@media \(max-width:760px\) \{ #panel, \.glass-panel, #mainMenu/)
 })
 
+test('a loading tab shows a spinner and turns reload into stop', () => {
+  const script = buildPageChromeScript()
+  assert.match(script, /#bar #stop \{ display:none; \}/, 'stop is hidden while idle')
+  assert.match(script, /#bar\.loading #reload \{ display:none; \}/, 'loading swaps reload out')
+  assert.match(script, /#bar\.loading #stop \{ display:block; \}/, 'loading swaps stop in')
+  assert.match(script, /#tabstrip \.tab \.fav\.loading \{/, 'the favicon slot becomes a spinner')
+  assert.match(script, /animation:dshSpin/, 'the spinner animates')
+  // The toolbar follows the ACTIVE tab, not the task as a whole.
+  assert.match(script, /const activeTab = tabs\.find\(candidate => candidate && candidate\.active === true\)/)
+  assert.match(script, /bar\.classList\.toggle\('loading', activeTab !== undefined && activeTab\.loading === true\)/)
+  // paintTabFavicon must bail out before drawing a letter under the spinner.
+  const paint = script.slice(script.indexOf('const paintTabFavicon'), script.indexOf('const renderTabs'))
+  assert.match(paint, /slot\.classList\.toggle\('loading', tab\.loading === true\)/)
+  assert.match(paint, /if \(tab\.loading === true\) \{ slot\.textContent = ''; return \}/)
+})
+
 test('the tab strip is the window frame: draggable, with room for the caption buttons', () => {
   const script = buildPageChromeScript()
   // The host window is frameless (titleBarStyle:hidden + titleBarOverlay), so the
