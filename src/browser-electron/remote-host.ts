@@ -242,6 +242,14 @@ interface Pending {
   readonly timer: ReturnType<typeof setTimeout>
 }
 
+/** Spawn arguments for the User-Agent masking options. */
+function fingerprintArgs(options: { readonly userAgent?: string; readonly maskAutomation?: boolean }): string[] {
+  return [
+    ...options.maskAutomation === false ? ['--no-mask-automation'] : [],
+    ...options.userAgent === undefined ? [] : ['--user-agent', options.userAgent],
+  ]
+}
+
 /**
  * Line-delimited JSON-RPC client over a local TCP socket. Electron's main
  * process on Windows does not receive piped stdin, so the parent listens on a
@@ -252,6 +260,7 @@ class ElectronChildClient {
   private readonly child: ChildProcessByStdio<null, import('node:stream').Readable, import('node:stream').Readable>
   private readonly pending = new Map<number, Pending>()
   private readonly chromeWorld: 'main' | 'isolated' | undefined
+  private readonly fingerprintArgs: readonly string[]
   private nextId = 1
   private buffer = ''
   private socket: import('node:net').Socket | undefined
@@ -265,8 +274,10 @@ class ElectronChildClient {
     private readonly port: number,
     private readonly onExit?: () => void,
     chromeWorld?: 'main' | 'isolated',
+    fingerprintArgs: readonly string[] = [],
   ) {
     this.chromeWorld = chromeWorld
+    this.fingerprintArgs = fingerprintArgs
     const electron = resolveElectronPath()
     process.stderr.write(`[dsh-browser-plus host] spawning electron: ${electron}\n`)
     // ELECTRON_RUN_AS_NODE (even an empty string) makes Electron run as plain
@@ -276,8 +287,11 @@ class ElectronChildClient {
     delete env.ELECTRON_RUN_AS_NODE
     delete env.NODE_OPTIONS
     // The chrome's world is the child's choice, so it travels as an argument.
-    const chromeWorldArgs = this.chromeWorld === 'isolated' ? ['--chrome-world', 'isolated'] : []
-    this.child = spawn(electron, [hostMainPath, '--rpc-port', String(port), ...chromeWorldArgs], {
+    const childArgs = [
+      ...this.chromeWorld === 'isolated' ? ['--chrome-world', 'isolated'] : [],
+      ...this.fingerprintArgs,
+    ]
+    this.child = spawn(electron, [hostMainPath, '--rpc-port', String(port), ...childArgs], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: false,
       env,
@@ -503,11 +517,17 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
    * @param hostMainPath - the child entry script.
    * @param options - `chromeWorld: 'isolated'` runs the injected chrome in its
    *   own JavaScript world, so visited pages cannot read its state or its
-   *   binding token. Defaults to the proven main-world path.
+   *   binding token. `maskAutomation: false` leaves Electron's own User-Agent
+   *   alone, and `userAgent` replaces it outright. Defaults to the proven
+   *   main-world path with the automation fingerprint masked.
    */
   constructor(
     private readonly hostMainPath: string,
-    private readonly options: { readonly chromeWorld?: 'main' | 'isolated' } = {},
+    private readonly options: {
+      readonly chromeWorld?: 'main' | 'isolated'
+      readonly userAgent?: string
+      readonly maskAutomation?: boolean
+    } = {},
   ) {}
 
   /**
@@ -567,7 +587,13 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
     const address = server.address()
     const port = typeof address === 'object' && address !== null ? address.port : 0
     this.server = server
-    this.client = new ElectronChildClient(this.hostMainPath, port, () => this.onChildExit(), this.options.chromeWorld)
+    this.client = new ElectronChildClient(
+      this.hostMainPath,
+      port,
+      () => this.onChildExit(),
+      this.options.chromeWorld,
+      fingerprintArgs(this.options),
+    )
     if (this.pendingSocket !== undefined) {
       this.client.attach(this.pendingSocket)
       this.pendingSocket = undefined

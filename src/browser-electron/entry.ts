@@ -56,6 +56,19 @@ export interface Config {
    * window (see docs/SOAK-CHECKLIST.md).
    */
   readonly chromeWorld?: 'main' | 'isolated'
+  /**
+   * Replace the engine's User-Agent verbatim. When absent, Electron's
+   * `Electron/42.9.3` token is stripped and the matching client-hint headers
+   * are added, so the request fingerprint says Chrome instead of "this is a
+   * scripted Electron".
+   */
+  readonly userAgent?: string
+  /**
+   * Keep the automation fingerprint masked. Default true: Electron advertises
+   * itself in the User-Agent and sends no client hints, which is the loudest
+   * thing a bot check can read. Set false to send the engine's own fingerprint.
+   */
+  readonly maskAutomation?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -70,6 +83,8 @@ export const Config: z<Config> = z.object({
   writeRoots: z.array(z.string()).default(defaultWriteRoots()),
   readRoots: z.array(z.string()).default(defaultWriteRoots()),
   chromeWorld: z.union(['main', 'isolated'] as const).default('main'),
+  userAgent: z.string(),
+  maskAutomation: z.boolean().default(true),
 })
 
 /** Register the Electron browser provider with `ctx.browser`. */
@@ -77,7 +92,11 @@ export function apply(ctx: Context & { browser: BrowserRuntime }, config: Config
   // External host (desktop shell) wins; otherwise self-host. The self-hosted
   // child is disposed with the fiber, mirroring the shell's lifetime.
   const host: ElectronBrowserViewHost = config.viewHost
-    ?? new RemoteElectronViewHost(defaultHostMainPath(), { chromeWorld: config.chromeWorld })
+    ?? new RemoteElectronViewHost(defaultHostMainPath(), {
+      chromeWorld: config.chromeWorld,
+      maskAutomation: config.maskAutomation,
+      ...config.userAgent === undefined ? {} : { userAgent: config.userAgent },
+    })
   // Own the disposer on THIS plugin's fiber: registerBrowserProvider's effect
   // is bound to the seam's own fiber (the browser row), so a reload of this
   // row would otherwise collide with the still-registered provider

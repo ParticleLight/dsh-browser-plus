@@ -45,6 +45,19 @@ export interface Config {
      * window (see docs/SOAK-CHECKLIST.md).
      */
     readonly chromeWorld?: 'main' | 'isolated';
+    /**
+     * Replace the engine's User-Agent verbatim. When absent, Electron's
+     * `Electron/42.9.3` token is stripped and the matching client-hint headers
+     * are added, so the request fingerprint says Chrome instead of "this is a
+     * scripted Electron".
+     */
+    readonly userAgent?: string;
+    /**
+     * Keep the automation fingerprint masked. Default true: Electron advertises
+     * itself in the User-Agent and sends no client hints, which is the loudest
+     * thing a bot check can read. Set false to send the engine's own fingerprint.
+     */
+    readonly maskAutomation?: boolean;
 }
 export declare const Config: z<Config>;
 /** Register the Electron browser provider with `ctx.browser`. */

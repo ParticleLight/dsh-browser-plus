@@ -66,10 +66,14 @@ export declare class RemoteElectronViewHost implements ElectronBrowserViewHost {
      * @param hostMainPath - the child entry script.
      * @param options - `chromeWorld: 'isolated'` runs the injected chrome in its
      *   own JavaScript world, so visited pages cannot read its state or its
-     *   binding token. Defaults to the proven main-world path.
+     *   binding token. `maskAutomation: false` leaves Electron's own User-Agent
+     *   alone, and `userAgent` replaces it outright. Defaults to the proven
+     *   main-world path with the automation fingerprint masked.
      */
     constructor(hostMainPath: string, options?: {
         readonly chromeWorld?: 'main' | 'isolated';
+        readonly userAgent?: string;
+        readonly maskAutomation?: boolean;
     });
     /**
      * Cheap local usability probe, consulted by the provider's `available()`.
