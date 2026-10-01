@@ -31,8 +31,9 @@ export function normalizeBrowserAddress(raw: string): string {
  */
 export function buildPageChromeScript(bindingToken = ''): string {
   const normalizer = normalizeBrowserAddress.toString()
-  const toolbarHtml = [
-    '<style>',
+  // 样式与标记分开：样式走**构造样式表**（见 mount），标记里一个 <style> 都不放。
+  // 页面的 CSP 只要写了 style-src 又没有 unsafe-inline，<style> 会被整块拦掉。
+  const toolbarCss = [
     '#toolbarRevealZone { position:absolute; top:0; left:50%; transform:translateX(-50%); width:280px; height:56px; pointer-events:auto; }',
     '#toolbarReveal { position:absolute; top:-30px; left:50%; transform:translateX(-50%) scale(.84); box-sizing:border-box; width:28px; height:28px; padding:0; border:1px solid rgba(159,199,255,.34); border-radius:50%; background:rgba(24,43,69,.78); backdrop-filter:blur(16px) saturate(140%); box-shadow:0 8px 18px rgba(5,13,28,.24),inset 0 1px 0 rgba(255,255,255,.12); color:#e6f0ff; opacity:0; pointer-events:none; transition:top .20s ease,opacity .16s ease,transform .20s ease,background .16s ease; }',
     '#toolbarRevealZone.armed #toolbarReveal, #toolbarRevealZone:hover #toolbarReveal, #toolbarReveal:focus-visible { top:5px; transform:translateX(-50%) scale(1); opacity:1; pointer-events:auto; }',
@@ -218,7 +219,8 @@ export function buildPageChromeScript(bindingToken = ''): string {
     '#taskPanel .task-latest { color:#8ab4f8; }',
     '/* ⋮ 按钮本身：Chrome 的更多按钮是一个竖排三点图标。 */',
     '#mainMenuBtn { flex:none; }',
-    '</style>',
+  ].join('\n')
+  const toolbarHtml = [
     '<div id="toolbarRevealZone"><button id="toolbarReveal" type="button" aria-label="展开工具栏" title="展开工具栏"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button></div>',
     '<div id="tabstrip" role="tablist" aria-label="标签页"></div>',
     '<div id="bar" role="toolbar" aria-label="DSH browser controls">',
@@ -299,10 +301,20 @@ export function buildPageChromeScript(bindingToken = ''): string {
     "    const root = host.attachShadow({ mode: 'closed' })",
     '    root.innerHTML = ' + JSON.stringify(toolbarHtml),
     '    document.documentElement.append(host)',
+    "    // 样式必须走**构造样式表**（CSSOM），不能放 <style> 元素：",
+    "    // 页面只要下了 style-src 又没有 unsafe-inline，<style> 会被整块拦掉，",
+    "    // chrome 就退化成没有样式的裸按钮（实测 style-src 'none'：标签栏、工具栏、",
+    "    // 配色、布局全没了）。CSSOM 不受 CSP 管辖。",
     "    // 取消抽屉：顶栏常驻，不再有悬停热区与「收起」按钮。",
-    "    const shellStyle = document.createElement('style')",
-    "    shellStyle.textContent = '#toolbarRevealZone,#toolbarHide{display:none!important}'",
-    "    root.append(shellStyle)",
+    "    const chromeCss = " + JSON.stringify(toolbarCss + '\n#toolbarRevealZone,#toolbarHide{display:none!important}'),
+    "    let chromeStyled = false",
+    "    try {",
+    "      const chromeSheet = new CSSStyleSheet()",
+    "      chromeSheet.replaceSync(chromeCss)",
+    "      root.adoptedStyleSheets = [chromeSheet]",
+    "      chromeStyled = true",
+    "    } catch { /* 老引擎没有构造样式表 */ }",
+    "    if (!chromeStyled) { const fallbackStyle = document.createElement('style'); fallbackStyle.textContent = chromeCss; root.append(fallbackStyle) }",
     "    // 不遮挡内容：Chrome 的页面从工具栏下方开始。这里是注入式 chrome，",
     "    // 用同样的语义把文档整体下移顶栏高度（标签行 40 + 工具栏 44）。",
     "    // important 是因为页面自己的样式常常优先级更高。",

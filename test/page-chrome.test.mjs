@@ -232,6 +232,29 @@ test('the tab strip is the window frame: draggable, with room for the caption bu
   assert.match(script, /host\.dataset\.dshCaption = /, 'the chrome decides which side')
 })
 
+test('the chrome survives a strict CSP: styles go through CSSOM, never a <style> element', () => {
+  const script = buildPageChromeScript()
+  // A page whose style-src lacks 'unsafe-inline' drops every <style> element. Measured
+  // against style-src 'none': the chrome rendered as unstyled bare buttons — no tab
+  // strip, no toolbar, no colours, no layout. CSSOM is not subject to CSP.
+  assert.match(script, /const chromeSheet = new CSSStyleSheet\(\)/)
+  assert.match(script, /chromeSheet\.replaceSync\(chromeCss\)/)
+  assert.match(script, /root\.adoptedStyleSheets = \[chromeSheet\]/)
+  assert.match(script, /const chromeCss = "/, 'the CSS travels as a plain string')
+  assert.match(script, /if \(!chromeStyled\)/, 'older engines still get a <style> fallback')
+  // The injected MARKUP must carry no <style> element at all.
+  const markupJson = script.match(/root\.innerHTML = ("(?:[^"\\]|\\.)*")/)?.[1]
+  assert.ok(markupJson, 'the markup literal is present')
+  const markup = JSON.parse(markupJson)
+  assert.ok(!markup.includes('<style>'), 'the markup must not carry a <style> element')
+  assert.ok(markup.includes('id="tabstrip"') && markup.includes('id="mainMenu"'), 'and it is the real markup')
+  // Inline style ATTRIBUTES are blocked by the same directive, so the markup must
+  // not carry any. (Element.style.* writes are CSSOM and are fine.)
+  assert.ok(!markup.includes('style="'), 'the markup carries no style attributes')
+  // The CSS itself still has to be there, just not as a style element.
+  assert.ok(script.includes('#tabstrip'), 'the CSS is still shipped')
+})
+
 test('page zoom compensates the chrome instead of scaling it', () => {
   const script = buildPageChromeScript()
   // The zoom itself is a webContents property the host applies; the chrome only
