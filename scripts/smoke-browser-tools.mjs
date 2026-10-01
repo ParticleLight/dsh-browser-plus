@@ -165,6 +165,37 @@ await check('drag reaches the page', async () => {
   if (moves < 5) throw new Error('only ' + String(moves) + ' moves, so the gesture jumped: ' + JSON.stringify(log))
   return { moves, result: result.from.target + ' -> ' + String(result.to.x) + ',' + String(result.to.y) }
 })
+await check('keyboard input reaches the page', async () => {
+  // Same gate as a mouse press: Chromium drops synthesized keys while the
+  // renderer believes it is unfocused, so this was silently empty too.
+  await provider.execute(session, { script: `(() => {
+    window.__keys = []
+    document.addEventListener('keydown', event => window.__keys.push(event.key), true)
+    return 'armed'
+  })()` })
+  await provider.pressKey(session, { key: 'Enter' })
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const seen = await provider.execute(session, { script: 'window.__keys.join(",")' })
+  if (seen.value !== 'Enter') throw new Error('the page saw ' + JSON.stringify(seen.value))
+  return seen.value
+})
+await check('typing lands in a focused field', async () => {
+  await provider.execute(session, { script: `(() => {
+    document.getElementById('__type_probe')?.remove()
+    const input = document.createElement('input')
+    input.id = '__type_probe'
+    input.style.cssText = 'position:fixed;left:40px;top:40px;width:200px;height:30px;z-index:2147483647'
+    document.body.appendChild(input)
+    input.focus()
+    return 'armed'
+  })()` })
+  await provider.type(session, { text: 'hello' })
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const seen = await provider.execute(session, { script: "String((document.getElementById('__type_probe') || {}).value)" })
+  await provider.execute(session, { script: "document.getElementById('__type_probe')?.remove()" })
+  if (seen.value !== 'hello') throw new Error('the field holds ' + JSON.stringify(seen.value))
+  return seen.value
+})
 // --- the tool layer, over the same real provider -------------------------
 // The unit suite drives the tools against a fake browser, and the checks above
 // drive the provider directly. This is the only place the two meet: tool schema
