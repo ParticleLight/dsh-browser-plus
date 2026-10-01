@@ -2,6 +2,10 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **注入式 chrome 改成 Chrome 式常驻顶栏**。此前工具栏**默认隐藏**,鼠标移到顶部中央才滑出;现在**默认常驻**,按 Chrome 的排布分组:左侧导航组(← → ⟳ ⏹ 🏠)│ 胶囊地址栏(带锁图标)│ 右侧功能组(☆ ⏱ ▤ 接管 收起)。点「收起」后仍回到原来的悬停模式。
+  - 三个功能图标原先排在地址栏**之前**,用挂载后重排 DOM 的方式挪到右侧——比重写那几行超长 SVG 字符串安全得多。
+  - 新增 `host.dataset.dshChrome` **版本标记**:宿主元素在 light DOM 里,即使 chrome 用 closed shadow root,外部也能读到它,用来判断页面里跑的是哪一版 chrome。
+  - 🔴 **实测发现**:在 `address` 的 `focus` 里调 `select()`(想复刻 Chrome「点一下即全选」)**会让 CDP `Input.insertText` 再也落不进这个 shadow DOM 地址栏** ✗ —— 普通页面输入框不受影响,`browser_type` 本身正常。已在代码里留注释阻止再加回来。**Chrome 式全选待另行实现。**
 - **用 DSH 自己的校验器验证全部 37 个工具的 schema**。DSH 在**注册时**校验每个工具的 schema,**被拒会让整个插件从会话里消失**(而不是只失败一次调用) —— 此前这一点只有重启才能发现 ✗。新增 `test/tool-schema.test.mjs`:导入 `@deepseek-ai/dsh-tools` 的 `assertObjectJsonSchema` / `assertSupportedJsonSchema`(注册时用的就是它们)对 37 个工具全跑一遍,并用 `validateJsonSchemaValue`(DSH **每次调用**时跑的)验证 10 组**真实调用参数**能被接受 ✓。**全部通过** → 插件能被 DSH 接受 ✓。
   - 冒烟里**手写的**输出形状检查也换成同一个 `validateJsonSchemaValue` ✓ —— 不再是我自己近似的规则,而是 DSH 真正执行的那一条。33 项仍全绿。
 - **补上 JS 侧指纹的断言(冒烟共 33 项),并确认现有指纹是自洽的**。此前只验证过**请求头**(UA / sec-ch-ua / Accept-Language),**页面里 JS 读到的指纹从未验证过**。实测:UA `...Chrome/148.0.7778.280...`、brands `[Not/A)Brand 99, Chromium 148]`、`webdriver:false`、`vendor:Google Inc.`、`window.chrome` 存在、`languages` 已加权 —— **这正是真实 Chromium 的样子**(真实 Chromium 的 UA 同样带 `Chrome/`,brands 同样没有 `Google Chrome`),自洽 ✓。新增断言钉住**「UA 的主版本号必须出现在某个 brand 里」**这条不变量,防止以后被改坏。
