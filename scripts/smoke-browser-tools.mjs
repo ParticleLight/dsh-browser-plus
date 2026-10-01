@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { ElectronBrowserProvider } from '../lib/browser-electron/provider.js'
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { apply } from '../lib/tool-browser/index.js'
 import { RemoteElectronViewHost, defaultHostMainPath } from '../lib/browser-electron/remote-host.js'
 
@@ -327,19 +328,14 @@ const toolCtx = {
 }
 apply(toolCtx)
 /**
- * DSH validates a tool's return value against its declared output schema, so a
- * field the schema does not mention fails at runtime — but only inside DSH.
- * Calling execute() directly skips that, so check the shape here instead.
+ * DSH validates a tool's return value against its declared output schema, but
+ * calling execute() directly skips that. Use the very validator DSH calls
+ * (dsh-tools validateJsonSchemaValue on tool.output.schema) rather than a
+ * hand-rolled approximation of it.
  */
 const assertShape = (name, value) => {
-  const schema = definitions.get(name).output.schema
-  const properties = schema.properties ?? {}
-  const undeclared = Object.keys(value ?? {}).filter(key => !(key in properties))
-  if (undeclared.length > 0) throw new Error(name + ' returned undeclared fields: ' + undeclared.join(', '))
-  const missing = Object.entries(properties)
-    .filter(([key, spec]) => spec?.required === true && !(key in (value ?? {})))
-    .map(([key]) => key)
-  if (missing.length > 0) throw new Error(name + ' omitted required fields: ' + missing.join(', '))
+  const problems = validateJsonSchemaValue(definitions.get(name).output.schema, value, 'value')
+  if (problems.length > 0) throw new Error(name + ' returned a value its schema rejects: ' + problems.join('; '))
   return value
 }
 const call = async (name, args, exec) => assertShape(name, await definitions.get(name).execute(args, exec))

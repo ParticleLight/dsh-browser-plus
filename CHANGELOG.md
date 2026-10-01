@@ -2,6 +2,8 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **用 DSH 自己的校验器验证全部 37 个工具的 schema**。DSH 在**注册时**校验每个工具的 schema,**被拒会让整个插件从会话里消失**(而不是只失败一次调用) —— 此前这一点只有重启才能发现 ✗。新增 `test/tool-schema.test.mjs`:导入 `@deepseek-ai/dsh-tools` 的 `assertObjectJsonSchema` / `assertSupportedJsonSchema`(注册时用的就是它们)对 37 个工具全跑一遍,并用 `validateJsonSchemaValue`(DSH **每次调用**时跑的)验证 10 组**真实调用参数**能被接受 ✓。**全部通过** → 插件能被 DSH 接受 ✓。
+  - 冒烟里**手写的**输出形状检查也换成同一个 `validateJsonSchemaValue` ✓ —— 不再是我自己近似的规则,而是 DSH 真正执行的那一条。33 项仍全绿。
 - **补上 JS 侧指纹的断言(冒烟共 33 项),并确认现有指纹是自洽的**。此前只验证过**请求头**(UA / sec-ch-ua / Accept-Language),**页面里 JS 读到的指纹从未验证过**。实测:UA `...Chrome/148.0.7778.280...`、brands `[Not/A)Brand 99, Chromium 148]`、`webdriver:false`、`vendor:Google Inc.`、`window.chrome` 存在、`languages` 已加权 —— **这正是真实 Chromium 的样子**(真实 Chromium 的 UA 同样带 `Chrome/`,brands 同样没有 `Google Chrome`),自洽 ✓。新增断言钉住**「UA 的主版本号必须出现在某个 brand 里」**这条不变量,防止以后被改坏。
   - **没有改动指纹**:我一度把「UA 说 Chrome、brands 说 Chromium」当成矛盾并准备用 `Emulation.setUserAgentOverride` 去「修」,测量后确认那是 Chromium 的正常表现,且是 `fingerprint.ts` 模块注释里**有意为之**的设计(不编造引擎背不出来的指纹)。**是测量拦住了我。**
 - 🔴 **修复:浏览器直接导出的 cookie 文件会被整份拒绝**。`browser_auth { action: 'restore', file }` 的条目校验**要求 `url` 字段**,但**浏览器扩展(Cookie-Editor / EditThisCookie)与 Edge 自带导出写的是 `domain` + `path`,根本没有 `url`** → 于是「从浏览器导出 → 导入」这条**声明的主要工作流完全不工作** ✗(报 `no usable entries`),只有本插件自己导出的格式能用 ✗。
