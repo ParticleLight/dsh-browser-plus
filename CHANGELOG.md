@@ -2,6 +2,10 @@
 
 ## v0.4.3 (2026-09-30)
 
+- 🔴 **修复：窗口从最小化恢复后，视图不会被重新布局（一直是 0×0）**。宿主只订阅了 `resize` ✗，而**最小化时 `getContentSize()` 返回 0** ✓ → 此时创建的视图被布局成 0×0 ✓，恢复窗口**不会触发 `resize`** ✗ → 该视图**永远**是 0 宽 ✓。**实测**：正常时创建的视图 `innerWidth=1388` ✓；最小化时创建的 `0` ✓；**恢复后同一视图仍是 0** ✗（修复前）。
+  - **修法**：除 `resize` 外，补订阅 `restore` / `show` / `maximize` / `unmaximize` 触发 `layoutViews()` ✓。
+  - **验证（按效果）**：最小化时创建视图 → `0` ✓ → **恢复窗口后同一视图变为 `1388×831`** ✓✓。
+  - **副作用**：这解释了此前一连串怪现象 —— 隐藏/最小化视图里 `100vw` 为 0 → chrome 的标签栏塌缩成 8px ✓、`visibilityState: hidden` ✓、`browser_screenshot` 超时 ✓。
 - 🔴 **修复 `showView` 与 `createView` 的竞态 —— 新标签的视图永远不会被显示**。`RemoteElectronViewHost.showView()` 只等 client ready ✗，**不等视图 materialize** ✗，而 `createView` 的 RPC 是**首次使用时才发**的 ✓ → `showView` 先到宿主 ✓ → 宿主抛 `unknown view` ✓ → 被 `.catch` 吞掉 ✓ → **新标签的视图从未 `setVisible(true)`** ✗。而 `createView` 又无条件 `activeViewByTask.set(...)` ✓ → `switch-tab` 的 `activeViewChanged` 守卫对「点那个新标签」**恒为 false** ✓ → **按构造就是空操作** ✓✓。
   - **修法**：`showView` 先 `await handle.materializeForShow()`（新增的公开方法，内部走既有的 `materializeOnce`）再发 `showView` RPC ✓。
   - **验证**：新增回归测试钉住**顺序**（`materializeForShow` 必须在 `call('showView')` 之前，且必须被 `await`）—— 该测试在修复前必然失败 ✓。**注意**：`remote-host.ts` 跑在 **DSH 进程**里，**此修复需重启 DSH 才生效**。

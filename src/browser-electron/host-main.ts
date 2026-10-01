@@ -269,6 +269,15 @@ function makeWindow(): BrowserWindow {
   })
   win.setMenu(null)
   win.on('resize', layoutViews)
+  // A minimised window reports a content size of 0, so any view created while it
+  // is minimised is laid out 0x0 and stays that way -- restoring the window does
+  // not fire 'resize'. Measured: a view created while minimised still reported
+  // innerWidth 0 after ShowWindow(SW_RESTORE), while one created afterwards
+  // reported 1388. Re-layout on the events that make the window visible again.
+  win.on('restore', layoutViews)
+  win.on('show', layoutViews)
+  win.on('maximize', layoutViews)
+  win.on('unmaximize', layoutViews)
   win.on('closed', () => {
     window = undefined
     visibleTaskKey = undefined
