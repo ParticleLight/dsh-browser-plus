@@ -199,6 +199,23 @@ test('secondary menus use the Chrome menu surface, not frosted glass', () => {
   assert.match(script, /@media \(max-width:760px\) \{ #panel, \.glass-panel, #mainMenu/)
 })
 
+test('the tab strip is the window frame: draggable, with room for the caption buttons', () => {
+  const script = buildPageChromeScript()
+  // The host window is frameless (titleBarStyle:hidden + titleBarOverlay), so the
+  // strip is the window's first row: it must drag, and it must leave the
+  // top-right corner free for the system buttons.
+  const stripRule = script.match(/#tabstrip \{[^}]*app-region[^}]*\}/)?.[0] ?? ''
+  assert.match(stripRule, /-webkit-app-region:drag/, 'the empty strip drags the window')
+  assert.match(stripRule, /padding-right:148px/, 'room for minimise/maximise/close')
+  assert.match(script, /#tabstrip \.tab, #tabstrip \.newtab \{ -webkit-app-region:no-drag; \}/, 'tabs and + stay clickable')
+  // Escaped quotes: the CSS ships inside a JSON string.
+  assert.ok(
+    script.includes(String.raw`:host([data-dsh-caption=\"left\"]) #tabstrip`),
+    'macOS traffic lights sit on the left',
+  )
+  assert.match(script, /host\.dataset\.dshCaption = /, 'the chrome decides which side')
+})
+
 test('clicking the address bar selects it, without touching the focus event', () => {
   const script = buildPageChromeScript()
   // Chrome selects the whole omnibox on the first click, so typing replaces it.
