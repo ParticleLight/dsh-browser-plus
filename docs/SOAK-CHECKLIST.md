@@ -3,6 +3,19 @@
 > 前置:重启 DSH Web(使 provider/remote-host/tool-browser 新代码生效),然后在 DSH 会话中依次执行。
 > 每个工具调用后记录结果;任何**白屏**立即停止并回滚 host-main.js 至上一提交。
 
+## 0. 不重启也能跑的真实集成冒烟(先跑这个)
+```bash
+npm run smoke:browser-tools
+```
+用**真实 Electron 宿主 + 真实 Chromium** 驱动**真实 provider**,覆盖 12 项:navigate / content / snapshot /
+screenshot / **click 三种寻址(坐标、选择器、文字)** / 目标缺失的错误码 / waitForElement /
+**scrape 并发** / **cookie 导出→文件→清除→导入往返** / listTabs。
+
+- 它自带 profile(`DSH_BROWSER_PLUS_USER_DATA` 指向临时目录),**不与正在运行的 DSH 抢 profile 锁**,所以可以在 DSH 运行时跑;会短暂弹出一个窗口。
+- 退出码 0 = 全绿。任何 FAIL 都会打印期望与实际。
+- 这是唯一覆盖「provider → RPC → host-main → CDP → Chromium」整条链路的检查:单测用的是假宿主,够不到这一层。
+- **历史**:它第一次跑就抓到一个真 bug —— 文字匹配的候选标签表漏了 `p`,导致「正文被拆成逐字符 span」的页面(example.com 现在就是这样)匹配不到容器。
+
 ## 1. 对话框自动处理
 - [ ] `browser_open https://example.com`(host child 全新启动,无白屏)
 - [ ] `browser_execute` 脚本 `setTimeout(() => { window.confirm('soak'); }, 0); 'scheduled'` → 页面不卡

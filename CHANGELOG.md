@@ -2,6 +2,9 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **修 `text` 寻址在「逐字符 span」页面上匹配失败(真实集成测试抓到的真 bug)**:文字匹配此前枚举候选标签(`a, button, input, span, div, li, td…`),**漏了 `p` 等大量承载正文的标签**。现代站点常把正文/按钮文字拆成**逐字符的 `<span>`**(带淡入动画,example.com 现在就是这样),此时每个叶子只含一个字,**整句只存在于容器上**——容器不在候选表里就永远匹配不到。现改为**一次自底向上遍历**,让每个元素都算出自己的文本(不枚举标签、也不用逐元素 `textContent` 重复走子树)。实测同一页面:`text='This domain is for use'` 命中 `<p>` ✓,`text='Learn more'` 命中 `<a>` 而非包含它的 `<p>`(最短标签优先)✓。
+- **新增真实集成冒烟 `npm run smoke:browser-tools`**:用**真实 Electron 宿主 + 真实 Chromium** 驱动**真实 provider**,覆盖 12 项(含 click 三种寻址、scrape 并发、cookie 导出→文件→导入往返)。这是唯一覆盖「provider → RPC → host-main → CDP → Chromium」整条链路的检查。它**自带 profile**(`DSH_BROWSER_PLUS_USER_DATA`),所以能在 DSH 运行时跑而不抢 profile 锁。**首次运行即抓到上面那个 bug。**
+- **`DSH_BROWSER_PLUS_USER_DATA` 可覆盖宿主 profile**:Chromium 对 profile 加单例锁,此前无法并存两个宿主(验证脚本会与运行中的 DSH 冲突)。
 - **指针工具支持选择器/文字寻址**:`browser_click`/`browser_double_click`/`browser_hover` 此前**只能给坐标**,想点一个按钮必须先 `browser_snapshot` 拿 `ref` 再 `click_ref`——**每次交互两轮**。现在三种寻址任选:`x`+`y`、`selector`、或 `text`(可见文字/aria-label/value,不区分大小写)。后两者在**页内解析**、把元素滚入视野,再派发**真实鼠标事件**(不是 `element.click()`,保留真实输入语义);返回 `target` 说明实际点到了什么。多个匹配时**最内层可见元素胜出**(文字最短优先,同长取更深者),避免点到包住按钮的容器。页内脚本抽成可导出的 `pointerTargetScript()`,因此新增了一条**构建期语法测试**(页内脚本只在浏览器里解析,写错要等运行时才炸)与注入防护断言。
 - **`browser_scrape` 支持并发**:新增 `concurrency`(默认 1,上限 8),每个 worker 占一个自己的标签页,从共享队列取 URL。6 个 URL / 3 并发的测试验证「每个 URL 恰好访问一次、`seq` 覆盖 0..n-1、worker 标签页全部回收」。每行新增 **`seq`**(URL 在输入里的下标):并发时行按完成顺序落盘,按 `seq` 排序即可还原原始顺序。
 - **`browser_scrape` 改用独立标签页**:此前批次调用的是作用于「会话当前激活标签页」的 `navigate`/`execute`,于是 ① 批次运行期间任何工具调用都会和它**抢同一个标签页**,抽取可能拿到错误的页面;② 用户正在读的页面被导航冲掉。现在批次创建**自己的标签页且不激活它**,结束后销毁。为此把 `navigate`/`execute`/`waitForElement` 的核心抽成按标签页的私有方法(公开方法变成一行转发),为后续并发打底。

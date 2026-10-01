@@ -50,6 +50,7 @@
     "test:only": "node --test test/*.test.mjs",
     "lint": "eslint src",
     "smoke:electron-host": "node scripts/smoke-electron-host.mjs",
+    "smoke:browser-tools": "node scripts/smoke-browser-tools.mjs",
     "prepack": "npm run build"
   },
   "keywords": [
