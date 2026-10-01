@@ -2,6 +2,12 @@
 
 ## v0.4.3 (2026-09-30)
 
+- 🔴 **修复:点击在真实网站上完全不生效**。`browser_click`/`browser_double_click`/`browser_ref` 会返回 `{clicked:true}` 而**页面收不到任何鼠标事件** —— 实测 example.com / iana.org / httpbin.org 三个站点全部如此。
+  - **根因**:Chromium 在**渲染进程不认为自己被聚焦**时会丢弃合成的鼠标**按压**(移动不受此门控,所以 `hover` 看起来一直正常,掩盖了问题)。后台任务的视图天然不聚焦;真实 https 页面上连可见视图在其窗口未激活时也不聚焦。`data:` URL 的渲染器在进程内、不做这个门控,所以本地探针一直「看起来正常」,掩盖了它。
+  - **修法**:派发任何合成输入前,对每个视图调用一次 `Emulation.setFocusEmulationEnabled({ enabled: true })`(provider 侧,任何宿主都适用;用 `WeakSet` 保证每视图只调一次)。
+  - **关键**:这**保持在可信 CDP 输入路径上** —— 没有退化成 `element.click()`,事件仍是 `isTrusted`,因此**不削弱反检测能力**,不需要在「点击可用」与「更少触发人机验证」之间做取舍。
+  - 焦点模拟是**惰性**的:只有 agent 真正派发输入时才启用,纯人工浏览的会话永远不会打开它。
+  - **验证**:冒烟里三条断言(左键到达 `mousedown,mouseup,click` / 右键到达页面 `contextmenu` 且 `button:2` / 修饰键 `shiftKey+ctrlKey` 均为真)从**全红变全绿**,24 项 `EXIT=0`。
 - **指针工具支持右键与修饰键**:`browser_click`/`browser_double_click` 新增 `button`(left/right/middle)与 `modifiers`(alt/ctrl/meta/shift),`browser_hover` 新增 `modifiers`。右键用于页面自定义上下文菜单(Electron 不装原生菜单,所以拿到事件的就是页面自己的 handler);修饰键用于 shift 扩选等。CDP 修饰位掩码复用既有的 `modifierMask()`。单测钉住位掩码(ctrl=2/shift=8)与「按下与抬起必须同键」——否则页面会看到卡住的按键。
 - **集成冒烟扩到 21 项,覆盖工具层与并行**:新增 ① **真实工具层跑在真实 provider 上**(`browser_open`/`browser_content`/`browser_click`/`browser_snapshot`/`browser_scrape`/`browser_auth`)——单测用假浏览器、此前的冒烟直接调 provider,这是唯一让两者相遇的地方;② **工具输出形状检查**(逐字段比对声明 schema,因为 DSH 会在运行时校验输出,而直接调 `execute()` 绕过了它);③ **双任务并行**:A 跑 8 URL 抓取时,B 的 snapshot **13ms 返回**且 `aWasStillBusy:true`;④ **100 个 URL @ 并发 8**:100 行、100 个不同 `seq`、0 失败、**8.1 秒**、结束后**标签页数回到 1**(无泄漏)。
 - **修 `text` 寻址在「逐字符 span」页面上匹配失败(真实集成测试抓到的真 bug)**:文字匹配此前枚举候选标签(`a, button, input, span, div, li, td…`),**漏了 `p` 等大量承载正文的标签**。现代站点常把正文/按钮文字拆成**逐字符的 `<span>`**(带淡入动画,example.com 现在就是这样),此时每个叶子只含一个字,**整句只存在于容器上**——容器不在候选表里就永远匹配不到。现改为**一次自底向上遍历**,让每个元素都算出自己的文本(不枚举标签、也不用逐元素 `textContent` 重复走子树)。实测同一页面:`text='This domain is for use'` 命中 `<p>` ✓,`text='Learn more'` 命中 `<a>` 而非包含它的 `<p>`(最短标签优先)✓。

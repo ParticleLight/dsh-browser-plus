@@ -229,6 +229,20 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
      */
     private dispatchInput;
     /**
+     * Tell a renderer it is focused, once, before synthesized input.
+     *
+     * Chromium drops a synthesized mouse *press* when the renderer does not
+     * believe it has focus — which is the normal state for a background task's
+     * view, and on a real page even for the visible one while its window is not
+     * active. Moves are not gated, so hover looked fine while every click
+     * resolved its target, reported success, and left the page untouched.
+     *
+     * Focus emulation keeps this on the trusted CDP input path: no synthetic
+     * DOM click, so the events stay isTrusted and nothing about the page's
+     * view of the browser changes.
+     */
+    private ensureInputFocus;
+    /**
      * Admit one URL for a provider-driven fetch (navigation or download).
      * The whole check is gated by `httpOnly`: when it is disabled, callers are
      * trusted with any scheme. When it is enabled, only HTTP(S) is admitted and

@@ -396,6 +396,12 @@ const SNAPSHOT_LABEL_MAX = 120
 /** An input dispatch must not outlive this: a blocked renderer never acknowledges. */
 const INPUT_DISPATCH_TIMEOUT_MS = 15_000
 
+/**
+ * Views whose renderer has already been told to consider itself focused.
+ * Weak so a destroyed view does not keep its handle alive.
+ */
+const focusEmulatedViews = new WeakSet<ElectronViewHandle>()
+
 /** Upper bound on concurrent scrape workers; each one costs a tab. */
 const MAX_SCRAPE_WORKERS = 8
 
@@ -647,18 +653,39 @@ export class ElectronBrowserProvider implements BrowserProvider {
    * @param params - its parameters.
    * @param signal - optional caller signal.
    */
-  private dispatchInput(
+  private async dispatchInput(
     handle: ElectronViewHandle,
     method: string,
     params: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<void> {
+    await this.ensureInputFocus(handle)
     return withTimeout(
       handle.sendCommand(method, params),
       INPUT_DISPATCH_TIMEOUT_MS,
       signal,
       `browser: ${method} timed out after ${INPUT_DISPATCH_TIMEOUT_MS}ms`,
     ).then(() => undefined)
+  }
+
+  /**
+   * Tell a renderer it is focused, once, before synthesized input.
+   *
+   * Chromium drops a synthesized mouse *press* when the renderer does not
+   * believe it has focus — which is the normal state for a background task's
+   * view, and on a real page even for the visible one while its window is not
+   * active. Moves are not gated, so hover looked fine while every click
+   * resolved its target, reported success, and left the page untouched.
+   *
+   * Focus emulation keeps this on the trusted CDP input path: no synthetic
+   * DOM click, so the events stay isTrusted and nothing about the page's
+   * view of the browser changes.
+   */
+  private async ensureInputFocus(handle: ElectronViewHandle): Promise<void> {
+    if (focusEmulatedViews.has(handle)) return
+    await handle.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true })
+      .then(() => { focusEmulatedViews.add(handle) })
+      .catch(() => undefined)
   }
 
   /**

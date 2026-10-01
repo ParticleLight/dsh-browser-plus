@@ -183,15 +183,18 @@ test('Agent CDP input suppresses automatic user handoff before dispatch', async 
   const provider = new ElectronBrowserProvider(host)
   const session = await provider.open()
 
+  // The focus handshake is a separate, one-off call; the ordering that matters
+  // is suppression before the input it guards.
+  const inputLog = () => host.log.filter(entry => entry.method !== 'Emulation.setFocusEmulationEnabled')
   await provider.click(session, { x: 12, y: 34 })
-  assert.equal(host.log[0].method, 'Runtime.evaluate')
-  assert.match(host.log[0].params.expression, /data-dsh-agent-input-until/)
-  assert.equal(host.log[1].method, 'Input.dispatchMouseEvent')
-  assert.equal(host.log[2].method, 'Input.dispatchMouseEvent')
+  assert.equal(inputLog()[0].method, 'Runtime.evaluate')
+  assert.match(inputLog()[0].params.expression, /data-dsh-agent-input-until/)
+  assert.equal(inputLog()[1].method, 'Input.dispatchMouseEvent')
+  assert.equal(inputLog()[2].method, 'Input.dispatchMouseEvent')
 
   await provider.type(session, { text: 'hello' })
-  assert.equal(host.log[3].method, 'Runtime.evaluate')
-  assert.equal(host.log[4].method, 'Input.insertText')
+  assert.equal(inputLog()[3].method, 'Runtime.evaluate')
+  assert.equal(inputLog()[4].method, 'Input.insertText')
 })
 
 test('task handoff exposes waiting-user and Agent resume states', async () => {

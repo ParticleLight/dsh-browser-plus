@@ -7,13 +7,19 @@
 ```bash
 npm run smoke:browser-tools
 ```
-用**真实 Electron 宿主 + 真实 Chromium** 驱动**真实 provider**,覆盖 **21 项**:
+用**真实 Electron 宿主 + 真实 Chromium** 驱动**真实 provider**,覆盖 **24 项**:
 
 - **provider 层(12 项)**:navigate / content / snapshot / screenshot / **click 三种寻址(坐标、选择器、文字)** /
   目标缺失的错误码 / waitForElement / **scrape 并发** / **cookie 导出→文件→清除→导入往返** / listTabs。
 - **工具层(6 项)**:真实 `apply(ctx)` 注册的工具跑在真实 provider 上 —— `browser_open` / `browser_content` /
   `browser_click`(文字寻址) / `browser_snapshot` / `browser_scrape`(start+status) / `browser_auth`(file)。
   每次调用还会**逐字段比对声明的输出 schema**——DSH 会在运行时校验输出,而直接调 `execute()` 绕过了它。
+- **输入真的到达页面(3 项)**:左键 → 页面应收到 `mousedown,mouseup,click`;右键 → 页面自己的
+  `contextmenu` handler 应收到且 `button:2`;修饰键 → `shiftKey` 与 `ctrlKey` 均应为真。
+  **这三项曾长期为假绿**(只验证「目标解析对了」,空串也算通过)。它们现在能通过,靠的是
+  `Emulation.setFocusEmulationEnabled` —— **Chromium 会在渲染进程自认未聚焦时丢弃合成的鼠标按压**,
+  而移动不受此门控,所以 `hover` 一直正常、掩盖了点击全废。`data:` URL 的渲染器在进程内不做这个门控,
+  因此**本地用 `data:` 页面做输入验证会得出错误的「一切正常」** —— 必须打真实站点。
 - **并行与规模(3 项)**:双任务(A 跑抓取时 B 的 snapshot 应在毫秒级返回)/ 两个任务各持独立会话 /
   **100 个 URL @ 并发 8**(应为 100 行、100 个不同 `seq`、0 失败,结束后标签页数回到 1)。
 

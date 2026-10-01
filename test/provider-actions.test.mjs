@@ -134,11 +134,28 @@ test('hover dispatches one mouseMoved with no button', async () => {
   const provider = new ElectronBrowserProvider(host)
   const session = await provider.open()
   await provider.hover(session, { x: 33, y: 44 })
-  assert.equal(host.log.length, 1)
-  assert.equal(host.log[0].method, 'Input.dispatchMouseEvent')
-  assert.equal(host.log[0].params.type, 'mouseMoved')
-  assert.equal(host.log[0].params.button, 'none')
-  assert.equal(host.log[0].params.x, 33)
+  const inputs = host.log.filter(entry => entry.method === 'Input.dispatchMouseEvent')
+  assert.equal(inputs.length, 1)
+  assert.equal(inputs[0].params.type, 'mouseMoved')
+  assert.equal(inputs[0].params.button, 'none')
+  assert.equal(inputs[0].params.x, 33)
+})
+
+test('synthesized input asks for focus emulation once per view, before dispatching', async () => {
+  // Chromium drops a synthesized mouse press while the renderer believes it is
+  // unfocused, which is the normal state for a background view. Without this
+  // handshake a click resolves its target, reports success, and does nothing.
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  await provider.click(session, { x: 1, y: 2 })
+  await provider.click(session, { x: 3, y: 4 })
+  await provider.hover(session, { x: 5, y: 6 })
+  const emulated = host.log.filter(entry => entry.method === 'Emulation.setFocusEmulationEnabled')
+  assert.equal(emulated.length, 1, 'once per view, not once per action')
+  assert.equal(emulated[0].params.enabled, true)
+  const firstInput = host.log.findIndex(entry => entry.method === 'Input.dispatchMouseEvent')
+  assert.ok(host.log.indexOf(emulated[0]) < firstInput, 'the handshake comes before the input it protects')
 })
 
 /** A real file inside its own root, so the read guard admits the upload. */
