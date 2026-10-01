@@ -275,6 +275,20 @@ await check('fill sets a select', async () => {
   if (seen.value !== 'b') throw new Error('the select holds ' + JSON.stringify(seen.value))
   return seen.value
 })
+await check('a browser-shaped cookie export imports', async () => {
+  // What Cookie-Editor / EditThisCookie write: domain + path, no url. This is
+  // the workflow the feature exists for, and it used to be rejected wholesale.
+  const file = join(outDir, 'editor-export.json')
+  writeFileSync(file, JSON.stringify([
+    { domain: 'httpbin.org', name: 'dsh_editor', value: 'yes', path: '/', secure: true, httpOnly: false, sameSite: 'no_restriction' },
+  ]))
+  const imported = await provider.importAuth(session, file)
+  const present = (await provider.flushAuth(session)).filter(cookie => cookie.name === 'dsh_editor').length
+  await provider.clearAuth(session, { name: 'dsh_editor' })
+  if (imported.restored !== 1) throw new Error('restored ' + String(imported.restored) + ', failed ' + String(imported.failed))
+  if (present !== 1) throw new Error('the cookie is not in the session afterwards')
+  return { restored: imported.restored, present }
+})
 // --- the tool layer, over the same real provider -------------------------
 // The unit suite drives the tools against a fake browser, and the checks above
 // drive the provider directly. This is the only place the two meet: tool schema

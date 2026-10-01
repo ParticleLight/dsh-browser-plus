@@ -460,11 +460,55 @@ function scrapeRow(row: Record<string, unknown>): string {
   }
 }
 
-/** Whether one entry of a cookie export can be handed to cookies.set. */
-function isExportedCookie(value: unknown): value is ExportedCookie {
-  if (typeof value !== 'object' || value === null) return false
+/**
+ * Normalize one entry of a cookie export, or undefined when it cannot be used.
+ *
+ * Our own flushAuth emits `url`. Browser cookie editors (Cookie-Editor,
+ * EditThisCookie) and Edge's own export emit `domain` + `path` and no `url` at
+ * all — so requiring `url` rejected a file straight out of a browser wholesale,
+ * which is exactly the workflow this feature exists for. cookies.set wants a
+ * URL, so derive one when only the domain is present.
+ */
+function normalizeExportedCookie(value: unknown): ExportedCookie | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
   const record = value as Record<string, unknown>
-  return typeof record.url === 'string' && typeof record.name === 'string' && typeof record.value === 'string'
+  if (typeof record.name !== 'string' || typeof record.value !== 'string') return undefined
+  const path = typeof record.path === 'string' && record.path.startsWith('/') ? record.path : '/'
+  const url = typeof record.url === 'string' && record.url !== ''
+    ? record.url
+    : typeof record.domain === 'string' && record.domain !== ''
+      // A leading dot marks a domain-wide cookie; the URL host must not carry it.
+      ? `${record.secure === true ? 'https' : 'http'}://${record.domain.replace(/^\./, '')}${path}`
+      : undefined
+  if (url === undefined) return undefined
+  const sameSite = normalizeSameSite(record.sameSite)
+  return {
+    url,
+    name: record.name,
+    value: record.value,
+    ...typeof record.domain === 'string' ? { domain: record.domain } : {},
+    ...typeof record.path === 'string' ? { path: record.path } : {},
+    ...typeof record.secure === 'boolean' ? { secure: record.secure } : {},
+    ...typeof record.httpOnly === 'boolean' ? { httpOnly: record.httpOnly } : {},
+    ...typeof record.expirationDate === 'number' ? { expirationDate: record.expirationDate } : {},
+    ...sameSite === undefined ? {} : { sameSite },
+  }
+}
+
+/**
+ * Cookie editors emit Playwright's spelling (None/Lax/Strict) and Chromium's
+ * (no_restriction/lax/strict). cookies.set wants the latter.
+ */
+function normalizeSameSite(value: unknown): ExportedCookie['sameSite'] {
+  if (typeof value !== 'string') return undefined
+  switch (value.toLowerCase()) {
+    case 'none':
+    case 'no_restriction': return 'no_restriction'
+    case 'lax': return 'lax'
+    case 'strict': return 'strict'
+    case 'unspecified': return 'unspecified'
+    default: return undefined
+  }
 }
 
 /** Total budget for the snapshot's empty-inventory retries. */
@@ -1634,7 +1678,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     if (list === undefined) {
       throw new BrowserError('browser: the cookie file must be a JSON array or {"cookies": [...]}', 'BROWSER_AUTH_FILE_INVALID')
     }
-    const usable = list.filter(isExportedCookie)
+    const usable = list.map(normalizeExportedCookie).filter((cookie): cookie is ExportedCookie => cookie !== undefined)
     if (usable.length === 0) {
       throw new BrowserError(`browser: the cookie file has no usable entries (${list.length} read)`, 'BROWSER_AUTH_FILE_INVALID')
     }

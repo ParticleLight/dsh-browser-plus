@@ -1141,7 +1141,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (!Array.isArray(cookies)) throw new Error('restoreAuth missing cookies array')
         let restored = 0
         let failed = 0
-        for (const c of cookies as Array<{ url?: string; name?: string; value?: string; domain?: string; path?: string; secure?: boolean; httpOnly?: boolean; expirationDate?: number }>) {
+        for (const c of cookies as Array<{ url?: string; name?: string; value?: string; domain?: string; path?: string; secure?: boolean; httpOnly?: boolean; expirationDate?: number; sameSite?: string }>) {
           if (typeof c.url !== 'string' || typeof c.name !== 'string' || typeof c.value !== 'string') { failed += 1; continue }
           try {
             await entry.webContentsView.webContents.session.cookies.set({
@@ -1153,6 +1153,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
               ...typeof c.secure === 'boolean' ? { secure: c.secure } : {},
               ...typeof c.httpOnly === 'boolean' ? { httpOnly: c.httpOnly } : {},
               ...typeof c.expirationDate === 'number' ? { expirationDate: c.expirationDate } : {},
+              ...typeof c.sameSite === 'string' ? { sameSite: c.sameSite as 'no_restriction' | 'lax' | 'strict' | 'unspecified' } : {},
             })
             restored += 1
           } catch {

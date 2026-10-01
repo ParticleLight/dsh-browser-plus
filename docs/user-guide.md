@@ -106,7 +106,7 @@ dsh plugin --profile web add <本仓库路径>
 **不能自动导入**,这是浏览器的安全机制而非本插件的限制:Chrome/Edge 127+ 用 **App-Bound Encryption** 加密 cookie 值(实测本机 Chrome 的 cookie 全部是 `v20` 前缀),密钥绑定浏览器自身可执行文件身份,**复制 profile 也解不开**——实测把 `Local State` + `Default/Network/Cookies` 复制到临时目录再启动 Chrome,`Storage.getCookies` 返回 0 条。两条可行路径:
 
 1. **在本插件自己的浏览器里登录一次(推荐)**:profile 是持久的(`<DSH_HOME>/dsh-browser-plus-host`),点页面工具栏的「接管」手动登录,之后 agent 的任务就一直带着这份登录态。
-2. **导入用户导出的 cookie 文件**:用扩展或 DevTools 导出成 JSON,然后 `browser_auth { action: "restore", file: "<路径>" }`。文件须在 `browser-electron.readRoots` 内(默认:工作目录与系统临时目录);接受裸数组或 `{"cookies": [...]}` 两种形状,格式不合法的条目会被跳过并在 `failed` 里计数。
+2. **导入用户导出的 cookie 文件**:用扩展或 DevTools 导出成 JSON,然后 `browser_auth { action: "restore", file: "<路径>" }`。文件须在 `browser-electron.readRoots` 内(默认:工作目录与系统临时目录);接受裸数组或 `{"cookies": [...]}` 两种形状,**两种字段风格都认**:① 本插件导出的 `url` 风格;② **浏览器扩展(Cookie-Editor / EditThisCookie)与 Edge 自带导出的 `domain` + `path` 风格 —— 没有 `url` 字段,插件会自行推导**(这正是「从浏览器导出再导入」的实际用法)。`sameSite` 同时接受 Chromium 拼写(`no_restriction`)与 Playwright 拼写(`None`/`Lax`/`Strict`)。格式不合法的条目会被跳过并在 `failed` 里计数。
 
 ## 故障排查
 

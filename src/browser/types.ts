@@ -252,6 +252,8 @@ export interface ExportedCookie {
   readonly secure?: boolean
   readonly httpOnly?: boolean
   readonly expirationDate?: number
+  /** SameSite policy in Chromium's spelling; both spellings are accepted on import. */
+  readonly sameSite?: 'no_restriction' | 'lax' | 'strict' | 'unspecified'
 }
 
 /** Which cookies a clear request removes: a domain scope, one name, or an explicit wipe. */

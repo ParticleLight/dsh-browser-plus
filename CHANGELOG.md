@@ -2,6 +2,9 @@
 
 ## v0.4.3 (2026-09-30)
 
+- 🔴 **修复:浏览器直接导出的 cookie 文件会被整份拒绝**。`browser_auth { action: 'restore', file }` 的条目校验**要求 `url` 字段**,但**浏览器扩展(Cookie-Editor / EditThisCookie)与 Edge 自带导出写的是 `domain` + `path`,根本没有 `url`** → 于是「从浏览器导出 → 导入」这条**声明的主要工作流完全不工作** ✗(报 `no usable entries`),只有本插件自己导出的格式能用 ✗。
+  - **修法**:条目校验改为**归一化** —— 有 `url` 用之,否则由 `domain` + `path` + `secure` 推导(`.example.com` 的前导点会去掉,因为 URL host 不能带它)。顺带支持 `sameSite`,并同时接受 Chromium 拼写(`no_restriction`)与 Playwright 拼写(`None`/`Lax`/`Strict`),透传到宿主的 `cookies.set`。
+  - **验证**:单测用扩展的真实字段形状(含 `sameSite: 'Lax'` 的大小写差异);冒烟在**真实 Chromium** 上导入一份扩展形状的文件 → `{restored:1, present:1}`(装进去了且事后能读回),32 项 `EXIT=0`。
 - **交互效果断言补全到 10 项(冒烟共 31 项)**:新增 **`click_ref`**(文档里的主要交互方式,此前只验证过「调用返回了」,从未验证过「页面收到了」)、双击、滚动、`fill` 选 select 四条**效果断言**。同时对 `browser_scroll` 与 `browser_fill` 做了**旧代码现场实测**:滚动 `scrollY` 0 → 69 ✓、填充输入框拿到值 ✓ —— **没有第三个静默失效的输入工具**。`browser_scroll` 那条断言第一版写错了(当时页面本身没有可滚动高度,`scrollY` 理应不变),已改为先注入高元素。
 - **键盘输入此前也在空转(由第 9 轮的修复一并治好,本轮补上断言)**:实测运行中的旧代码,`browser_press_key` 派发后页面收到的 `keydown` 列表**为空** ✗ —— Enter/Tab/Escape/方向键/Ctrl+A 全靠它。它与鼠标按压走**同一条 `dispatchInput` 路径**,因此第 9 轮的 `Emulation.setFocusEmulationEnabled` 修复**同时治好了两者**。`browser_type`(`Input.insertText`)不受影响,一直正常。冒烟新增两条**效果断言**(键盘 → 页面收到 `Enter`;输入法 → 聚焦输入框内容变为所输入文本),现共 **27 项**、`EXIT=0`。
 - **新增 `browser_drag`(工具数 36 → 37)**:`from` 按下 → 中间移动 → `to` 释放。两端复用 `browser_click` 的三种寻址(`x`+`y` / `selector` / `text`)并先滚入视野。`steps` 默认 12、上限 60 —— **中间移动是滑块与可排序库真正监听的东西,瞬移会被忽略**,单测把插值坐标逐一钉住(`[32.5, 55, 77.5, 100]`),并断言 `buttons` 在按下后保持为 1、释放时归 0(否则页面会看到卡住的按键)。冒烟在真实页面上注入探针,验证手势**跨 7 次事件**(悬停 + 6 次中间移动)、按在源、释放在目标。**已知限制**:只驱动指针式拖拽,依赖 HTML5 `dragstart`/`drop` 的页面不会响应(合成鼠标移动不产生原生拖放),描述里已写明。

@@ -825,3 +825,29 @@ test('a drag presses, moves in steps, and releases on the destination', async ()
   const xs = events.slice(2, 6).map(event => event.x)
   assert.deepEqual(xs, [32.5, 55, 77.5, 100])
 })
+test('a cookie export straight from a browser editor is accepted', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-cookie-export-'))
+  try {
+    // Exactly what Cookie-Editor and EditThisCookie write: domain + path and no
+    // url at all. Requiring url rejected these wholesale, which is the very
+    // workflow the import exists for.
+    const file = join(dir, 'cookies.json')
+    writeFileSync(file, JSON.stringify([
+      { domain: '.example.com', name: 'session', value: 'abc', path: '/', secure: true, httpOnly: true, expirationDate: 1_800_000_000, sameSite: 'no_restriction' },
+      { domain: 'example.com', name: 'theme', value: 'dark', path: '/app', secure: false, sameSite: 'Lax' },
+    ]))
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { readRoots: [dir] })
+    const session = await provider.open()
+    let seen
+    host.views[0].restoreAuth = async cookies => { seen = cookies; return cookies.length }
+    const result = await provider.importAuth(session, file)
+    assert.deepEqual(result, { restored: 2, failed: 0 })
+    assert.equal(seen[0].url, 'https://example.com/', 'the url is derived from domain, secure and path')
+    assert.equal(seen[1].url, 'http://example.com/app', 'a non-secure cookie gets an http url')
+    assert.equal(seen[0].sameSite, 'no_restriction')
+    assert.equal(seen[1].sameSite, 'lax', "Playwright's spelling is normalized to Chromium's")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
