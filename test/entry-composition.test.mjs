@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { apply } from '../lib/browser-electron/entry.js'
+import { apply, Config } from '../lib/browser-electron/entry.js'
 import { RemoteElectronViewHost } from '../lib/browser-electron/remote-host.js'
 
 /**
@@ -62,6 +62,22 @@ test('without a view host the plugin self-hosts and owns the lifecycle', () => {
   disposers[0]()
   assert.equal(registered.length, 0, 'the provider is unregistered on teardown')
   assert.equal(disposed, true, 'the self-hosted child is shut down with the fiber')
+})
+
+test('an absent writeRoots resolves to the documented defaults', () => {
+  // These must go through Config(), not straight into apply(): the other tests
+  // here call apply() with a raw object and so skip schemastery, which is
+  // exactly the layer that broke. schemastery materializes an absent array key
+  // as [], and [] is not nullish, so the provider's `?? defaultWriteRoots()`
+  // never fired and every disk write was refused with "none configured".
+  const absent = Config({})
+  assert.ok(absent.writeRoots.length > 0, 'absent means the workspace + temp defaults')
+  assert.ok(absent.readRoots.length > 0, 'and the same for reads')
+
+  // An explicit empty list is a real posture: deny every write. Defaulting in
+  // the schema is what keeps absence and [] distinguishable.
+  assert.deepEqual(Config({ writeRoots: [], readRoots: [] }).writeRoots, [])
+  assert.deepEqual(Config({ writeRoots: ['/x'], readRoots: ['/y'] }).readRoots, ['/y'])
 })
 
 test('the chrome world reaches the self-hosted child', () => {

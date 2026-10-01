@@ -2,6 +2,7 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **修复写盘白名单默认值从未生效**:`entry.ts` 的 `writeRoots`/`readRoots` 声明为 `z.array(z.string())` 而没有默认值,而 schemastery 会把**缺省键物化成 `[]`**;`[]` 不是 nullish,于是 provider 的 `config.writeRoots ?? defaultWriteRoots()` **永远走不到默认分支** —— 结果是文档承诺的「默认 = 工作目录 + 系统临时目录」从来不成立,`browser_screenshot(savePath)` / `browser_download` / `browser_upload_file` 一律以「none configured」被拒。现在默认值在 **schema 层**物化,既让缺省等于文档默认值,又保住「显式 `[]` = 全禁」这个真实语义。
 - **可选:把注入 chrome 移进隔离世界**(`browser-electron.chromeWorld: isolated`,**默认仍是 main**)。开启后 chrome 经 `Page.createIsolatedWorld` 注入自己的 JS 世界,`Runtime.addBinding` 也用 `executionContextName` 限定在其中——被访问页面**读不到** `window.__dshTasks` / `window.__dshTrail` / `window.__dshBrowserTaskAction`,连「提前 hook JSON.stringify 偷 binding token」这条残留路径也一并消失。四条注入路径(挂载、bootstrap、patch、active 标记)统一走 `runChromeScript`,导航时丢弃旧 world 以便为新文档重建。**默认未切换**:该改动重写工具栏注入路径,必须在真实窗口按 `docs/SOAK-CHECKLIST.md` 第 8 节逐项验证后再考虑改默认值。
 - **下载改由子进程直接落盘**:此前子进程把整包 base64 塞进一行 JSON 回传,父进程再解码写盘——64MiB 的下载在 host→parent→disk 路径上要复制约 8 份(含 RPC 行缓冲)。现在子进程自己写文件、只回 `{ bytes }`,下载体**完全不再经过 RPC socket**,峰值内存与 `MAX_RPC_BUFFER_BYTES` 的压力同时消失。
 - **测试 seam 移出声明的 API 面**:`tsconfig` 打开 `stripInternal`,`internals` 与 `DeferredRemoteView` 不再出现在 `lib/*.d.ts` 里(运行时导出保留,定点测试照常可用)。

@@ -28,7 +28,8 @@ export interface Config {
     readonly httpOnly?: boolean;
     /**
      * Absolute directories `browser_screenshot` and `browser_download` may
-     * write into. Absent -> the workspace and the OS temp directory.
+     * write into. Absent -> the workspace and the OS temp directory. An explicit
+     * empty list denies every write.
      */
     readonly writeRoots?: string[];
     /**

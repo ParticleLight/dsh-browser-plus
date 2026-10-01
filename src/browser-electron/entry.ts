@@ -16,6 +16,7 @@ import type { BrowserRuntime } from '../browser/runtime.ts'
 import { ElectronBrowserProvider } from './provider.ts'
 import type { ElectronBrowserViewHost } from './provider.ts'
 import { defaultHostMainPath, RemoteElectronViewHost } from './remote-host.ts'
+import { defaultWriteRoots } from './write-guard.ts'
 
 export {
   ELECTRON_BROWSER_PROVIDER_ID,
@@ -38,7 +39,8 @@ export interface Config {
   readonly httpOnly?: boolean
   /**
    * Absolute directories `browser_screenshot` and `browser_download` may
-   * write into. Absent -> the workspace and the OS temp directory.
+   * write into. Absent -> the workspace and the OS temp directory. An explicit
+   * empty list denies every write.
    */
   readonly writeRoots?: string[]
   /**
@@ -60,8 +62,13 @@ export const Config: z<Config> = z.object({
   // Absent on surfaces without a desktop shell; the plugin self-hosts then.
   viewHost: z.any(),
   httpOnly: z.boolean().default(true),
-  writeRoots: z.array(z.string()),
-  readRoots: z.array(z.string()),
+  // The defaults are materialized HERE, not left to the provider's
+  // `?? defaultWriteRoots()`: schemastery turns an absent array key into [],
+  // and an empty array is not nullish, so the provider would see an empty
+  // allow-list and refuse every write. Defaulting in the schema keeps absence
+  // meaning "the documented defaults" while an explicit [] still denies all.
+  writeRoots: z.array(z.string()).default(defaultWriteRoots()),
+  readRoots: z.array(z.string()).default(defaultWriteRoots()),
   chromeWorld: z.union(['main', 'isolated'] as const).default('main'),
 })
 
