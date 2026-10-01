@@ -162,6 +162,18 @@ await check('a settled tab is not stuck loading', async () => {
 // already scaled, which is what made the derived version stop compensating).
 // Bookmarks belong to the profile, so the host publishes the list to every page
 // instead of leaving it in the page's per-origin localStorage.
+// The chrome's mount is one linear script, so any exception inside it silently
+// removes everything after that point. With the assertion below, a half-mounted
+// chrome fails loudly instead of quietly losing its menus and shortcuts.
+await check('the chrome mounted without an error and its find hook exists', async () => {
+  const result = await provider.execute(session, {
+    script: 'JSON.stringify({ error: String(document.documentElement.dataset.dshChromeError), find: typeof window.__dshChromeFind })',
+  })
+  const state = JSON.parse(String(result.value ?? '{}'))
+  if (state.error !== 'undefined') throw new Error('the chrome mount failed: ' + state.error)
+  if (state.find !== 'object') throw new Error('window.__dshChromeFind is ' + String(state.find))
+  return state
+})
 await check('the host publishes the bookmark list to the chrome', async () => {
   const result = await provider.execute(session, { script: 'Array.isArray(window.__dshBookmarks) ? String(window.__dshBookmarks.length) : "missing"' })
   if (result.value === 'missing') throw new Error('window.__dshBookmarks was not published')

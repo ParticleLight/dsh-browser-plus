@@ -234,6 +234,37 @@ test('the tab strip is the window frame: draggable, with room for the caption bu
   assert.match(script, /host\.dataset\.dshCaption = /, 'the chrome decides which side')
 })
 
+test('find in page: a Chrome-style bar, CSSOM highlights, code-matched shortcuts', () => {
+  const script = buildPageChromeScript()
+  assert.ok(script.includes(String.raw`id=\"findBar\"`), 'the bar ships')
+  assert.match(script, /#findBar\.open \{ display:flex; \}/)
+  // Highlights are registered on the document (CSSOM), never as a <style> element and
+  // never by mutating the page's DOM.
+  assert.match(script, /::highlight\(dsh-find\)\{background:#f0bd69/)
+  assert.match(script, /::highlight\(dsh-find-current\)\{background:#f28b25/)
+  assert.match(script, /document\.adoptedStyleSheets = document\.adoptedStyleSheets\.concat\(\[findSheet\]\)/)
+  assert.match(script, /CSS\.highlights\.set\('dsh-find-current', new Highlight\(current\)\)/)
+  assert.match(script, /const collectFindRanges = query =>/)
+  assert.match(script, /FIND_LIMIT/, 'the walk is capped')
+  assert.match(script, /chord === 'f' \|\| chordCode === 'KeyF'/, 'Ctrl+F matches on code too')
+  assert.match(script, /chord === 'l' \|\| chordCode === 'KeyL'/)
+  assert.match(script, /window\.__dshChromeFind = \{ open: openFind, close: closeFind/)
+  assert.match(script, /mmFind\.addEventListener\('click', \(\) => \{ closeMenu\(mainMenu\); openFind\(\) \}\)/)
+})
+
+test('a mount error is reported instead of silently truncating the chrome', () => {
+  const script = buildPageChromeScript()
+  // The mount is one linear script: an exception anywhere silently removes everything
+  // AFTER it. That is exactly how a missing root.getElementById('mmFind') turned into
+  // "Ctrl+F does nothing" with no error anywhere. Now the throw is recorded where a
+  // test can see it.
+  assert.match(script, /const mountSafely = \(\) => \{/)
+  assert.match(script, /catch \(error\) \{/)
+  assert.match(script, /document\.documentElement\.dataset\.dshChromeError = String\(\(error && error\.message\) \|\| error\)/)
+  assert.match(script, /if \(document\.documentElement\) mountSafely\(\)/)
+  assert.match(script, /document\.addEventListener\('DOMContentLoaded', mountSafely, \{ once: true \}\)/)
+})
+
 test('bookmarks come from the host, not from per-origin localStorage', () => {
   const script = buildPageChromeScript()
   // localStorage is per ORIGIN: a bookmark saved on one site was invisible on every
