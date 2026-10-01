@@ -2,6 +2,11 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **取消抽屉设计 + 页面不再被顶栏遮挡**（用户要求「取消抽屉的设计，同时为了不遮挡，像谷歌浏览器那样处理」）。
+  - **取消抽屉**：隐藏悬停热区 `#toolbarRevealZone` 与「收起」按钮 `#toolbarHide` ✓ —— 顶栏**常驻**，不再有滑出/收起 ✓。
+  - **不遮挡**：Chrome 的语义是「页面从工具栏下方开始」✓。这里是**注入式** chrome（在页面内部）✗，所以用同一语义把**文档整体下移**顶栏高度（标签行 40 + 工具栏 44 = 84px ✓，`padding-top` + `!important` 以压过页面自身样式 ✓）。
+  - **实测**：`getComputedStyle(html).paddingTop === '84px'` ✓，页面首个内容元素 `getBoundingClientRect().top === 84` ✓ —— 正好在顶栏下方 ✓。截图确认 IANA 的 logo 与导航**完整可见** ✓。
+  - **已知限制**：页面自身的 `position:fixed` 元素仍会贴到视口顶部（被顶栏盖住）✗ —— 因为注入式 chrome 无法缩小页面视口 ✗。**彻底解决需要把 chrome 做成独立的宿主视图**（Chrome 的真实架构 ✓），那是更大的改动 ✓。
 - **标签栏显示 favicon**（Chrome 的标签几乎由 favicon 主导，这是「像不像」最显眼的一块）。宿主监听 `page-favicon-updated` ✓，把图标 URL 放进 `ChromeTabSummary.favicon` ✓，chrome 用 `createElement('img')` + `.src` 渲染 ✓（**绝不拼 innerHTML** —— 该 URL 由页面控制 ✓）。页面没给图标时回退**内联 SVG 地球** ✓（与 Chrome 一致）。
   - `data:,`（空 data URI）被显式忽略 ✓ —— 有些页面用它代替真图标 ✓，当成图标会渲染出**破图** ✗（实测 example.com 就是这样 ✓）。
   - **实测**：GitHub 标签显示猫图标 ✓、Example Domain 显示地球 ✓。
