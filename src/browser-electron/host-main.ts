@@ -28,7 +28,7 @@ import { taskSummaryUrl } from './task-summary.js'
 import { taskThumbnailDataUrl, type ThumbnailImage } from './task-thumbnail.js'
 import { exportCookiesForAuth, selectCookiesForClear } from './auth-cookies.js'
 import { resolveBrowserIconPath } from './icon.js'
-import { createBootstrap, createPatch, type ChromePatchOperation, type ChromeTaskSummary, type ChromeTrailEntry, type ChromeWorkspaceState } from './chrome-state.js'
+import { createBootstrap, createPatch, type ChromePatchOperation, type ChromeTabSummary, type ChromeTaskSummary, type ChromeTrailEntry, type ChromeWorkspaceState } from './chrome-state.js'
 
 // Isolate this host's profile from the DSH app's default Electron userData:
 // several Electron instances sharing Roaming\Electron fight over the GPU
@@ -414,6 +414,47 @@ function taskSummaries(): TaskSummary[] {
   })
 }
 
+/**
+ * Tabs of one task, as the injected tab strip renders them.
+ *
+ * A tab IS a host view, so this is the task's view list in creation order
+ * (taskViewIds is a Set, whose insertion order is stable across activations);
+ * `active` marks the view currently shown for that task. Title and URL are read
+ * live from the view, so the next push reflects a navigation.
+ *
+ * The URL is reduced to its origin by taskSummaryUrl(), exactly like the task
+ * summaries: this state is injected into the page being displayed (and the strip
+ * puts it in the button's title attribute), so a query string or an in-URL token
+ * must never reach the page. The strip itself renders only the title.
+ */
+function tabSummaries(taskKey: string | undefined): ChromeTabSummary[] {
+  if (taskKey === undefined) return []
+  const viewIds = taskViewIds.get(taskKey)
+  if (viewIds === undefined) return []
+  const activeViewId = activeViewByTask.get(taskKey)
+  const tabs: ChromeTabSummary[] = []
+  for (const viewId of viewIds) {
+    const entry = views.get(viewId)
+    if (entry === undefined) continue
+    let title = ''
+    let url = ''
+    try {
+      title = entry.webContentsView.webContents.getTitle()
+      // Origin only: the tab strip renders titles, and this value reaches the
+      // page (the chrome lives in the page), so a full URL would hand the page
+      // the query string and any token in it. Same redaction taskSummaries uses.
+      url = taskSummaryUrl(entry.webContentsView.webContents.getURL())
+    } catch { /* closing */ }
+    tabs.push({
+      id: viewId,
+      title: title === '' ? '新标签页' : title,
+      url: url ?? '',
+      active: viewId === activeViewId,
+    })
+  }
+  return tabs
+}
+
 let chromeEpoch = 1
 let chromeRevision = 0
 let pendingChromeOperations: ChromePatchOperation[] = []
@@ -507,6 +548,7 @@ function chromeWorkspaceState(selectedTaskKey = visibleTaskKey): ChromeWorkspace
     ...selectedTaskKey !== undefined ? { selectedTaskKey } : {},
     panels: workspacePanels,
     tasks: taskSummaries() as ChromeTaskSummary[],
+    tabs: tabSummaries(selectedTaskKey),
     trail: activeTraceForTask(selectedTaskKey),
   }
 }
@@ -566,6 +608,18 @@ function queueChromePatch(...operations: ChromePatchOperation[]): void {
   pendingChromeOperations.push(...operations)
   if (chromePatchTimer !== undefined) return
   chromePatchTimer = setTimeout(flushChromePatches, 24)
+}
+
+/**
+ * Push the visible task's tab list to the chrome.
+ *
+ * Only the visible task is ever pushed: a patch is delivered to the visible
+ * view alone (flushChromePatches), so a background task's tabs would repaint
+ * the on-screen tab strip with another task's tabs. A background task's choice
+ * is instead carried by the next bootstrap, which always includes tabs.
+ */
+function queueTabsSet(): void {
+  queueChromePatch({ op: 'tabs.set', tabs: tabSummaries(visibleTaskKey) })
 }
 
 function scheduleVisibleTaskThumbnail(taskKey: string, delayMs = 360): void {
@@ -653,6 +707,10 @@ function switchVisibleTask(taskKey: string): void {
   syncVisibleTaskVisibility()
   try { win.setTitle(taskTitle(taskKey)) } catch { /* closing */ }
   pushVisibleChromeState()
+  // The visible task changed, so its tab strip (and which tab is marked active)
+  // changed with it. Queued after the bootstrap: resetChromeDelivery() inside
+  // pushVisibleChromeState() drops anything queued before it.
+  queueTabsSet()
   scheduleVisibleTaskThumbnail(taskKey, 550)
 }
 /** The RPC socket to the parent; set when the connection is established. */
@@ -676,7 +734,15 @@ function applyPageChrome(view: WebContentsView, viewId: string): void {
     // Chrome is cosmetic; never fail a page for it.
   }
   const taskKey = views.get(viewId)?.taskKey
-  if (taskKey !== undefined && taskKey === visibleTaskKey) scheduleVisibleTaskThumbnail(taskKey, 550)
+  if (taskKey !== undefined && taskKey === visibleTaskKey) {
+    // Navigation completed for a tab of the visible task: its title/url changed,
+    // so the strip needs a new list. The bootstrap injected just above already
+    // carries tabs; this patch is what the tab-bar contract asks for on
+    // navigation, and it also covers a background tab of the visible task
+    // (whose own chrome is not on screen but whose title belongs in the strip).
+    queueTabsSet()
+    scheduleVisibleTaskThumbnail(taskKey, 550)
+  }
 }
 
 /** Install human browser chrome without creating or reparenting a child view. */
@@ -692,6 +758,12 @@ function installPageChrome(view: WebContentsView, viewId: string): void {
   }
   view.webContents.on('did-navigate', apply)
   view.webContents.on('did-navigate-in-page', apply)
+  // did-navigate fires on commit, usually before the document's <title> is
+  // known, so a tab would read as '新标签页' until the next switch. Re-push the
+  // strip when the title actually settles (only for the task on screen).
+  view.webContents.on('page-title-updated', () => {
+    if (views.get(viewId)?.taskKey === visibleTaskKey) queueTabsSet()
+  })
   apply()
 }
 
@@ -783,7 +855,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             const binding = (params ?? {}) as { name?: unknown; payload?: unknown }
             if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
               try {
-                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tasks?: unknown; trail?: unknown; control?: unknown }
+                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown }
                 // Authenticate before acting: only our injected chrome knows this
                 // view's token, so a forged payload never reaches the dispatcher.
                 if (!authorizeChromeAction(action, chromeToken)) return
@@ -806,6 +878,33 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
                     : { control: 'agent', status: 'idle', latestAction: 'agent resumed' })
                   const task = taskSummaries().find(candidate => candidate.key === action.taskKey)
                   if (task !== undefined) queueChromePatch({ op: 'task.upsert', task })
+                } else if (action.type === 'switch-tab'
+                  && typeof action.taskKey === 'string'
+                  && typeof action.tabId === 'string') {
+                  // TODO(tabs-provider-sync, next round): this only changes which
+                  // HOST view is on screen. The provider (DSH process) still owns
+                  // its session's activeIndex, so the next provider-driven command
+                  // (browser_snapshot / browser_click / ...) operates on the tab it
+                  // last activated, not the one just picked here. Fixing that needs
+                  // a host -> provider message (that RPC direction does not exist
+                  // yet) that updates provider.activeIndex; do NOT fake it here.
+                  const tabEntry = views.get(action.tabId)
+                  // An unknown tabId, or a tab that belongs to another task, is
+                  // ignored silently like the other page actions: the chrome must
+                  // never be interrupted by a stale tab strip.
+                  if (tabEntry !== undefined && tabEntry.taskKey === action.taskKey) {
+                    const activeViewChanged = activeViewByTask.get(action.taskKey) !== action.tabId
+                    activeViewByTask.set(action.taskKey, action.tabId)
+                    if (activeViewChanged) taskThumbnails.delete(action.taskKey)
+                    // Only the visible task has a tab strip the human can click. A
+                    // background task's choice is remembered and applied when the
+                    // human switches to it (switchVisibleTask reads activeViewByTask).
+                    if (action.taskKey === visibleTaskKey) {
+                      // switchVisibleTask re-syncs visibility and pushes the new
+                      // tab list (it is the "visible view switched" push point).
+                      switchVisibleTask(action.taskKey)
+                    }
+                  }
                 }
               } catch { /* malformed page action */ }
             }
@@ -864,6 +963,10 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // snapshot of it is empty.
         void view.webContents.loadURL(START_PAGE_URL).catch(() => undefined)
         pushVisibleChromeState()
+        // A new view is a new tab of its task. Only the visible task's strip is
+        // on screen, and patches reach the visible view alone, so a background
+        // task's new tab is picked up by the bootstrap when it becomes visible.
+        if (taskKey === visibleTaskKey) queueTabsSet()
         reply(msg.id, { ok: true })
         return
       }
@@ -913,6 +1016,10 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           }
         }
         pushVisibleChromeState()
+        // Closing a tab of the visible task shortens its strip. When the task
+        // itself is gone, visibleTaskKey has already moved on via
+        // switchVisibleTask (which pushed its own list), so this is a no-op there.
+        if (entry !== undefined && entry.taskKey === visibleTaskKey) queueTabsSet()
         reply(msg.id, { ok: true })
         return
       }

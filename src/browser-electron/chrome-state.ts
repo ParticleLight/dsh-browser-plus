@@ -41,12 +41,28 @@ export interface ChromeTaskSummary {
   readonly thumbnailVersion: number
 }
 
+/**
+ * One tab of the selected task, as the tab strip renders it.
+ *
+ * A tab is a host view, so this is the view list for the task in creation
+ * order; `active` marks the one currently shown. Titles and URLs come from the
+ * view itself and are refreshed on navigation.
+ */
+export interface ChromeTabSummary {
+  readonly id: string
+  readonly title: string
+  readonly url: string
+  readonly active: boolean
+}
+
 export interface ChromeWorkspaceState {
   readonly epoch: number
   readonly revision: number
   readonly selectedTaskKey?: string
   readonly panels: ChromePanels
   readonly tasks: readonly ChromeTaskSummary[]
+  /** Tabs of the selected task, in creation order. */
+  readonly tabs: readonly ChromeTabSummary[]
   readonly trail: readonly ChromeTrailEntry[]
 }
 
@@ -62,6 +78,7 @@ export type ChromePatchOperation =
   | { readonly op: 'trail.append'; readonly taskKey: string; readonly entry: ChromeTrailEntry }
   | { readonly op: 'trail.replace'; readonly taskKey?: string; readonly entries: readonly ChromeTrailEntry[] }
   | { readonly op: 'panels.set'; readonly panels: ChromePanels }
+  | { readonly op: 'tabs.set'; readonly tabs: readonly ChromeTabSummary[] }
 
 export interface ChromePatchMessage {
   readonly kind: 'patch'
