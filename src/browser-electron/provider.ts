@@ -396,7 +396,13 @@ const INPUT_DISPATCH_TIMEOUT_MS = 15_000
 /** Mutable progress for one background scrape batch. */
 interface ScrapeJob {
   readonly id: string
-  readonly session: BrowserSessionId
+  readonly session: Session
+  /**
+   * The batch's own tab, created at start and destroyed when it ends. Deliberately
+   * never activated: a batch must not race a tool call for the session's active
+   * tab, and it must not navigate away from the page the human was reading.
+   */
+  readonly tab: Tab
   readonly path: string
   state: 'running' | 'done' | 'stopped'
   readonly total: number
@@ -676,9 +682,17 @@ export class ElectronBrowserProvider implements BrowserProvider {
   /** Navigate the active tab's view to a URL, honoring HTTP(S)-only admission. */
   async navigate(session: BrowserSessionId, request: { readonly url: string }, signal?: AbortSignal): Promise<void> {
     const s = this.session(session)
-    const tab = this.activeTab(s)
+    return this.navigateTab(s, this.activeTab(s), request.url, signal)
+  }
+
+  /**
+   * Navigate one tab. A scrape worker passes its own tab so a batch never races
+   * a tool call for the session's active tab.
+   * @param show - bring the tab to the front; a background worker passes false.
+   * @param settleMs - post-ready paint delay; a DOM-only reader passes 0.
+   */
+  private async navigateTab(s: Session, tab: Tab, url: string, signal?: AbortSignal, show = true, settleMs = 250): Promise<void> {
     const { handle } = tab
-    const url = request.url
     try {
       this.admitUrl(url, 'navigation')
       signal?.throwIfAborted()
@@ -700,10 +714,10 @@ export class ElectronBrowserProvider implements BrowserProvider {
       }
       this.invalidateSnapshots(tab)
       this.record(s, 'navigate', { url }, true)
-      this.showActive(s)
+      if (show) this.showActive(s)
       // Page.navigate resolves on commit. Wait best-effort for page load so
       // browser_open does not snapshot a still-blank renderer.
-      await waitForDocumentReady(handle, signal)
+      await waitForDocumentReady(handle, signal, settleMs)
       // Human chrome is page-injected: reapply after every document commit so
       // the toolbar is present after each navigation.
       void reinstallPageChrome(handle)
@@ -750,7 +764,12 @@ export class ElectronBrowserProvider implements BrowserProvider {
   /** Execute JS in the active tab's page context. */
   async execute(session: BrowserSessionId, request: BrowserExecuteRequest, signal?: AbortSignal): Promise<BrowserExecuteResult> {
     const s = this.session(session)
-    const { handle } = this.activeTab(s)
+    return this.executeTab(s, this.activeTab(s), request, signal)
+  }
+
+  /** Evaluate in one tab's page context. */
+  private async executeTab(s: Session, tab: Tab, request: BrowserExecuteRequest, signal?: AbortSignal): Promise<BrowserExecuteResult> {
+    const { handle } = tab
     signal?.throwIfAborted()
     await this.drainDialog(s, handle)
     try {
@@ -1157,7 +1176,12 @@ export class ElectronBrowserProvider implements BrowserProvider {
    */
   async waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult> {
     const s = this.session(session)
-    const { handle } = this.activeTab(s)
+    return this.waitForElementTab(s, this.activeTab(s), request, signal)
+  }
+
+  /** Poll one tab until the selector matches. */
+  private async waitForElementTab(s: Session, tab: Tab, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult> {
+    const { handle } = tab
     signal?.throwIfAborted()
     const timeoutMs = request.timeoutMs ?? 15_000
     const visible = request.visible !== false
@@ -1557,9 +1581,15 @@ export class ElectronBrowserProvider implements BrowserProvider {
     }
     const target = resolveWritePath(request.outPath, this.writeRoots)
     writeFileSync(target, '')
+    // Created only after every guard has passed, so a rejected start leaves no
+    // orphaned view behind.
+    const handle = this.host.createView(s.taskKey, s.taskLabel === '' ? undefined : s.taskLabel)
+    const tab = this.createTab(handle)
+    s.tabs.push(tab)
     const job: ScrapeJob = {
       id: `scrape:${randomUUID()}`,
-      session: s.id,
+      session: s,
+      tab,
       path: target,
       state: 'running',
       total: urls.length,
@@ -1603,15 +1633,18 @@ export class ElectronBrowserProvider implements BrowserProvider {
   /** Visit each URL once, appending one JSONL row per page. */
   private async runScrape(job: ScrapeJob, urls: readonly string[], request: BrowserScrapeRequest): Promise<void> {
     const perUrl = request.timeoutMs ?? 30_000
+    try {
     for (const url of urls) {
       if (job.state !== 'running') return
       let row: Record<string, unknown>
       try {
-        await this.navigate(job.session, { url })
+        // show: false — the batch works in the background tab it owns.
+        // settleMs: 0 — it reads the DOM, so it must not pay the paint delay.
+        await this.navigateTab(job.session, job.tab, url, undefined, false, 0)
         if (request.waitFor !== undefined) {
-          await this.waitForElement(job.session, { selector: request.waitFor, timeoutMs: perUrl })
+          await this.waitForElementTab(job.session, job.tab, { selector: request.waitFor, timeoutMs: perUrl })
         }
-        const result = await this.execute(job.session, { script: request.script, timeoutMs: perUrl })
+        const result = await this.executeTab(job.session, job.tab, { script: request.script, timeoutMs: perUrl })
         if (result.ok) {
           row = { url, ok: true, data: result.value }
         } else {
@@ -1627,6 +1660,29 @@ export class ElectronBrowserProvider implements BrowserProvider {
       job.done += 1
     }
     job.state = 'done'
+    } finally {
+      // The tab outlives the loop only until here; a stopped batch cleans up too.
+      this.destroyScrapeTab(job)
+    }
+  }
+
+  /** Drop a batch's private tab (and its view) once the batch is over. */
+  private destroyScrapeTab(job: ScrapeJob): void {
+    const s = job.session
+    const index = s.tabs.findIndex(tab => tab.id === job.tab.id)
+    if (index < 0) return
+    s.tabs.splice(index, 1)
+    this.host.destroyView(job.tab.handle)
+    // Same index bookkeeping as closeTab: the batch tab is normally not active,
+    // but a tool call could have activated it mid-batch.
+    if (s.tabs.length === 0) {
+      this.newTab(s)
+    } else if (index < s.activeIndex) {
+      s.activeIndex -= 1
+    } else if (s.activeIndex >= s.tabs.length) {
+      s.activeIndex = s.tabs.length - 1
+    }
+    this.showActive(s)
   }
 
   /** Capture the current page, optionally full-page. PNG only (CDP JPEG hangs on Electron 43). */
@@ -2206,6 +2262,7 @@ async function reinstallPageChrome(handle: ElectronViewHandle): Promise<void> {
 async function waitForDocumentReady(
   handle: ElectronViewHandle,
   signal?: AbortSignal,
+  settleMs = 250,
 ): Promise<void> {
   const deadline = Date.now() + 12_000
   try {
@@ -2213,7 +2270,10 @@ async function waitForDocumentReady(
       while (Date.now() <= deadline) {
         const result = await handleSendEvaluate(handle, 'document.readyState', signal).catch(() => undefined)
         if (result?.ok && result.value === 'complete') {
-          await new Promise(resolve => setTimeout(resolve, 250))
+          // The settle delay exists so a screenshot or snapshot does not catch a
+          // still-blank renderer. A scrape reads the DOM, not pixels, so it
+          // passes 0 — otherwise a thousand-page batch would idle 250s.
+          if (settleMs > 0) await new Promise(resolve => setTimeout(resolve, settleMs))
           return
         }
         await new Promise(resolve => setTimeout(resolve, 150))

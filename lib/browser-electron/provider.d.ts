@@ -240,6 +240,13 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     navigate(session: BrowserSessionId, request: {
         readonly url: string;
     }, signal?: AbortSignal): Promise<void>;
+    /**
+     * Navigate one tab. A scrape worker passes its own tab so a batch never races
+     * a tool call for the session's active tab.
+     * @param show - bring the tab to the front; a background worker passes false.
+     * @param settleMs - post-ready paint delay; a DOM-only reader passes 0.
+     */
+    private navigateTab;
     /** Navigate to the previous history entry when one exists. */
     back(session: BrowserSessionId, signal?: AbortSignal): Promise<boolean>;
     /** Navigate to the next history entry when one exists. */
@@ -250,6 +257,8 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     stopLoading(session: BrowserSessionId, signal?: AbortSignal): Promise<void>;
     /** Execute JS in the active tab's page context. */
     execute(session: BrowserSessionId, request: BrowserExecuteRequest, signal?: AbortSignal): Promise<BrowserExecuteResult>;
+    /** Evaluate in one tab's page context. */
+    private executeTab;
     /** Produce an AI-friendly snapshot of the active tab. */
     snapshot(session: BrowserSessionId, signal?: AbortSignal): Promise<BrowserSnapshotResult>;
     /** Click one element that belongs to a retained exact page snapshot. */
@@ -283,6 +292,8 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
      * Bounds the total wait; a timeout surfaces as BROWSER_WAIT_TIMEOUT.
      */
     waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult>;
+    /** Poll one tab until the selector matches. */
+    private waitForElementTab;
     /** Type into the focused element. */
     type(session: BrowserSessionId, request: {
         readonly text: string;
@@ -354,6 +365,8 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     private scrapeJob;
     /** Visit each URL once, appending one JSONL row per page. */
     private runScrape;
+    /** Drop a batch's private tab (and its view) once the batch is over. */
+    private destroyScrapeTab;
     /** Capture the current page, optionally full-page. PNG only (CDP JPEG hangs on Electron 43). */
     screenshot(session: BrowserSessionId, request?: {
         readonly fullPage?: boolean;

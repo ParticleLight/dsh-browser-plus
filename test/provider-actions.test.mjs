@@ -455,20 +455,27 @@ test('importAuth rejects a file that is not a cookie export', async () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
-/** Answer evaluations by expression, so a test never has to count replies. */
-function scrapeView(host, extract, delayMs = 0) {
-  const view = host.views[0]
-  view.sendCommand = async (method, params) => {
-    if (method !== 'Runtime.evaluate') return {}
-    const expression = String(params?.expression ?? '')
-    if (expression === 'document.readyState') return { result: { value: 'complete' } }
-    if (expression.includes('__dsh_browser_chrome_host__')) return { result: { value: null } }
-    if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs))
-    return { result: { value: extract(expression) } }
+/**
+ * Make every view the host creates answer evaluations by expression, so a test
+ * never has to count replies. It patches createView rather than views[0]: a
+ * scrape batch creates a tab (and therefore a view) of its own.
+ */
+function scrapeViews(host, extract, delayMs = 0) {
+  const create = host.createView.bind(host)
+  host.createView = (key, label) => {
+    const view = create(key, label)
+    view.sendCommand = async (method, params) => {
+      if (method !== 'Runtime.evaluate') return {}
+      const expression = String(params?.expression ?? '')
+      if (expression === 'document.readyState') return { result: { value: 'complete' } }
+      if (expression.includes('__dsh_browser_chrome_host__')) return { result: { value: null } }
+      if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs))
+      return { result: { value: extract(expression) } }
+    }
+    // Without this, navigate also fires the provider's tokenless chrome copy.
+    view.reinstallChrome = async () => {}
+    return view
   }
-  // Without this, navigate also fires the provider's tokenless chrome copy.
-  view.reinstallChrome = async () => {}
-  return view
 }
 
 /** Wait for a detached batch to leave the running state. */
@@ -489,7 +496,7 @@ test('a scrape batch writes one JSONL row per URL and never returns the data', a
     const host = new FakeHost()
     const provider = new ElectronBrowserProvider(host, { writeRoots: [dir] })
     const session = await provider.open()
-    scrapeView(host, () => ({ title: 'extracted' }))
+    scrapeViews(host, () => ({ title: 'extracted' }))
     const out = join(dir, 'rows.jsonl')
 
     const started = await provider.startScrape(session, {
@@ -520,7 +527,7 @@ test('one bad page does not end the batch', async () => {
     const host = new FakeHost()
     const provider = new ElectronBrowserProvider(host, { writeRoots: [dir] })
     const session = await provider.open()
-    scrapeView(host, () => 'ok')
+    scrapeViews(host, () => 'ok')
     const out = join(dir, 'rows.jsonl')
 
     // file:// is refused by URL admission before any navigation happens.
@@ -547,7 +554,7 @@ test('a stopped batch keeps the rows it already wrote', async () => {
     const host = new FakeHost()
     const provider = new ElectronBrowserProvider(host, { writeRoots: [dir] })
     const session = await provider.open()
-    scrapeView(host, () => 'ok', 2)
+    scrapeViews(host, () => 'ok', 2)
     const out = join(dir, 'rows.jsonl')
     const urls = Array.from({ length: 60 }, (_, i) => `https://s${String(i)}.example/`)
 
@@ -583,6 +590,33 @@ test('scrape rejects an empty batch, an unknown id, and a path outside the write
       () => provider.scrapeStatus('scrape:nope'),
       error => { assert.equal(error.code, 'BROWSER_SCRAPE_UNKNOWN'); return true },
     )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+test('a scrape batch works in its own tab and leaves the active one alone', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-scrape-tab-'))
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { writeRoots: [dir] })
+    // A per-page delay keeps the batch observably running while the test looks.
+    scrapeViews(host, () => 'ok', 20)
+    const session = await provider.open()
+    const before = await provider.listTabs(session)
+    assert.equal(before.length, 1)
+    const out = join(dir, 'rows.jsonl')
+    const urls = Array.from({ length: 40 }, (_, i) => `https://t${String(i)}.example/`)
+
+    const started = await provider.startScrape(session, { urls, script: '1', outPath: out })
+    const during = await provider.listTabs(session)
+    assert.equal(during.length, 2, 'the batch added a tab of its own')
+    assert.equal(during.find(tab => tab.active)?.id, before[0].id, 'and did not steal the active tab')
+
+    const final = await settle(provider, started.id)
+    assert.equal(final.state, 'done')
+    const after = await provider.listTabs(session)
+    assert.equal(after.length, 1, 'the batch tab is cleaned up')
+    assert.equal(after[0].id, before[0].id)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

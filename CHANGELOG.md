@@ -2,6 +2,8 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **`browser_scrape` 改用独立标签页**:此前批次调用的是作用于「会话当前激活标签页」的 `navigate`/`execute`,于是 ① 批次运行期间任何工具调用都会和它**抢同一个标签页**,抽取可能拿到错误的页面;② 用户正在读的页面被导航冲掉。现在批次创建**自己的标签页且不激活它**,结束后销毁。为此把 `navigate`/`execute`/`waitForElement` 的核心抽成按标签页的私有方法(公开方法变成一行转发),为后续并发打底。
+- **后台批次跳过 250ms 绘制等待**:`waitForDocumentReady` 在 `document.readyState === complete` 后会**固定再等 250ms**,目的是让截图/快照不抓到空白渲染——但抓取只读 **DOM** 不读像素,这一等纯属浪费(1000 个 URL 白等 250 秒)。现在该延迟可参数化,后台批次传 0。**实测单页开销从 ~267ms 降到 ~6ms**(测试里 2 个 URL 的批次 534ms → 12.7ms)。
 - **新增 `browser_scrape`:批量抓取,结果直接落盘**:后台批量访问 URL,每页把一行 JSON 追加到文件,**结果完全不经过模型**——一千条与一条的 token 成本相同。`action=start` 立即返回(单次工具调用只有 ~60s 预算,大批次要跑几分钟),用 `action=status` 轮询,`action=stop` 停止且**保留已写入的行**(每行产生即落盘)。每行是 `{ url, ok, data }` 或 `{ url, ok, error }`;**单页失败不终止整批**;页面返回不可序列化的值(循环引用/BigInt)也只让该行降级为错误行。`outPath` 受 `writeRoots` 限制并在开始时截断(重跑不会混入上一批)。工具总数 35 → **36**。
 - **`browser_auth` 支持从文件导入登录状态**:新增 `file` 参数(`action=restore`),从 JSON 文件读取 cookie 列表 —— 真实导出动辄几百条,内联经模型传递不现实。接受裸数组或 `{"cookies": [...]}`;不合法条目跳过并在 `failed` 中计数。路径受 `browser-electron.readRoots` 白名单约束(与 `browser_upload_file` 同一道闸),越界抛 `BROWSER_READ_PATH_DENIED`;文件不可读/形状不对抛 `BROWSER_AUTH_FILE_INVALID`。**注意**:Chrome/Edge 127+ 的 App-Bound Encryption 使 cookie 无法从磁盘解密(复制 profile 也无效,实测取到 0 条),所以只能导入用户自己导出的文件,或直接在本插件浏览器里用「接管」登录一次。
 - **对齐请求指纹,减少被判定为机器人**:实测服务端收到的请求里有三处明显破绽 —— ① `User-Agent` 里带着 `Electron/42.9.3`;② **完全没有 `sec-ch-ua` 系列头**(真 Chrome 必发);③ `Accept-Language` 只有光秃秃的 `zh-CN`(真 Chrome 是带 q 权重的列表)。现在:剥离 Electron 令牌、补上与引擎自身 `navigator.userAgentData` 一致的 client hints、把语言列表交给 Chromium 自己加权。**关键是三者互相一致**(请求头与页面内 JS 说法相同),而不是单点伪装。新增配置 `browser-electron.userAgent`(整体替换)与 `maskAutomation`(默认 `true`,设 `false` 则原样发送引擎指纹)。纯逻辑抽到 `fingerprint.ts` 并有真实单测。
