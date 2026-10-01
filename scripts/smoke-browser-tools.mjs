@@ -95,6 +95,24 @@ try {
     return { exported: exported.length, probe: probe(), afterClear, restored: imported.restored, failed: imported.failed, afterImport }
   })
   await check('chromeWorld config reachable', async () => (await provider.listTabs(session)).length)
+// The three checks below assert that the page RECEIVED the event. Resolution
+// alone is not a click: browser_click can resolve the right element, report
+// success, and still leave the page untouched.
+await check('left-click reaches the page', async () => {
+  await provider.execute(session, { script: `(() => {
+    window.__left = []
+    for (const type of ['mousedown', 'mouseup', 'click']) {
+      window.addEventListener(type, event => window.__left.push(type), true)
+    }
+    return 'armed'
+  })()` })
+  // body, not a paragraph: earlier checks may have navigated the page away.
+  await provider.click(session, { selector: 'body' })
+  await new Promise(resolve => setTimeout(resolve, 400))
+  const seen = await provider.execute(session, { script: 'window.__left.join(",")' })
+  if (seen.value !== 'mousedown,mouseup,click') throw new Error('the page saw ' + JSON.stringify(seen.value))
+  return seen.value
+})
 await check('right-click reaches the page context menu', async () => {
   await provider.execute(session, { script: `(() => {
     window.__ctx = []
@@ -102,8 +120,10 @@ await check('right-click reaches the page context menu', async () => {
     return 'armed'
   })()` })
   await provider.click(session, { selector: 'body', button: 'right' })
-  await new Promise(resolve => setTimeout(resolve, 300))
+  await new Promise(resolve => setTimeout(resolve, 400))
   const seen = await provider.execute(session, { script: 'window.__ctx.join(",")' })
+  // Returning "" used to pass silently, which hid the fact that no event arrived.
+  if (seen.value !== 'button:2') throw new Error('the page saw ' + JSON.stringify(seen.value) + ' instead of a right-click')
   return seen.value
 })
 await check('modifiers reach the page', async () => {
@@ -113,8 +133,9 @@ await check('modifiers reach the page', async () => {
     return 'armed'
   })()` })
   await provider.click(session, { selector: 'body', modifiers: ['shift', 'ctrl'] })
-  await new Promise(resolve => setTimeout(resolve, 300))
+  await new Promise(resolve => setTimeout(resolve, 400))
   const seen = await provider.execute(session, { script: 'window.__mods.join(",")' })
+  if (seen.value !== 'true/true') throw new Error('the page saw ' + JSON.stringify(seen.value) + ' instead of a modified press')
   return seen.value
 })
 // --- the tool layer, over the same real provider -------------------------
