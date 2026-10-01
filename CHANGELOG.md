@@ -2,6 +2,9 @@
 
 ## v0.4.3 (2026-09-30)
 
+- 🔴 **修复 `showView` 与 `createView` 的竞态 —— 新标签的视图永远不会被显示**。`RemoteElectronViewHost.showView()` 只等 client ready ✗，**不等视图 materialize** ✗，而 `createView` 的 RPC 是**首次使用时才发**的 ✓ → `showView` 先到宿主 ✓ → 宿主抛 `unknown view` ✓ → 被 `.catch` 吞掉 ✓ → **新标签的视图从未 `setVisible(true)`** ✗。而 `createView` 又无条件 `activeViewByTask.set(...)` ✓ → `switch-tab` 的 `activeViewChanged` 守卫对「点那个新标签」**恒为 false** ✓ → **按构造就是空操作** ✓✓。
+  - **修法**：`showView` 先 `await handle.materializeForShow()`（新增的公开方法，内部走既有的 `materializeOnce`）再发 `showView` RPC ✓。
+  - **验证**：新增回归测试钉住**顺序**（`materializeForShow` 必须在 `call('showView')` 之前，且必须被 `await`）—— 该测试在修复前必然失败 ✓。**注意**：`remote-host.ts` 跑在 **DSH 进程**里，**此修复需重启 DSH 才生效**。
 - **chrome 改成 Chrome 那样的「窗框」，而不是浮动小部件**。用户指出「一点都不像」——根因是形态：之前是**居中的 1180px 浮动条**（圆角 + 阴影 + 上下两行之间留缝），而 Chrome 的窗框是**贴满窗口宽度、上下齐平**的。现改为全宽 + 齐平：标签行通栏在最顶部、激活标签与工具栏同色连成一片、工具栏无圆角无阴影、地址栏全宽。
   - 顺带消除了一处**视口单位依赖**：原规则 `width:min(1180px,calc(100vw - 20px))` 在**窗口最小化或视图隐藏**时 `100vw` 为 0 → `calc` 变负数 → `width` 非法失效 → 回退 `auto` 收缩成 **8px = 左右 padding**，`left:50%` 也失效。**实测确认**（同一份 CSS，1 个标签时 `[104,0,1180,34]`、2 个标签时 `[-4,0,8,34]`）。新规则不依赖视口单位。
 - **注入式 chrome 新增 Chrome 风格标签栏**（渲染层已完成并真机验证）。位置在工具栏**上方**，每个标签显示页面标题、当前标签高亮；工具栏随之下移 42px 给它让位。数据来自宿主新增的 `tabs` 状态（每个标签 = 一个宿主视图，`active` 标记可见的那个）。

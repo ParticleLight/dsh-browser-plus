@@ -649,8 +649,18 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
   showView(handle: ElectronViewHandle): void {
     // Fire-and-forget by design (visibility is best-effort), but a rejected
     // promise must not become an unhandled rejection (crash on Node >= 15).
+    //
+    // Materialize BEFORE showing. createView is what tells the child the view
+    // exists, and it is sent lazily on first use; showView used to race ahead
+    // of it, so the child threw "unknown view", this catch swallowed it, and a
+    // brand-new tab's view was never made visible -- while createView had
+    // already marked it active. The result was a tab that could not be shown
+    // and, through the activeViewChanged guard, could not be switched to.
     void this.ready()
-      .then(() => this.client?.call('showView', { viewId: handle.id }))
+      .then(async () => {
+        if (handle instanceof DeferredRemoteView) await handle.materializeForShow()
+        await this.client?.call('showView', { viewId: handle.id })
+      })
       .catch(() => { /* host unavailable */ })
   }
 
@@ -738,6 +748,13 @@ export class DeferredRemoteView implements ElectronViewHandle {
    * duplicate the view). A FAILED materialization is reset so a later call
    * (e.g. after the host restarted) can retry instead of being poisoned.
    */
+    /**
+     * Make sure the child knows this view exists. showView needs this: without
+     * it the showView RPC can reach the child before createView does, and the
+     * child then throws "unknown view" while the caller swallows the error.
+     */
+    async materializeForShow(): Promise<void> { await this.materializeOnce() }
+
   private materializeOnce(): Promise<RemoteView> {
     if (this.materialized === undefined) {
       const pending = this.materialize(this.taskLabel)

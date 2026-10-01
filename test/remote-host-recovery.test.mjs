@@ -129,3 +129,20 @@ test('parent RPC buffer cap fits a maximum-size child download', async () => {
   assert.ok(bufferCap < base64Reply * 4, 'the cap must still bound a pathological child')
   assert.match(source, /base64/, 'the derivation is documented at the constant')
 })
+test('showView materializes the view before asking the child to show it', async () => {
+  // createView is what tells the child a view exists, and it is sent lazily on
+  // first use. showView used to race ahead of it: the child threw
+  // "unknown view", the caller swallowed the error, and a new tab's view was
+  // never made visible -- while createView had already marked it active, so the
+  // activeViewChanged guard made switching to that tab a no-op by construction.
+  const source = await readFile(new URL('../src/browser-electron/remote-host.ts', import.meta.url), 'utf8')
+  const start = source.indexOf('  showView(handle: ElectronViewHandle): void {')
+  const end = source.indexOf('  destroyView(', start)
+  assert.ok(start >= 0 && end > start, 'the showView block exists')
+  const block = source.slice(start, end)
+  const materialize = block.indexOf('materializeForShow')
+  const call = block.indexOf("call('showView'")
+  assert.ok(materialize >= 0, 'showView must materialize the view first')
+  assert.ok(call > materialize, 'materialization must come before the showView RPC')
+  assert.match(block, /await handle\.materializeForShow\(\)/, 'and the materialization must be awaited')
+})
