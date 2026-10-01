@@ -160,6 +160,13 @@ await check('a settled tab is not stuck loading', async () => {
 // Page zoom lives on the webContents, so the chrome has to be told the factor
 // rather than derive it (a freshly navigated document's devicePixelRatio is
 // already scaled, which is what made the derived version stop compensating).
+// Bookmarks belong to the profile, so the host publishes the list to every page
+// instead of leaving it in the page's per-origin localStorage.
+await check('the host publishes the bookmark list to the chrome', async () => {
+  const result = await provider.execute(session, { script: 'Array.isArray(window.__dshBookmarks) ? String(window.__dshBookmarks.length) : "missing"' })
+  if (result.value === 'missing') throw new Error('window.__dshBookmarks was not published')
+  return { bookmarks: result.value }
+})
 await check('the host publishes the zoom factor to the chrome', async () => {
   const result = await provider.execute(session, { script: 'String(window.__dshZoom)' })
   if (result.value !== '1') throw new Error('expected __dshZoom 1, got ' + String(result.value))

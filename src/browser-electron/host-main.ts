@@ -20,7 +20,7 @@ import { app, BrowserWindow, session, WebContentsView } from 'electron'
 import { createInterface } from 'node:readline'
 import { createConnection } from 'node:net'
 import { randomBytes } from 'node:crypto'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { acceptLanguagesFor, chromeMajor, clientHintPlatform, secChUa, stripElectronToken } from './fingerprint.js'
 import { buildPageChromeScript } from './page-chrome.js'
@@ -28,7 +28,7 @@ import { taskSummaryUrl } from './task-summary.js'
 import { taskThumbnailDataUrl, type ThumbnailImage } from './task-thumbnail.js'
 import { exportCookiesForAuth, selectCookiesForClear } from './auth-cookies.js'
 import { resolveBrowserIconPath } from './icon.js'
-import { createBootstrap, createPatch, type ChromePatchOperation, type ChromeTabSummary, type ChromeTaskSummary, type ChromeTrailEntry, type ChromeWorkspaceState } from './chrome-state.js'
+import { createBootstrap, createPatch, type ChromeBookmark, type ChromePatchOperation, type ChromeTabSummary, type ChromeTaskSummary, type ChromeTrailEntry, type ChromeWorkspaceState } from './chrome-state.js'
 
 // Isolate this host's profile from the DSH app's default Electron userData:
 // several Electron instances sharing Roaming\Electron fight over the GPU
@@ -191,6 +191,38 @@ const viewFavicons = new Map<string, string>()
  * favicon goes and as reload-into-stop in the toolbar, exactly like Chrome.
  */
 const loadingViews = new Set<string>()
+
+/**
+ * Saved pages, for the whole profile.
+ *
+ * These used to live in the page's localStorage, which is per ORIGIN: a bookmark
+ * saved on one site never appeared on another. The host owns them now and pushes
+ * them to every chrome (bootstrap and bookmarks.set), persisting to the profile
+ * directory so they survive a restart.
+ */
+let chromeBookmarks: ChromeBookmark[] = []
+
+/** Where the bookmark list lives. Set once the profile directory is known. */
+let bookmarksFile: string | undefined
+
+function loadBookmarksFromDisk(): void {
+  try {
+    bookmarksFile = join(app.getPath('userData'), 'bookmarks.json')
+    const raw = readFileSync(bookmarksFile, 'utf8')
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return
+    chromeBookmarks = parsed
+      .filter((item): item is { url: string; title?: unknown } =>
+        typeof item === 'object' && item !== null && typeof (item as { url?: unknown }).url === 'string')
+      .map(item => ({ url: item.url, title: typeof item.title === 'string' ? item.title : item.url }))
+      .slice(0, 500)
+  } catch { /* first run, or an unreadable file */ }
+}
+
+function saveBookmarksToDisk(): void {
+  if (bookmarksFile === undefined) return
+  try { writeFileSync(bookmarksFile, JSON.stringify(chromeBookmarks, null, 2), 'utf8') } catch { /* read-only profile */ }
+}
 
 /** Only these raster types are admitted; anything else keeps the letter fallback. */
 const FAVICON_TYPES: readonly string[] = [
@@ -687,6 +719,7 @@ function chromeWorkspaceState(selectedTaskKey = visibleTaskKey): ChromeWorkspace
     tasks: taskSummaries() as ChromeTaskSummary[],
     tabs: tabSummaries(selectedTaskKey),
     trail: activeTraceForTask(selectedTaskKey),
+    bookmarks: chromeBookmarks,
   }
 }
 
@@ -695,6 +728,7 @@ function chromeBootstrapScript(selectedTaskKey = visibleTaskKey): string {
   const json = JSON.stringify(bootstrap)
   return ';window.__dshChromeBootstrap = ' + json
     + ';window.__dshTrail = window.__dshChromeBootstrap.trail'
+    + ';window.__dshBookmarks = window.__dshChromeBootstrap.bookmarks'
     + ';window.__dshTasks = window.__dshChromeBootstrap.tasks'
     + ';window.__dshWorkspacePanels = window.__dshChromeBootstrap.panels'
     + ';try { window.__dshChromeApply?.(window.__dshChromeBootstrap) } catch {}'
@@ -1054,7 +1088,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             const binding = (params ?? {}) as { name?: unknown; payload?: unknown }
             if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
               try {
-                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown }
+                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown }
                 // Authenticate before acting: only our injected chrome knows this
                 // view's token, so a forged payload never reaches the dispatcher.
                 if (!authorizeChromeAction(action, chromeToken)) return
@@ -1077,6 +1111,20 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
                     : { control: 'agent', status: 'idle', latestAction: 'agent resumed' })
                   const task = taskSummaries().find(candidate => candidate.key === action.taskKey)
                   if (task !== undefined) queueChromePatch({ op: 'task.upsert', task })
+                } else if (action.type === 'bookmark-add'
+                  && typeof action.url === 'string'
+                  && action.url !== '') {
+                  // Bookmarks are profile-wide, so the host owns them and pushes the
+                  // new list back rather than letting the page keep its own copy in
+                  // localStorage (which is per origin).
+                  const title = typeof action.title === 'string' && action.title !== '' ? action.title : action.url
+                  chromeBookmarks = [{ url: action.url, title }, ...chromeBookmarks.filter(item => item.url !== action.url)].slice(0, 500)
+                  saveBookmarksToDisk()
+                  queueChromePatch({ op: 'bookmarks.set', bookmarks: chromeBookmarks })
+                } else if (action.type === 'bookmark-remove' && typeof action.url === 'string') {
+                  chromeBookmarks = chromeBookmarks.filter(item => item.url !== action.url)
+                  saveBookmarksToDisk()
+                  queueChromePatch({ op: 'bookmarks.set', bookmarks: chromeBookmarks })
                 } else if (action.type === 'set-zoom'
                   && typeof action.factor === 'number'
                   && Number.isFinite(action.factor)) {
@@ -1565,6 +1613,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
  */
 void app.whenReady().then(() => {
   installRequestFingerprint()
+  loadBookmarksFromDisk()
   const portArg = process.argv.indexOf('--rpc-port')
   const port = portArg >= 0 ? Number(process.argv[portArg + 1]) : NaN
   if (!Number.isFinite(port)) {

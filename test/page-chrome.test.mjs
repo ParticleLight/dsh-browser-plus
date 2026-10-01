@@ -90,8 +90,10 @@ test('page chrome script is top-frame-only, closed-shadow, and idempotent', () =
   assert.ok(script.includes('__dshTrail'), 'renders injected trail')
   assert.ok(script.includes('window.stop()'), 'has stop action')
   assert.ok(script.includes("'https://www.bing.com'"), 'has home action')
-  assert.ok(script.includes('bookmarksKey'), 'has bookmarks logic')
-  assert.ok(script.includes('localStorage'), 'uses localStorage')
+  assert.ok(script.includes('bookmarkList'), 'has bookmarks logic')
+  // Bookmarks deliberately do NOT use localStorage any more: it is per origin, so
+  // the list has to come from the host (see the bookmarks test below).
+  assert.ok(!script.includes('dsh-chrome-bookmarks'), 'bookmarks are not per-origin')
   assert.ok(script.includes('data-dsh-user-active'), 'tracks user control')
 })
 
@@ -230,6 +232,23 @@ test('the tab strip is the window frame: draggable, with room for the caption bu
     'macOS traffic lights sit on the left',
   )
   assert.match(script, /host\.dataset\.dshCaption = /, 'the chrome decides which side')
+})
+
+test('bookmarks come from the host, not from per-origin localStorage', () => {
+  const script = buildPageChromeScript()
+  // localStorage is per ORIGIN: a bookmark saved on one site was invisible on every
+  // other (measured: saved on iana.org, absent on example.com). The host owns them.
+  assert.match(script, /const loadBookmarks = \(\) => Array\.isArray\(window\.__dshBookmarks\) \? window\.__dshBookmarks : \[\]/)
+  assert.ok(!script.includes('dsh-chrome-bookmarks'), 'no per-origin bookmark key survives')
+  assert.match(script, /type: 'bookmark-add'/)
+  assert.match(script, /type: 'bookmark-remove'/)
+  // The host pushes the authoritative list back, and the bootstrap carries it too.
+  assert.match(script, /operation\.op === 'bookmarks\.set'/)
+  assert.match(script, /if \(Array\.isArray\(message\.bookmarks\)\) \{ window\.__dshBookmarks = message\.bookmarks; bookmarksChanged = true \}/)
+  assert.match(script, /if \(bookmarksChanged\) \{ renderBookmarks\(\); updateBookmarkStar\(\) \}/)
+  // Saving and removing update locally first (instant feedback) and then tell the host.
+  assert.match(script, /emitBookmarkAdd\(\)/)
+  assert.match(script, /emitBookmarkRemove\(item\.url\)/)
 })
 
 test('the chrome survives a strict CSP: styles go through CSSOM, never a <style> element', () => {

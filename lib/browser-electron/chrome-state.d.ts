@@ -66,6 +66,18 @@ export interface ChromeTabSummary {
      */
     readonly favicon?: string;
 }
+/**
+ * One saved page.
+ *
+ * Bookmarks belong to the profile, not to a page: they are stored by the host
+ * and pushed to the chrome, never kept in the page's own storage. localStorage
+ * is per origin, so a bookmark saved on one site was invisible on every other
+ * (measured: saved on iana.org, absent on example.com).
+ */
+export interface ChromeBookmark {
+    readonly url: string;
+    readonly title: string;
+}
 export interface ChromeWorkspaceState {
     readonly epoch: number;
     readonly revision: number;
@@ -75,6 +87,7 @@ export interface ChromeWorkspaceState {
     /** Tabs of the selected task, in creation order. */
     readonly tabs: readonly ChromeTabSummary[];
     readonly trail: readonly ChromeTrailEntry[];
+    readonly bookmarks: readonly ChromeBookmark[];
 }
 export interface ChromeBootstrapMessage extends ChromeWorkspaceState {
     readonly kind: 'bootstrap';
@@ -107,6 +120,9 @@ export type ChromePatchOperation = {
 } | {
     readonly op: 'tabs.set';
     readonly tabs: readonly ChromeTabSummary[];
+} | {
+    readonly op: 'bookmarks.set';
+    readonly bookmarks: readonly ChromeBookmark[];
 };
 export interface ChromePatchMessage {
     readonly kind: 'patch';
