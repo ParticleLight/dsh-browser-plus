@@ -289,6 +289,32 @@ await check('a browser-shaped cookie export imports', async () => {
   if (present !== 1) throw new Error('the cookie is not in the session afterwards')
   return { restored: imported.restored, present }
 })
+await check('the page fingerprint is coherent', async () => {
+  // Only the request headers were ever verified; the JS side never was. It is
+  // a faithful Chromium: the UA carries Chrome/ like real Chromium does, the
+  // brands list Chromium without Google Chrome exactly as real Chromium does,
+  // and the two agree on the major version. Asserting the agreement is what
+  // stops a future change from silently desynchronising them.
+  const reply = await provider.execute(session, { script: `JSON.stringify({
+    webdriver: navigator.webdriver,
+    ua: navigator.userAgent,
+    brands: navigator.userAgentData ? navigator.userAgentData.brands : null,
+    languages: navigator.languages,
+    vendor: navigator.vendor,
+  })` })
+  const seen = JSON.parse(String(reply.value ?? '{}'))
+  if (seen.webdriver !== false) throw new Error('navigator.webdriver is ' + JSON.stringify(seen.webdriver))
+  if (/Electron\//.test(String(seen.ua))) throw new Error('the UA still advertises Electron: ' + String(seen.ua))
+  const major = /Chrome\/(\d+)/.exec(String(seen.ua))?.[1]
+  if (major === undefined) throw new Error('the UA has no Chrome major: ' + String(seen.ua))
+  const brands = seen.brands ?? []
+  if (!brands.some(brand => brand.brand === 'Chromium')) throw new Error('the brands list no Chromium: ' + JSON.stringify(brands))
+  if (!brands.some(brand => brand.version === major)) {
+    throw new Error('the UA says Chrome/' + major + ' but no brand carries that major: ' + JSON.stringify(brands))
+  }
+  if (!Array.isArray(seen.languages) || seen.languages.length === 0) throw new Error('navigator.languages is empty')
+  return { major, brands: brands.map(brand => brand.brand + ' ' + brand.version).join(', ') }
+})
 // --- the tool layer, over the same real provider -------------------------
 // The unit suite drives the tools against a fake browser, and the checks above
 // drive the provider directly. This is the only place the two meet: tool schema
