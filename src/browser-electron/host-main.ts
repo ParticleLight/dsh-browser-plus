@@ -454,12 +454,10 @@ function tabSummaries(taskKey: string | undefined): ChromeTabSummary[] {
       // the query string and any token in it. Same redaction taskSummaries uses.
       url = taskSummaryUrl(entry.webContentsView.webContents.getURL())
     } catch { /* closing */ }
-    const favicon = viewFavicons.get(viewId)
     tabs.push({
       id: viewId,
       title: title === '' ? '新标签页' : title,
       url: url ?? '',
-      ...favicon === undefined ? {} : { favicon },
       active: viewId === activeViewId,
     })
   }
@@ -756,15 +754,6 @@ function applyPageChrome(view: WebContentsView, viewId: string): void {
   }
 }
 
-/**
- * Favicon URL per view, as last reported by the page.
- *
- * Page-controlled, and it reaches the chrome inside the page, so it adds no
- * exposure the page did not already have. The chrome renders it as an <img>
- * whose size CSS caps.
- */
-const viewFavicons = new Map<string, string>()
-
 /** Install human browser chrome without creating or reparenting a child view. */
 function installPageChrome(view: WebContentsView, viewId: string): void {
   // Electron's native executeJavaScript waits for a committed document, unlike
@@ -782,17 +771,6 @@ function installPageChrome(view: WebContentsView, viewId: string): void {
   // known, so a tab would read as '新标签页' until the next switch. Re-push the
   // strip when the title actually settles (only for the task on screen).
   view.webContents.on('page-title-updated', () => {
-    if (views.get(viewId)?.taskKey === visibleTaskKey) queueTabsSet()
-  })
-  view.webContents.on('page-favicon-updated', (_event, favicons) => {
-    // "data:," is an empty data URI, which some pages declare instead of a real
-    // icon. Treating it as one renders a broken image in the strip, so ignore it
-    // and let the chrome fall back to its globe, the way Chrome does.
-    const first = Array.isArray(favicons)
-      ? favicons.find(icon => typeof icon === 'string' && icon !== '' && icon !== 'data:,')
-      : undefined
-    if (first === undefined || viewFavicons.get(viewId) === first) return
-    viewFavicons.set(viewId, first)
     if (views.get(viewId)?.taskKey === visibleTaskKey) queueTabsSet()
   })
   apply()
