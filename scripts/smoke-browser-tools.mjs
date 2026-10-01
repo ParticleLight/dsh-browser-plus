@@ -128,6 +128,23 @@ await check('chrome x closes the tab it belongs to', async () => {
 // The three checks below assert that the page RECEIVED the event. Resolution
 // alone is not a click: browser_click can resolve the right element, report
 // success, and still leave the page untouched.
+// Clicking the address bar must select the whole URL (Chrome's behaviour) AND
+// must leave CDP typing working: the earlier attempt at this called select() in
+// the focus handler, after which Input.insertText never landed in that shadow-DOM
+// input again. Typing over a full selection replaces the address, so landing on
+// example.com proves both halves at once.
+await check('address bar select-all keeps CDP typing working', async () => {
+  await provider.click(session, { x: 690, y: 62 })
+  await provider.type(session, { text: 'example.com' })
+  await provider.pressKey(session, { key: 'Enter' })
+  for (let i = 0; i < 40; i += 1) {
+    const url = (await provider.listTabs(session)).find(tab => tab.active)?.url ?? ''
+    if (url.startsWith('https://example.com')) return url
+    await new Promise(resolve => setTimeout(resolve, 250))
+  }
+  const url = (await provider.listTabs(session)).find(tab => tab.active)?.url ?? '(unknown)'
+  throw new Error('the address bar did not navigate to example.com (now at ' + url + ')')
+})
 await check('left-click reaches the page', async () => {
   await provider.execute(session, { script: `(() => {
     window.__left = []

@@ -199,6 +199,25 @@ test('secondary menus use the Chrome menu surface, not frosted glass', () => {
   assert.match(script, /@media \(max-width:760px\) \{ #panel, \.glass-panel, #mainMenu/)
 })
 
+test('clicking the address bar selects it, without touching the focus event', () => {
+  const script = buildPageChromeScript()
+  // Chrome selects the whole omnibox on the first click, so typing replaces it.
+  const handler = script.slice(
+    script.indexOf("address.addEventListener('pointerdown'"),
+    script.indexOf("address.addEventListener('keydown'"),
+  )
+  assert.match(handler, /root\.activeElement === address/, 'only an unfocused address bar is selected')
+  assert.match(handler, /event\.preventDefault\(\)/, 'the default caret placement is suppressed')
+  assert.match(handler, /address\.focus\(\)/)
+  assert.match(handler, /address\.setSelectionRange\(0, address\.value\.length\)/)
+  // Calling select() from the focus handler is what broke CDP Input.insertText
+  // into this shadow-DOM input before; the pointerdown path must stay the only one.
+  assert.doesNotMatch(script, /addEventListener\('focus',[^)]*select\(\)/)
+  // Ctrl+L may still select() explicitly: that is a deliberate shortcut, not the
+  // focus-time call that broke insertText.
+  assert.match(script, /address\.focus\(\); address\.select\(\)/, 'Ctrl+L keeps selecting the address bar')
+})
+
 test('the ⋮ menu is a Chrome-style menu wired to features we already have', () => {
   const script = buildPageChromeScript()
   assert.ok(script.includes('mainMenuBtn'), 'has a three-dot trigger in the toolbar')
