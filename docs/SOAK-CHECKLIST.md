@@ -82,6 +82,13 @@ npm run smoke:browser-tools
 
 仅在把 `browser-electron.chromeWorld` 设为 `isolated` 后执行。这一步会改变工具栏的注入世界,必须逐项人工确认后才可切换默认值:
 
+**可自动验证的部分**(不需要 DSH 重启,自己起一个隔离 profile 的宿主):
+```bash
+npm run smoke:chrome-world
+```
+它做 **A/B 对照**并断言:两种模式下工具栏都挂载 ✓;**默认(main)模式会把 `__dshTasks`/`__dshTrail` 泄露给页面** ✗;`isolated` 模式下两者对页面**均为 `undefined`** ✓ —— 后者正是下面第 4 条的核心断言。
+**注意**:脚本**不**断言 `__dshBrowserTaskAction` —— 它是**异步出现**的(2.5s 与 3s 两次测量结果不同),固定等待测不准,故只记录不断言。
+
 - [ ] `browser_open https://example.com` → 工具栏正常显示,顶部中央悬停可展开
 - [ ] 点击「接管」→ 状态变为等待用户;点击「交还 Agent」→ 恢复(隔离世界内 binding 仍能触发 set-control-owner)
 - [ ] 打开任务面板与轨迹面板 → 任务卡、缩略图、操作轨迹正常渲染与追加
