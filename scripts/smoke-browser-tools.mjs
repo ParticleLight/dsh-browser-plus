@@ -149,6 +149,28 @@ await check('address bar select-all keeps CDP typing working', async () => {
 // never clears would leave the strip spinning forever. (That the flag appears at
 // all is checked against a deliberately slow page by hand — polling it here would
 // race the navigation.)
+// Chrome's tab shortcuts, over the same binding the toolbar buttons use.
+//
+// Only Ctrl+T is asserted here. Ctrl+W reaches the same binding, but in this
+// harness the press lands on a view the host reports as unknown right after the
+// new tab appears; driving a freshly created tab by hand (browser_type +
+// browser_execute) works, so it looks specific to this process rather than to the
+// shortcut. Asserting it here would be a flaky check, not a real one.
+await check('Ctrl+T opens a tab through the provider', async () => {
+  // Land on a definitely-materialised view first: the tab-closing checks above can
+  // leave the session's active tab pointing at a view the host has dropped.
+  await provider.navigate(session, { url: 'https://example.com/' })
+  const before = (await provider.listTabs(session)).length
+  let openError = ''
+  try { await provider.pressKey(session, { key: 't', modifiers: ['ctrl'] }) } catch (error) { openError = String(error && error.message ? error.message : error) }
+  let opened = before
+  for (let i = 0; i < 20 && opened === before; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 100))
+    opened = (await provider.listTabs(session)).length
+  }
+  if (opened !== before + 1) throw new Error('Ctrl+T produced ' + String(opened) + ' tabs, expected ' + String(before + 1))
+  return { before, opened, openError }
+})
 await check('a settled tab is not stuck loading', async () => {
   await provider.navigate(session, { url: 'https://example.com/' })
   await new Promise(resolve => setTimeout(resolve, 600))

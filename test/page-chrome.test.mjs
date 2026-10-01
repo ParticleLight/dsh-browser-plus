@@ -234,6 +234,24 @@ test('the tab strip is the window frame: draggable, with room for the caption bu
   assert.match(script, /host\.dataset\.dshCaption = /, 'the chrome decides which side')
 })
 
+test('Chrome tab shortcuts and middle-click close', () => {
+  const script = buildPageChromeScript()
+  // All of these reach the provider's existing capabilities: new-tab, close-tab
+  // and switch-tab over the same binding the toolbar buttons use.
+  assert.match(script, /const chromeTabList = \(\) => Array\.isArray\(window\.__dshTabs\) \? window\.__dshTabs : \[\]/)
+  assert.match(script, /const activeChromeTab = \(\) => chromeTabList\(\)\.find\(tab => tab && tab\.active === true\)/)
+  assert.match(script, /chord === 't' \|\| chordCode === 'KeyT'/, 'Ctrl+T')
+  assert.match(script, /chord === 'w' \|\| chordCode === 'KeyW'/, 'Ctrl+W')
+  assert.match(script, /chord === 'tab' \|\| chordCode === 'Tab'/, 'Ctrl+Tab')
+  assert.match(script, /stepChromeTab\(event\.shiftKey \? -1 : 1\)/, 'Shift reverses it')
+  assert.match(script, /emitTabCreate\(chromeSelectedTaskKey\)/)
+  assert.match(script, /emitTabClose\(chromeSelectedTaskKey, tab\.id\)/)
+  assert.match(script, /const stepChromeTab = delta => \{/)
+  // Middle-click anywhere on a tab closes it, without switching to it first.
+  assert.match(script, /button\.addEventListener\('auxclick', event => \{/)
+  assert.match(script, /if \(event\.button !== 1\) return/)
+})
+
 test('find in page: a Chrome-style bar, CSSOM highlights, code-matched shortcuts', () => {
   const script = buildPageChromeScript()
   assert.ok(script.includes(String.raw`id=\"findBar\"`), 'the bar ships')
