@@ -348,6 +348,11 @@ export class BrowserRuntime extends Service {
     return this.resolveProvider().restoreAuth(session, cookies)
   }
 
+  /** Import cookies from a JSON export on disk through the provider. */
+  async importAuth(session: BrowserSessionId, path: string): Promise<{ restored: number; failed: number }> {
+    return this.resolveProvider().importAuth(session, path)
+  }
+
   /** Remove cookies for one site scope through the provider. */
   async clearAuth(session: BrowserSessionId, request: BrowserClearAuthRequest): Promise<BrowserClearAuthResult> {
     return this.resolveProvider().clearAuth(session, request)

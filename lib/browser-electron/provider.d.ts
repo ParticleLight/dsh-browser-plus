@@ -318,6 +318,19 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
      * generations in one request can be rejected by the site. Self-hosted only.
      */
     clearAuth(session: BrowserSessionId, request: BrowserClearAuthRequest): Promise<BrowserClearAuthResult>;
+    /**
+     * Import cookies from a JSON export on disk.
+     *
+     * The path is read-guarded exactly like browser_upload_file: a prompt-injected
+     * path must not turn this into a way to read a file the operator never allowed.
+     * A browser cookie export cannot be produced automatically — Chrome and Edge
+     * 127+ encrypt cookie values with App-Bound Encryption, so a copied profile
+     * yields nothing — which is why this takes a file the user exported.
+     */
+    importAuth(session: BrowserSessionId, path: string): Promise<{
+        restored: number;
+        failed: number;
+    }>;
     /** Import cookies into the session (restore login state). Self-hosted only. */
     restoreAuth(session: BrowserSessionId, cookies: readonly ExportedCookie[]): Promise<number>;
     /** Capture the current page, optionally full-page. PNG only (CDP JPEG hangs on Electron 43). */

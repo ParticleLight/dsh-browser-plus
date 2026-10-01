@@ -466,6 +466,7 @@ function redactTraceParams(action: string, params: Record<string, unknown>): Rec
     download: ['url', 'savePath'],
     flushAuth: [],
     restoreAuth: ['count'],
+    importAuth: ['count'],
     setSpace: ['label'],
     dialog: ['type', 'message'],
     replay: ['seq', 'of', 'chars', 'x', 'y'],

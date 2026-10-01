@@ -1476,10 +1476,11 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'browser_auth',
-    description: 'Export or restore the browser session\'s cookies (login state). Use "flush" to get a JSON cookie list (save it to a file to persist logins), or "restore" with that list to put logins back (e.g. after the browser host restarted), or "clear" with a domain and/or name filter to drop the cookies of that site (e.g. stale WAF challenge generations). Available on the self-hosted browser.',
+    description: 'Export or restore the browser session\'s cookies (login state). Use "flush" to get a JSON cookie list, "restore" with that list (or with file: a JSON export on disk) to put logins back, or "clear" with a domain and/or name filter to drop the cookies of that site (e.g. stale WAF challenge generations). Logging in once in this browser is usually easier than importing: the profile is persistent, so a human can use browser_handoff and log in by hand. A browser\'s own cookie store cannot be read automatically — Chrome and Edge 127+ encrypt cookie values with App-Bound Encryption — so importing means a JSON export the user produced. Available on the self-hosted browser.',
     parameters: {
       action: { type: 'string', required: true, enum: ['flush', 'restore', 'clear'], description: 'flush = export cookies; restore = import cookies; clear = remove cookies for a domain/name scope.' },
-      cookies: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Cookie list to restore (required when action=restore).' },
+      cookies: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Cookie list to restore (action=restore).' },
+      file: { type: 'string', description: 'restore only: read the cookie list from this JSON file (an array, or {"cookies": [...]}) instead of passing it inline. Takes precedence over cookies. The path must be inside browser-electron.readRoots.' },
       domain: { type: 'string', description: 'clear only: remove cookies for this domain and its subdomains (e.g. "example.com").' },
       name: { type: 'string', description: 'clear only: remove only this exact cookie name within the scope.' },
       all: { type: 'boolean', description: 'clear only: remove every cookie in the profile. Required when neither domain nor name is given; destructive.' },
@@ -1491,6 +1492,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         properties: {
           cookies: { type: 'array', items: { type: 'object', additionalProperties: true } },
           restored: { type: 'number' },
+          failed: { type: 'number' },
           removed: { type: 'number' },
           names: { type: 'array', items: { type: 'string' } },
         },
@@ -1501,7 +1503,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           ? `Removed ${value.removed} cookie(s)` + ((value.names as string[]).length > 0 ? ': ' + (value.names as string[]).join(', ') : '.')
           : value.cookies !== undefined
             ? `Exported ${(value.cookies as unknown[]).length} cookies.`
-            : `Restored ${value.restored} cookies.`,
+            : `Restored ${value.restored} cookies` + (typeof value.failed === 'number' && value.failed > 0 ? ` (${value.failed} skipped)` : '') + '.',
       }],
     },
     timeoutMs,
@@ -1527,6 +1529,13 @@ export function apply(ctx: Context, config: Config = {}): void {
           ...args.all === true ? { all: true } : {},
         })
         return { removed: cleared.removed, names: [...cleared.names] }
+      }
+      // A file source exists because a real cookie export runs to hundreds of
+      // entries, which is impractical to pass through the model inline.
+      const file = typeof args.file === 'string' && args.file.trim() !== '' ? args.file : undefined
+      if (file !== undefined) {
+        const imported = await browser.importAuth(session, file)
+        return { restored: imported.restored, failed: imported.failed }
       }
       const list = (args.cookies ?? []) as unknown[]
       const restored = await browser.restoreAuth(session, list as never)

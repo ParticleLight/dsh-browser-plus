@@ -493,6 +493,11 @@ export interface BrowserProvider {
   flushAuth(session: BrowserSessionId): Promise<readonly ExportedCookie[]>
   /** Import cookies into the session (restore login state); returns the number of cookies restored. */
   restoreAuth(session: BrowserSessionId, cookies: readonly ExportedCookie[]): Promise<number>
+  /**
+   * Import cookies from a JSON export on disk (read-guarded by the provider's
+   * read roots). `failed` counts entries the file carried that could not be set.
+   */
+  importAuth(session: BrowserSessionId, path: string): Promise<{ readonly restored: number; readonly failed: number }>
   /** Remove cookies for a site scope; returns how many went and their names. */
   clearAuth(session: BrowserSessionId, request: BrowserClearAuthRequest): Promise<BrowserClearAuthResult>
   /** Return the session's chronological operation log. */

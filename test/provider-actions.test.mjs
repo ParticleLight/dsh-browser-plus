@@ -382,3 +382,76 @@ test('waitForElement fails fast on an invalid selector instead of burning the bu
   assert.ok(Date.now() - started < 2_000, 'does not poll until the deadline')
 })
 
+test('importAuth restores every usable entry of a guarded cookie file', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-import-'))
+  try {
+    const file = join(dir, 'cookies.json')
+    writeFileSync(file, JSON.stringify({ cookies: [
+      { url: 'https://example.com/', name: 'a', value: '1' },
+      { url: 'https://example.com/', name: 'b', value: '2' },
+      { name: 'no-url', value: '3' },              // unusable: no url
+      { url: 'https://example.com/', name: 'c' },  // unusable: no value
+    ] }))
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { readRoots: [dir] })
+    const session = await provider.open()
+    let handed = []
+    host.views[0].restoreAuth = async cookies => { handed = cookies; return cookies.length }
+
+    const result = await provider.importAuth(session, file)
+    assert.deepEqual(result, { restored: 2, failed: 2 })
+    assert.deepEqual(handed.map(cookie => cookie.name), ['a', 'b'], 'only usable entries reach the session')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAuth accepts a bare array as well as the {cookies} shape', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-import-array-'))
+  try {
+    const file = join(dir, 'cookies.json')
+    writeFileSync(file, JSON.stringify([{ url: 'https://example.com/', name: 'a', value: '1' }]))
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { readRoots: [dir] })
+    const session = await provider.open()
+    host.views[0].restoreAuth = async cookies => cookies.length
+    assert.deepEqual(await provider.importAuth(session, file), { restored: 1, failed: 0 })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAuth refuses a file outside the read roots', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-import-outside-'))
+  try {
+    const file = join(dir, 'cookies.json')
+    writeFileSync(file, JSON.stringify([{ url: 'https://example.com/', name: 'a', value: '1' }]))
+    const host = new FakeHost()
+    // The file exists; it is simply not under an allowed root.
+    const provider = new ElectronBrowserProvider(host, { readRoots: [join(dir, 'elsewhere')] })
+    const session = await provider.open()
+    await assert.rejects(
+      () => provider.importAuth(session, file),
+      error => { assert.equal(error.code, 'BROWSER_READ_PATH_DENIED'); return true },
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAuth rejects a file that is not a cookie export', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-import-bad-'))
+  try {
+    const file = join(dir, 'not-cookies.json')
+    writeFileSync(file, JSON.stringify({ hello: 'world' }))
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { readRoots: [dir] })
+    const session = await provider.open()
+    await assert.rejects(
+      () => provider.importAuth(session, file),
+      error => { assert.equal(error.code, 'BROWSER_AUTH_FILE_INVALID'); return true },
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

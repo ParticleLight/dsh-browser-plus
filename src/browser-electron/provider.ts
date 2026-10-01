@@ -8,7 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import type {
   BrowserChallenge,
   BrowserClearAuthRequest,
@@ -390,6 +390,13 @@ const SNAPSHOT_LABEL_MAX = 120
 
 /** An input dispatch must not outlive this: a blocked renderer never acknowledges. */
 const INPUT_DISPATCH_TIMEOUT_MS = 15_000
+
+/** Whether one entry of a cookie export can be handed to cookies.set. */
+function isExportedCookie(value: unknown): value is ExportedCookie {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  return typeof record.url === 'string' && typeof record.name === 'string' && typeof record.value === 'string'
+}
 
 /** Total budget for the snapshot's empty-inventory retries. */
 const SNAPSHOT_RETRY_BUDGET_MS = 3_000
@@ -1433,6 +1440,42 @@ export class ElectronBrowserProvider implements BrowserProvider {
       ...request.all === true ? { all: true } : {},
     }, true, { result: String(result.removed) + ' cookies' })
     return { removed: result.removed, names: [...result.names] }
+  }
+
+  /**
+   * Import cookies from a JSON export on disk.
+   *
+   * The path is read-guarded exactly like browser_upload_file: a prompt-injected
+   * path must not turn this into a way to read a file the operator never allowed.
+   * A browser cookie export cannot be produced automatically — Chrome and Edge
+   * 127+ encrypt cookie values with App-Bound Encryption, so a copied profile
+   * yields nothing — which is why this takes a file the user exported.
+   */
+  async importAuth(session: BrowserSessionId, path: string): Promise<{ restored: number; failed: number }> {
+    const s = this.session(session)
+    const target = resolveReadPath(path, this.readRoots)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(readFileSync(target, 'utf8')) as unknown
+    } catch (error) {
+      throw new BrowserError(`browser: cannot read the cookie file: ${(error as Error).message}`, 'BROWSER_AUTH_FILE_INVALID')
+    }
+    // Accept both a bare array and the {"cookies": [...]} shape editors emit.
+    const list = Array.isArray(parsed)
+      ? parsed
+      : typeof parsed === 'object' && parsed !== null && Array.isArray((parsed as { cookies?: unknown }).cookies)
+        ? (parsed as { cookies: unknown[] }).cookies
+        : undefined
+    if (list === undefined) {
+      throw new BrowserError('browser: the cookie file must be a JSON array or {"cookies": [...]}', 'BROWSER_AUTH_FILE_INVALID')
+    }
+    const usable = list.filter(isExportedCookie)
+    if (usable.length === 0) {
+      throw new BrowserError(`browser: the cookie file has no usable entries (${list.length} read)`, 'BROWSER_AUTH_FILE_INVALID')
+    }
+    const restored = await this.restoreAuth(session, usable)
+    this.record(s, 'importAuth', { count: usable.length }, true, { result: `${restored} cookies` })
+    return { restored, failed: list.length - usable.length }
   }
 
   /** Import cookies into the session (restore login state). Self-hosted only. */

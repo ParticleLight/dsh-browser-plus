@@ -32,7 +32,7 @@ dsh plugin --profile web add <本仓库路径>
 | `browser-electron` | `viewHost` | 对象 | 必填 | 宿主提供的 `ElectronBrowserViewHost`(通常 `!!js ctx.get('electronViewHost')`) |
 | `browser-electron` | `httpOnly` | 布尔 | `true` | 仅允许 HTTP(S) 导航;`file:`/`data:` 等拒绝 |
 | `browser-electron` | `writeRoots` | 字符串数组 | `[工作目录, 系统临时目录]` | `browser_screenshot`/`browser_download` 允许写入的绝对目录;越界拒绝 |
-| `browser-electron` | `readRoots` | 字符串数组 | 同 `writeRoots` | `browser_upload_file` 允许读取的绝对目录;越界拒绝 |
+| `browser-electron` | `readRoots` | 字符串数组 | 同 `writeRoots` | `browser_upload_file` 与 `browser_auth action=restore file=…` 允许读取的绝对目录;越界拒绝 |
 | `browser-electron` | `chromeWorld` | `main` / `isolated` | `main` | 注入 chrome 所在的 JS 世界。`isolated` 让页面读不到任务状态与 binding token,但每个文档多一个 CDP context——**需先在真实窗口验证工具栏**(见 SOAK 第 8 节) |
 | `browser-electron` | `snapshotMaxElements` | 数字 | `60` | 快照最多收录的交互元素数 |
 | `browser-electron` | `contentMaxChars` | 数字 | `100000` | 内容抓取默认字符上限 |
@@ -101,6 +101,12 @@ dsh plugin --profile web add <本仓库路径>
 
 **Q:如何禁止 agent 乱点?**
 `browser_restrict` 设置白名单(如只允许 `browser_snapshot`/`browser_content`);传空列表解除。**规则按任务隔离**:一个任务设的白名单不会影响其它并行任务;`tool-browser.allowedActions` 配置作为所有任务的默认值。
+
+**Q:能直接导入 Edge/Chrome 的登录状态吗?**
+**不能自动导入**,这是浏览器的安全机制而非本插件的限制:Chrome/Edge 127+ 用 **App-Bound Encryption** 加密 cookie 值(实测本机 Chrome 的 cookie 全部是 `v20` 前缀),密钥绑定浏览器自身可执行文件身份,**复制 profile 也解不开**——实测把 `Local State` + `Default/Network/Cookies` 复制到临时目录再启动 Chrome,`Storage.getCookies` 返回 0 条。两条可行路径:
+
+1. **在本插件自己的浏览器里登录一次(推荐)**:profile 是持久的(`<DSH_HOME>/dsh-browser-plus-host`),点页面工具栏的「接管」手动登录,之后 agent 的任务就一直带着这份登录态。
+2. **导入用户导出的 cookie 文件**:用扩展或 DevTools 导出成 JSON,然后 `browser_auth { action: "restore", file: "<路径>" }`。文件须在 `browser-electron.readRoots` 内(默认:工作目录与系统临时目录);接受裸数组或 `{"cookies": [...]}` 两种形状,格式不合法的条目会被跳过并在 `failed` 里计数。
 
 ## 故障排查
 

@@ -118,6 +118,11 @@ export declare class BrowserRuntime extends Service {
     flushAuth(session: BrowserSessionId): Promise<readonly ExportedCookie[]>;
     /** Import cookies into the session through the provider. */
     restoreAuth(session: BrowserSessionId, cookies: readonly ExportedCookie[]): Promise<number>;
+    /** Import cookies from a JSON export on disk through the provider. */
+    importAuth(session: BrowserSessionId, path: string): Promise<{
+        restored: number;
+        failed: number;
+    }>;
     /** Remove cookies for one site scope through the provider. */
     clearAuth(session: BrowserSessionId, request: BrowserClearAuthRequest): Promise<BrowserClearAuthResult>;
     /** Set the session's browser task label through the selected provider. */
