@@ -7,9 +7,15 @@
 ```bash
 npm run smoke:browser-tools
 ```
-用**真实 Electron 宿主 + 真实 Chromium** 驱动**真实 provider**,覆盖 12 项:navigate / content / snapshot /
-screenshot / **click 三种寻址(坐标、选择器、文字)** / 目标缺失的错误码 / waitForElement /
-**scrape 并发** / **cookie 导出→文件→清除→导入往返** / listTabs。
+用**真实 Electron 宿主 + 真实 Chromium** 驱动**真实 provider**,覆盖 **21 项**:
+
+- **provider 层(12 项)**:navigate / content / snapshot / screenshot / **click 三种寻址(坐标、选择器、文字)** /
+  目标缺失的错误码 / waitForElement / **scrape 并发** / **cookie 导出→文件→清除→导入往返** / listTabs。
+- **工具层(6 项)**:真实 `apply(ctx)` 注册的工具跑在真实 provider 上 —— `browser_open` / `browser_content` /
+  `browser_click`(文字寻址) / `browser_snapshot` / `browser_scrape`(start+status) / `browser_auth`(file)。
+  每次调用还会**逐字段比对声明的输出 schema**——DSH 会在运行时校验输出,而直接调 `execute()` 绕过了它。
+- **并行与规模(3 项)**:双任务(A 跑抓取时 B 的 snapshot 应在毫秒级返回)/ 两个任务各持独立会话 /
+  **100 个 URL @ 并发 8**(应为 100 行、100 个不同 `seq`、0 失败,结束后标签页数回到 1)。
 
 - 它自带 profile(`DSH_BROWSER_PLUS_USER_DATA` 指向临时目录),**不与正在运行的 DSH 抢 profile 锁**,所以可以在 DSH 运行时跑;会短暂弹出一个窗口。
 - 退出码 0 = 全绿。任何 FAIL 都会打印期望与实际。

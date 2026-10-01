@@ -2,6 +2,7 @@
 
 ## v0.4.3 (2026-09-30)
 
+- **集成冒烟扩到 21 项,覆盖工具层与并行**:新增 ① **真实工具层跑在真实 provider 上**(`browser_open`/`browser_content`/`browser_click`/`browser_snapshot`/`browser_scrape`/`browser_auth`)——单测用假浏览器、此前的冒烟直接调 provider,这是唯一让两者相遇的地方;② **工具输出形状检查**(逐字段比对声明 schema,因为 DSH 会在运行时校验输出,而直接调 `execute()` 绕过了它);③ **双任务并行**:A 跑 8 URL 抓取时,B 的 snapshot **13ms 返回**且 `aWasStillBusy:true`;④ **100 个 URL @ 并发 8**:100 行、100 个不同 `seq`、0 失败、**8.1 秒**、结束后**标签页数回到 1**(无泄漏)。
 - **修 `text` 寻址在「逐字符 span」页面上匹配失败(真实集成测试抓到的真 bug)**:文字匹配此前枚举候选标签(`a, button, input, span, div, li, td…`),**漏了 `p` 等大量承载正文的标签**。现代站点常把正文/按钮文字拆成**逐字符的 `<span>`**(带淡入动画,example.com 现在就是这样),此时每个叶子只含一个字,**整句只存在于容器上**——容器不在候选表里就永远匹配不到。现改为**一次自底向上遍历**,让每个元素都算出自己的文本(不枚举标签、也不用逐元素 `textContent` 重复走子树)。实测同一页面:`text='This domain is for use'` 命中 `<p>` ✓,`text='Learn more'` 命中 `<a>` 而非包含它的 `<p>`(最短标签优先)✓。
 - **新增真实集成冒烟 `npm run smoke:browser-tools`**:用**真实 Electron 宿主 + 真实 Chromium** 驱动**真实 provider**,覆盖 12 项(含 click 三种寻址、scrape 并发、cookie 导出→文件→导入往返)。这是唯一覆盖「provider → RPC → host-main → CDP → Chromium」整条链路的检查。它**自带 profile**(`DSH_BROWSER_PLUS_USER_DATA`),所以能在 DSH 运行时跑而不抢 profile 锁。**首次运行即抓到上面那个 bug。**
 - **`DSH_BROWSER_PLUS_USER_DATA` 可覆盖宿主 profile**:Chromium 对 profile 加单例锁,此前无法并存两个宿主(验证脚本会与运行中的 DSH 冲突)。
