@@ -157,6 +157,14 @@ await check('a settled tab is not stuck loading', async () => {
   if (loading.some(Boolean)) throw new Error('the strip still shows a tab as loading: ' + String(flags.value))
   return { tabs: loading.length, loading: 0 }
 })
+// Page zoom lives on the webContents, so the chrome has to be told the factor
+// rather than derive it (a freshly navigated document's devicePixelRatio is
+// already scaled, which is what made the derived version stop compensating).
+await check('the host publishes the zoom factor to the chrome', async () => {
+  const result = await provider.execute(session, { script: 'String(window.__dshZoom)' })
+  if (result.value !== '1') throw new Error('expected __dshZoom 1, got ' + String(result.value))
+  return { zoom: result.value }
+})
 await check('left-click reaches the page', async () => {
   await provider.execute(session, { script: `(() => {
     window.__left = []

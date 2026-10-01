@@ -232,6 +232,28 @@ test('the tab strip is the window frame: draggable, with room for the caption bu
   assert.match(script, /host\.dataset\.dshCaption = /, 'the chrome decides which side')
 })
 
+test('page zoom compensates the chrome instead of scaling it', () => {
+  const script = buildPageChromeScript()
+  // The zoom itself is a webContents property the host applies; the chrome only
+  // undoes its own share of the scale and re-scales the offset it adds to the page.
+  assert.match(script, /window\.__dshChromeSetZoom = applyZoomFactor/)
+  assert.match(script, /host\.style\.zoom = next === 1 \? '' : String\(1 \/ next\)/)
+  assert.match(script, /setProperty\('padding-top', \(84 \/ next\) \+ 'px', 'important'\)/)
+  assert.match(script, /const syncZoomFromHost = \(\) => \{ applyZoomFactor\(window\.__dshZoom\) \}/)
+  // The factor must come from the host. Deriving it from devicePixelRatio looked
+  // equivalent and was not: a freshly navigated document's dpr is already scaled,
+  // so compensation silently stopped after the first navigation.
+  assert.ok(!script.includes('baseDpr'), 'the chrome must not derive the factor itself')
+  // Shortcuts match on code too — a synthesised key event carries no key text.
+  assert.match(script, /const isPlus = key === '\+' \|\| key === '=' \|\| code === 'Equal' \|\| code === 'NumpadAdd'/)
+  assert.match(script, /const isMinus = key === '-' \|\| code === 'Minus' \|\| code === 'NumpadSubtract'/)
+  assert.match(script, /const isZero = key === '0' \|\| code === 'Digit0' \|\| code === 'Numpad0'/)
+  // …and the row itself: Chrome's ⋮ has − / percent / +, with the percent as reset.
+  assert.ok(script.includes(String.raw`id=\"mmZoom\"`), 'the zoom row ships')
+  assert.match(script, /emitZoom\(clamped\)/)
+  assert.match(script, /type: 'set-zoom'/)
+})
+
 test('the address bar hides the scheme and shows a real security indicator', () => {
   const script = buildPageChromeScript()
   // Chrome drops the scheme while the omnibox is unfocused and restores the full

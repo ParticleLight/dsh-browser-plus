@@ -892,7 +892,25 @@ function applyPageChrome(view: WebContentsView, viewId: string): void {
     const pageTaskKey = views.get(viewId)?.taskKey
     const active = pageTaskKey !== undefined && activeViewByTask.get(pageTaskKey) === viewId
     if (active) resetChromeDelivery()
-    runChromeScript(view, source + ';window.__dshChromeActive = ' + String(active) + ';try { window.__dshChromeSetActive?.(' + String(active) + ') } catch {};' + chromeBootstrapScript())
+    // The zoom factor is the host's to know: it is a webContents property, it
+    // survives navigation, and the chrome cannot recover it from the page (a
+    // fresh document's devicePixelRatio is already scaled, so deriving it there
+    // silently stopped compensating after the first navigation).
+    let zoom = 1
+    try {
+      zoom = view.webContents.getZoomFactor()
+      // Re-apply rather than merely report it. Chromium keeps zoom per origin and
+      // restores it asynchronously, so on the first load after a restart
+      // getZoomFactor() already said 0.9 while the document was still rendering
+      // at 1.0 — the chrome then over-compensated and drew 11% too small.
+      // Setting it forces the value and the rendering to agree.
+      if (Number.isFinite(zoom) && zoom > 0) view.webContents.setZoomFactor(zoom)
+    } catch { /* closing */ }
+    runChromeScript(view, source
+      + ';window.__dshZoom = ' + String(Number.isFinite(zoom) && zoom > 0 ? zoom : 1)
+      + ';window.__dshChromeActive = ' + String(active)
+      + ';try { window.__dshChromeSetActive?.(' + String(active) + ') } catch {};'
+      + chromeBootstrapScript())
   } catch {
     // Chrome is cosmetic; never fail a page for it.
   }
@@ -1036,7 +1054,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             const binding = (params ?? {}) as { name?: unknown; payload?: unknown }
             if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
               try {
-                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown }
+                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown }
                 // Authenticate before acting: only our injected chrome knows this
                 // view's token, so a forged payload never reaches the dispatcher.
                 if (!authorizeChromeAction(action, chromeToken)) return
@@ -1059,6 +1077,22 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
                     : { control: 'agent', status: 'idle', latestAction: 'agent resumed' })
                   const task = taskSummaries().find(candidate => candidate.key === action.taskKey)
                   if (task !== undefined) queueChromePatch({ op: 'task.upsert', task })
+                } else if (action.type === 'set-zoom'
+                  && typeof action.factor === 'number'
+                  && Number.isFinite(action.factor)) {
+                  // Page zoom is a webContents property: it re-lays out the page
+                  // (so vh and media queries follow), which is exactly why the
+                  // chrome cannot fake it in CSS. The chrome compensates for its
+                  // own share of the scale — see page-chrome.ts.
+                  const factor = Math.min(3, Math.max(0.25, action.factor))
+                  try {
+                    view.webContents.setZoomFactor(factor)
+                    // Echo it back: the chrome polls __dshZoom to correct drift, so
+                    // a stale value there would undo the zoom the user just asked
+                    // for on the very next tick.
+                    runChromeScript(view, ';window.__dshZoom = ' + String(factor)
+                      + ';try { window.__dshChromeSetZoom?.(' + String(factor) + ') } catch {}')
+                  } catch { /* closing */ }
                 } else if (action.type === 'new-tab'
                   && typeof action.taskKey === 'string'
                   && activeViewByTask.has(action.taskKey)) {
