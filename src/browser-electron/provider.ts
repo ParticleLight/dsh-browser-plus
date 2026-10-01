@@ -393,16 +393,20 @@ const SNAPSHOT_LABEL_MAX = 120
 /** An input dispatch must not outlive this: a blocked renderer never acknowledges. */
 const INPUT_DISPATCH_TIMEOUT_MS = 15_000
 
+/** Upper bound on concurrent scrape workers; each one costs a tab. */
+const MAX_SCRAPE_WORKERS = 8
+
 /** Mutable progress for one background scrape batch. */
 interface ScrapeJob {
   readonly id: string
   readonly session: Session
   /**
-   * The batch's own tab, created at start and destroyed when it ends. Deliberately
-   * never activated: a batch must not race a tool call for the session's active
-   * tab, and it must not navigate away from the page the human was reading.
+   * The batch's own tabs, created at start and destroyed when it ends. One per
+   * worker. Deliberately never activated: a batch must not race a tool call for
+   * the session's active tab, and it must not navigate away from the page the
+   * human was reading.
    */
-  readonly tab: Tab
+  readonly tabs: readonly Tab[]
   readonly path: string
   state: 'running' | 'done' | 'stopped'
   readonly total: number
@@ -1583,13 +1587,18 @@ export class ElectronBrowserProvider implements BrowserProvider {
     writeFileSync(target, '')
     // Created only after every guard has passed, so a rejected start leaves no
     // orphaned view behind.
-    const handle = this.host.createView(s.taskKey, s.taskLabel === '' ? undefined : s.taskLabel)
-    const tab = this.createTab(handle)
-    s.tabs.push(tab)
+    const workers = Math.max(1, Math.min(Math.trunc(request.concurrency ?? 1) || 1, MAX_SCRAPE_WORKERS))
+    const tabs: Tab[] = []
+    for (let i = 0; i < workers; i += 1) {
+      const handle = this.host.createView(s.taskKey, s.taskLabel === '' ? undefined : s.taskLabel)
+      const tab = this.createTab(handle)
+      s.tabs.push(tab)
+      tabs.push(tab)
+    }
     const job: ScrapeJob = {
       id: `scrape:${randomUUID()}`,
       session: s,
-      tab,
+      tabs,
       path: target,
       state: 'running',
       total: urls.length,
@@ -1630,57 +1639,76 @@ export class ElectronBrowserProvider implements BrowserProvider {
     return job
   }
 
-  /** Visit each URL once, appending one JSONL row per page. */
+  /**
+   * Visit each URL once, appending one JSONL row per page.
+   *
+   * Workers pull from one shared index, so `concurrency` sets the throughput
+   * without changing the work. Rows therefore land in completion order; each row
+   * carries its URL's index as `seq` so the caller can restore the original.
+   */
   private async runScrape(job: ScrapeJob, urls: readonly string[], request: BrowserScrapeRequest): Promise<void> {
     const perUrl = request.timeoutMs ?? 30_000
-    try {
-    for (const url of urls) {
-      if (job.state !== 'running') return
-      let row: Record<string, unknown>
-      try {
-        // show: false — the batch works in the background tab it owns.
-        // settleMs: 0 — it reads the DOM, so it must not pay the paint delay.
-        await this.navigateTab(job.session, job.tab, url, undefined, false, 0)
-        if (request.waitFor !== undefined) {
-          await this.waitForElementTab(job.session, job.tab, { selector: request.waitFor, timeoutMs: perUrl })
-        }
-        const result = await this.executeTab(job.session, job.tab, { script: request.script, timeoutMs: perUrl })
-        if (result.ok) {
-          row = { url, ok: true, data: result.value }
-        } else {
+    let next = 0
+    const take = (): number | undefined => (next < urls.length ? next++ : undefined)
+
+    const worker = async (tab: Tab): Promise<void> => {
+      for (;;) {
+        if (job.state !== 'running') return
+        const index = take()
+        if (index === undefined) return
+        const url = urls[index] ?? ''
+        let row: Record<string, unknown>
+        try {
+          // show: false — the batch works in the background tab it owns.
+          // settleMs: 0 — it reads the DOM, so it must not pay the paint delay.
+          await this.navigateTab(job.session, tab, url, undefined, false, 0)
+          if (request.waitFor !== undefined) {
+            await this.waitForElementTab(job.session, tab, { selector: request.waitFor, timeoutMs: perUrl })
+          }
+          const result = await this.executeTab(job.session, tab, { script: request.script, timeoutMs: perUrl })
+          if (result.ok) {
+            row = { seq: index, url, ok: true, data: result.value }
+          } else {
+            job.failed += 1
+            row = { seq: index, url, ok: false, error: result.exception }
+          }
+        } catch (error) {
+          // One bad page must not end the batch: record it and keep going.
           job.failed += 1
-          row = { url, ok: false, error: result.exception }
+          row = { seq: index, url, ok: false, error: String((error as Error)?.message ?? error) }
         }
-      } catch (error) {
-        // One bad page must not end the batch: record it and keep going.
-        job.failed += 1
-        row = { url, ok: false, error: String((error as Error)?.message ?? error) }
+        // appendFileSync blocks, so two workers can never interleave a row.
+        appendFileSync(job.path, scrapeRow(row))
+        job.done += 1
       }
-      appendFileSync(job.path, scrapeRow(row))
-      job.done += 1
     }
-    job.state = 'done'
+
+    try {
+      await Promise.all(job.tabs.map(tab => worker(tab)))
+      job.state = 'done'
     } finally {
-      // The tab outlives the loop only until here; a stopped batch cleans up too.
-      this.destroyScrapeTab(job)
+      // The tabs outlive the loop only until here; a stopped batch cleans up too.
+      this.destroyScrapeTabs(job)
     }
   }
 
-  /** Drop a batch's private tab (and its view) once the batch is over. */
-  private destroyScrapeTab(job: ScrapeJob): void {
+  /** Drop a batch's private tabs (and their views) once the batch is over. */
+  private destroyScrapeTabs(job: ScrapeJob): void {
     const s = job.session
-    const index = s.tabs.findIndex(tab => tab.id === job.tab.id)
-    if (index < 0) return
-    s.tabs.splice(index, 1)
-    this.host.destroyView(job.tab.handle)
-    // Same index bookkeeping as closeTab: the batch tab is normally not active,
-    // but a tool call could have activated it mid-batch.
-    if (s.tabs.length === 0) {
-      this.newTab(s)
-    } else if (index < s.activeIndex) {
-      s.activeIndex -= 1
-    } else if (s.activeIndex >= s.tabs.length) {
-      s.activeIndex = s.tabs.length - 1
+    for (const tab of job.tabs) {
+      const index = s.tabs.findIndex(candidate => candidate.id === tab.id)
+      if (index < 0) continue
+      s.tabs.splice(index, 1)
+      this.host.destroyView(tab.handle)
+      // Same index bookkeeping as closeTab: a batch tab is normally not active,
+      // but a tool call could have activated one mid-batch.
+      if (s.tabs.length === 0) {
+        this.newTab(s)
+      } else if (index < s.activeIndex) {
+        s.activeIndex -= 1
+      } else if (s.activeIndex >= s.tabs.length) {
+        s.activeIndex = s.tabs.length - 1
+      }
     }
     this.showActive(s)
   }

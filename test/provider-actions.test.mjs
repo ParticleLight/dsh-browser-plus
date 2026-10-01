@@ -513,9 +513,9 @@ test('a scrape batch writes one JSONL row per URL and never returns the data', a
     assert.equal(final.done, 2)
     assert.equal(final.failed, 0)
     assert.deepEqual(rowsOf(out), [
-      { url: 'https://a.example/', ok: true, data: { title: 'extracted' } },
-      { url: 'https://b.example/', ok: true, data: { title: 'extracted' } },
-    ])
+      { seq: 0, url: 'https://a.example/', ok: true, data: { title: 'extracted' } },
+      { seq: 1, url: 'https://b.example/', ok: true, data: { title: 'extracted' } },
+    ], 'concurrency 1 keeps rows in URL order')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -542,7 +542,7 @@ test('one bad page does not end the batch', async () => {
     const rows = rowsOf(out)
     assert.equal(rows[0].ok, false)
     assert.match(rows[0].error, /non-HTTP\(S\)/)
-    assert.deepEqual(rows[1], { url: 'https://good.example/', ok: true, data: 'ok' })
+    assert.deepEqual(rows[1], { seq: 1, url: 'https://good.example/', ok: true, data: 'ok' })
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -617,6 +617,55 @@ test('a scrape batch works in its own tab and leaves the active one alone', asyn
     const after = await provider.listTabs(session)
     assert.equal(after.length, 1, 'the batch tab is cleaned up')
     assert.equal(after[0].id, before[0].id)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+test('concurrency loads several pages at once and every row carries its index', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-scrape-par-'))
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { writeRoots: [dir] })
+    // A per-page delay keeps all three workers busy at the same time.
+    scrapeViews(host, () => 'ok', 20)
+    const session = await provider.open()
+    const out = join(dir, 'rows.jsonl')
+    const urls = Array.from({ length: 6 }, (_, i) => `https://p${String(i)}.example/`)
+
+    const started = await provider.startScrape(session, { urls, script: '1', outPath: out, concurrency: 3 })
+    // Counted from the host rather than listTabs: listTabs awaits a URL per tab
+    // and the batch can finish (and drop its tabs) while it is iterating.
+    assert.equal(host.createViewArgs.length, 4, 'three workers plus the tab the session already had')
+    assert.equal((await provider.listTabs(session)).filter(tab => tab.active).length, 1, 'exactly one tab stays active')
+
+    const final = await settle(provider, started.id)
+    assert.equal(final.state, 'done')
+    assert.equal(final.done, 6)
+    assert.equal(final.failed, 0)
+    const rows = rowsOf(out)
+    assert.equal(rows.length, 6)
+    assert.deepEqual(rows.map(row => row.seq).sort((a, b) => a - b), [0, 1, 2, 3, 4, 5], 'every URL was visited exactly once')
+    assert.equal(new Set(rows.map(row => row.url)).size, 6)
+    assert.equal((await provider.listTabs(session)).length, 1, 'all worker tabs are cleaned up')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('concurrency is clamped to a sane worker count', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-scrape-cap-'))
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { writeRoots: [dir] })
+    scrapeViews(host, () => 'ok', 20)
+    const session = await provider.open()
+    const out = join(dir, 'rows.jsonl')
+    const urls = Array.from({ length: 4 }, (_, i) => `https://c${String(i)}.example/`)
+    const started = await provider.startScrape(session, { urls, script: '1', outPath: out, concurrency: 999 })
+    // 8 workers is the cap, so 4 urls never need more than 4 tabs plus the original.
+    assert.ok((await provider.listTabs(session)).length <= 9)
+    await settle(provider, started.id)
+    assert.equal(rowsOf(out).length, 4)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

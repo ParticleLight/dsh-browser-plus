@@ -284,6 +284,12 @@ export interface BrowserScrapeRequest {
   readonly waitFor?: string
   /** Per-URL budget in ms for the wait and the extraction. Default 30000. */
   readonly timeoutMs?: number
+  /**
+   * How many pages to load at once. Default 1, which writes rows in URL order.
+   * Each worker owns a tab of its own, so a higher value costs that many tabs;
+   * every row carries its URL's index as `seq` so the caller can restore order.
+   */
+  readonly concurrency?: number
 }
 
 /** Progress of one scrape batch. The rows themselves live in the file. */

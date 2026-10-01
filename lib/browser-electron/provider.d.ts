@@ -363,10 +363,16 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     /** Every batch this process knows about, oldest first. */
     listScrapes(): Promise<readonly BrowserScrapeStatus[]>;
     private scrapeJob;
-    /** Visit each URL once, appending one JSONL row per page. */
+    /**
+     * Visit each URL once, appending one JSONL row per page.
+     *
+     * Workers pull from one shared index, so `concurrency` sets the throughput
+     * without changing the work. Rows therefore land in completion order; each row
+     * carries its URL's index as `seq` so the caller can restore the original.
+     */
     private runScrape;
-    /** Drop a batch's private tab (and its view) once the batch is over. */
-    private destroyScrapeTab;
+    /** Drop a batch's private tabs (and their views) once the batch is over. */
+    private destroyScrapeTabs;
     /** Capture the current page, optionally full-page. PNG only (CDP JPEG hangs on Electron 43). */
     screenshot(session: BrowserSessionId, request?: {
         readonly fullPage?: boolean;

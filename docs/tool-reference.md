@@ -65,7 +65,7 @@
 
 | 工具 | 参数 | 输出 | 守卫 | 说明 |
 | --- | --- | --- | --- | --- |
-| `browser_scrape` | `action?`(start/status/stop/list), `urls?`, `script?`, `outPath?`, `waitFor?`, `timeoutMs?`, `id?` | `{ id?, state?, total?, done?, failed?, path?, error?, jobs[]? }` | ✅ | 后台批量访问 URL,把**每页一行 JSON** 追加到文件,结果**不经模型往返**——一千条与一条的 token 成本相同。`action=start` 立即返回,用 `action=status` 轮询。每行是 `{ url, ok, data }` 或 `{ url, ok, error }`,**产生即落盘**,所以 `stop` 或中断都保留已抓到的行;单页失败不终止整批(计入 `failed`)。`outPath` 受 `writeRoots` 限制并在开始时截断。批次占用该任务的当前标签页,运行期间可见页面会随之前进。
+| `browser_scrape` | `action?`(start/status/stop/list), `urls?`, `script?`, `outPath?`, `waitFor?`, `timeoutMs?`, `concurrency?`, `id?` | `{ id?, state?, total?, done?, failed?, path?, error?, jobs[]? }` | ✅ | 后台批量访问 URL,把**每页一行 JSON** 追加到文件,结果**不经模型往返**——一千条与一条的 token 成本相同。`action=start` 立即返回,用 `action=status` 轮询。每行是 `{ seq, url, ok, data }` 或 `{ seq, url, ok, error }`(`seq` = 该 URL 在输入里的下标;并发时行按**完成顺序**落盘,按 `seq` 排序即可还原),**产生即落盘**,所以 `stop` 或中断都保留已抓到的行;单页失败不终止整批(计入 `failed`)。`outPath` 受 `writeRoots` 限制并在开始时截断。批次使用**自己的标签页**(不激活,所以不会抢走你正在看的页面,也不与同任务的工具调用争用),结束后销毁。`concurrency` 默认 1、上限 8,每个 worker 占一个标签页;后台批次**跳过 250ms 的绘制等待**(它只读 DOM 不读像素),实测单页开销约 6ms。
 
 ## 截图
 
