@@ -196,6 +196,85 @@ await check('typing lands in a focused field', async () => {
   if (seen.value !== 'hello') throw new Error('the field holds ' + JSON.stringify(seen.value))
   return seen.value
 })
+await check('click_ref reaches the page', async () => {
+  // The documented primary way to interact, and it had never been asserted to
+  // actually deliver anything -- only that it returned.
+  await provider.execute(session, { script: `(() => {
+    document.getElementById('__ref_probe')?.remove()
+    const button = document.createElement('button')
+    button.id = '__ref_probe'
+    button.textContent = 'Ref Probe'
+    button.style.cssText = 'position:fixed;left:60px;top:60px;width:140px;height:40px;z-index:2147483647'
+    document.body.appendChild(button)
+    window.__ref = []
+    button.addEventListener('mousedown', () => window.__ref.push('mousedown'), true)
+    button.addEventListener('click', () => window.__ref.push('click'), true)
+    return 'armed'
+  })()` })
+  const snap = await provider.snapshot(session)
+  const target = snap.elements.find(element => element.label === 'Ref Probe')
+  if (target === undefined) throw new Error('the snapshot did not list the probe button')
+  await provider.clickRef(session, { snapshotId: snap.snapshotId, ref: target.ref })
+  await new Promise(resolve => setTimeout(resolve, 400))
+  const seen = await provider.execute(session, { script: 'window.__ref.join(",")' })
+  await provider.execute(session, { script: "document.getElementById('__ref_probe')?.remove()" })
+  if (seen.value !== 'mousedown,click') throw new Error('the page saw ' + JSON.stringify(seen.value))
+  return seen.value
+})
+await check('double-click reaches the page', async () => {
+  await provider.execute(session, { script: `(() => {
+    window.__dbl = []
+    document.addEventListener('dblclick', () => window.__dbl.push('dblclick'), true)
+    return 'armed'
+  })()` })
+  await provider.doubleClick(session, { selector: 'body' })
+  await new Promise(resolve => setTimeout(resolve, 400))
+  const seen = await provider.execute(session, { script: 'window.__dbl.join(",")' })
+  if (seen.value !== 'dblclick') throw new Error('the page saw ' + JSON.stringify(seen.value))
+  return seen.value
+})
+await check('scroll moves the page', async () => {
+  // The current page may be shorter than the viewport, in which case a correct
+  // scroll has nowhere to go -- give it something to scroll first.
+  await provider.execute(session, { script: `(() => {
+    document.getElementById('__tall')?.remove()
+    const spacer = document.createElement('div')
+    spacer.id = '__tall'
+    spacer.style.cssText = 'height:3000px;width:10px'
+    document.body.appendChild(spacer)
+    window.scrollTo(0, 0)
+    return 'armed'
+  })()` })
+  const before = await provider.execute(session, { script: 'Math.round(window.scrollY)' })
+  await provider.scroll(session, { deltaY: 300 })
+  await new Promise(resolve => setTimeout(resolve, 300))
+  const after = await provider.execute(session, { script: 'Math.round(window.scrollY)' })
+  await provider.execute(session, { script: "document.getElementById('__tall')?.remove()" })
+  if (Number(after.value) <= Number(before.value)) throw new Error('scrollY went ' + String(before.value) + ' -> ' + String(after.value))
+  return String(before.value) + ' -> ' + String(after.value)
+})
+await check('fill sets a select', async () => {
+  await provider.execute(session, { script: `(() => {
+    document.getElementById('__sel')?.remove()
+    const select = document.createElement('select')
+    select.id = '__sel'
+    select.style.cssText = 'position:fixed;left:60px;top:120px;z-index:2147483647'
+    for (const value of ['a', 'b', 'c']) {
+      const option = document.createElement('option')
+      option.value = value
+      option.textContent = value
+      select.appendChild(option)
+    }
+    document.body.appendChild(select)
+    return 'armed'
+  })()` })
+  await provider.fillForm(session, { fields: [{ selector: '#__sel', kind: 'select', value: 'b' }] })
+  await new Promise(resolve => setTimeout(resolve, 200))
+  const seen = await provider.execute(session, { script: "String((document.getElementById('__sel') || {}).value)" })
+  await provider.execute(session, { script: "document.getElementById('__sel')?.remove()" })
+  if (seen.value !== 'b') throw new Error('the select holds ' + JSON.stringify(seen.value))
+  return seen.value
+})
 // --- the tool layer, over the same real provider -------------------------
 // The unit suite drives the tools against a fake browser, and the checks above
 // drive the provider directly. This is the only place the two meet: tool schema
