@@ -174,6 +174,23 @@ await check('Ctrl+T opens a tab through the provider', async () => {
 // Chrome's bookmark bar: off by default, and turning it on moves the page down by
 // its height. The toggle goes chrome -> binding -> host -> patch -> chrome, so this
 // also proves the preference round-trips through the host (localStorage is per origin).
+// Chrome's other keybindings, driven through the provider so the whole chain is covered.
+await check('Ctrl+D bookmarks the page it is on', async () => {
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 500))
+  const count = async () => Number((await provider.execute(session, { script: 'String((window.__dshBookmarks || []).length)' })).value)
+  const before = await count()
+  await provider.pressKey(session, { key: 'd', modifiers: ['ctrl'] })
+  await new Promise(resolve => setTimeout(resolve, 600))
+  const after = await count()
+  if (after !== before + 1) throw new Error('bookmarks went ' + String(before) + ' -> ' + String(after))
+  // Pressing it again must not duplicate the entry (the host dedupes by URL).
+  await provider.pressKey(session, { key: 'd', modifiers: ['ctrl'] })
+  await new Promise(resolve => setTimeout(resolve, 600))
+  const again = await count()
+  if (again !== after) throw new Error('Ctrl+D duplicated the bookmark: ' + String(after) + ' -> ' + String(again))
+  return { before, after, again }
+})
 await check('the bookmark bar is host state and the page offset follows it', async () => {
   await provider.navigate(session, { url: 'https://example.com/' })
   await new Promise(resolve => setTimeout(resolve, 500))

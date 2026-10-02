@@ -250,6 +250,20 @@ test('the bookmark bar is Chrome-like, and the page offset follows it', () => {
   assert.ok(script.includes('window.__dshBookmarkBar = bookmarksVisible'), 'and published for tests')
 })
 
+test('the rest of Chrome keybindings, over capabilities we already have', () => {
+  const script = buildPageChromeScript()
+  assert.ok(script.includes("chord === 'd' || chordCode === 'KeyD'"), 'Ctrl+D bookmarks')
+  assert.ok(script.includes("chord === 'b' || chordCode === 'KeyB') && event.shiftKey"), 'Ctrl+Shift+B toggles the bar')
+  assert.ok(script.includes("chord === 'r' || chordCode === 'KeyR'"), 'Ctrl+R reloads')
+  assert.ok(script.includes("chord === 'h' || chordCode === 'KeyH'"), 'Ctrl+H opens the trail panel')
+  assert.ok(script.includes("event.key === 'F5'"), 'F5 reloads')
+  // Alt+arrow needs the alt check, and Escape only stops when the stop button is showing.
+  assert.ok(script.includes("event.altKey && (event.key === 'ArrowLeft' || event.code === 'ArrowLeft')"), 'Alt+Left goes back')
+  assert.ok(script.includes("event.altKey && (event.key === 'ArrowRight' || event.code === 'ArrowRight')"), 'Alt+Right goes forward')
+  assert.ok(script.includes("event.key === 'Escape' && stop !== null && getComputedStyle(stop).display !== 'none'"), 'Escape stops a load that is running')
+  assert.ok(script.includes('const trailMenu = menus[1]'), 'Ctrl+H targets the trail menu')
+})
+
 test('Chrome tab shortcuts and middle-click close', () => {
   const script = buildPageChromeScript()
   // All of these reach the provider's existing capabilities: new-tab, close-tab
