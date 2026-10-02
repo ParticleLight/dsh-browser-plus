@@ -126,8 +126,8 @@ test('secondary menus are anchored popups, not fixed docks', () => {
   // Geometry is computed from the trigger at open time.
   assert.match(script, /const anchorPopup = \(popup, trigger, width\)/)
   assert.match(script, /trigger\.getBoundingClientRect\(\)/)
-  assert.match(script, /popup\.style\.left = left \+ 'px'/)
-  assert.match(script, /popup\.style\.top = top \+ 'px'/)
+  assert.ok(script.includes("popup.style.left = g.left + 'px'"), 'anchored under its trigger')
+  assert.ok(script.includes("popup.style.top = g.top + 'px'"), 'just below it')
   assert.match(script, /const menus = \[/)
 })
 
@@ -451,7 +451,7 @@ test('the ⋮ menu is a Chrome-style menu wired to features we already have', ()
   }
   assert.match(script, /mainMenuBtn instanceof HTMLButtonElement/, 'the trigger is type-checked before use')
   // It is a secondary menu like the other three: anchored, hover-opened, one at a time.
-  assert.match(script, /\{ popup: mainMenu, trigger: mainMenuBtn, width: 264, onOpen: renderMainMenu \}/)
+  assert.ok(script.includes("{ id: 'main', popup: mainMenu, trigger: mainMenuBtn, width: 264, onOpen: renderMainMenu }"), 'the menu is wired up')
   // Every item drives something the plugin already had rather than a new feature.
   assert.match(script, /mmNewTab\.addEventListener\('click', \(\) => \{ closeMenu\(mainMenu\); if \(typeof chromeSelectedTaskKey === 'string'\) emitTabCreate\(chromeSelectedTaskKey\) \}\)/)
   assert.match(script, /mmBookmark\.addEventListener\('click', \(\) => \{ closeMenu\(mainMenu\); saveCurrentPage\(\) \}\)/)

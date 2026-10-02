@@ -161,6 +161,31 @@ await check('the frame chrome drives the page it is showing', async () => {
   }
   throw new Error('the page never navigated: ' + JSON.stringify(url))
 })
+// The frame's buttons are the real ones once it is on screen, but its own popups
+// would be clipped at 84px — so it reports where the button is and the PAGE draws
+// the menu there. Clicking the frame's star must open the page's bookmarks panel.
+await check('the frame chrome opens the page chrome popups where its buttons are', async () => {
+  const readPanels = async () => JSON.parse(String((await provider.execute(session, {
+    script: 'JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])',
+  })).value))
+  const before = await readPanels()
+  if (before.some(entry => entry.open)) throw new Error('a panel was already open: ' + JSON.stringify(before))
+  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x: 1199, y: CHROME_TOOLBAR_Y, button: 'left', clickCount: 1 })
+  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 1199, y: CHROME_TOOLBAR_Y, button: 'left', clickCount: 1 })
+  let opened = null
+  for (let i = 0; i < 20; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 150))
+    const panels = await readPanels()
+    opened = panels.find(entry => entry.id === 'bookmarks' && entry.open === true)
+    if (opened) break
+  }
+  if (!opened) throw new Error('the page never opened the bookmarks panel: ' + JSON.stringify(await readPanels()))
+  // Close it again: a pinned panel would sit over the page for every later check.
+  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x: 1199, y: CHROME_TOOLBAR_Y, button: 'left', clickCount: 1 })
+  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 1199, y: CHROME_TOOLBAR_Y, button: 'left', clickCount: 1 })
+  await new Promise(resolve => setTimeout(resolve, 500))
+  return { left: opened.left, width: opened.width, closedAgain: (await readPanels()).every(entry => entry.open !== true) }
+})
 // The three checks below assert that the page RECEIVED the event. Resolution
 // alone is not a click: browser_click can resolve the right element, report
 // success, and still leave the page untouched.

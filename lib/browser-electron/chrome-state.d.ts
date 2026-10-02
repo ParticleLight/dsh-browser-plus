@@ -139,6 +139,17 @@ export type ChromePatchOperation = {
 } | {
     readonly op: 'bookmarkbar.set';
     readonly visible: boolean;
+}
+/**
+ * A popup the chrome frame view asked the page's copy to show, anchored where the
+ * frame's own button is (the frame is 84px tall — a menu drawn there is clipped).
+ */
+ | {
+    readonly op: 'panel.state';
+    readonly id: string;
+    readonly open: boolean;
+    readonly left?: number;
+    readonly width?: number;
 };
 export interface ChromePatchMessage {
     readonly kind: 'patch';

@@ -495,7 +495,7 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
   const binding = (params ?? {}) as { name?: unknown; payload?: unknown }
   if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
     try {
-      const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown; visible?: unknown; tabs?: unknown; action?: unknown }
+      const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown; visible?: unknown; tabs?: unknown; action?: unknown; id?: unknown; open?: unknown; left?: unknown; width?: unknown }
       // Authenticate before acting: only our injected chrome knows this
       // view's token, so a forged payload never reaches the dispatcher.
       if (!authorizeChromeAction(action, chromeToken)) return
@@ -539,6 +539,15 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
         chromeBookmarks = chromeBookmarks.filter(item => item.url !== action.url)
         saveBookmarksToDisk()
         queueChromePatch({ op: 'bookmarks.set', bookmarks: chromeBookmarks })
+      } else if (action.type === 'panel-state' && typeof action.id === 'string' && typeof action.open === 'boolean') {
+        // The frame knows where its button is; the page draws the menu there.
+        queueChromePatch({
+          op: 'panel.state',
+          id: action.id,
+          open: action.open,
+          ...typeof action.left === 'number' ? { left: action.left } : {},
+          ...typeof action.width === 'number' ? { width: action.width } : {},
+        })
       } else if (action.type === 'page-action' && typeof action.action === 'string') {
         // Relayed from the chrome frame view, which cannot act on the page itself.
         const page = pageView
