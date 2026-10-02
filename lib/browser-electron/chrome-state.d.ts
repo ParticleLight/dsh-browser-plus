@@ -150,6 +150,12 @@ export type ChromePatchOperation = {
     readonly open: boolean;
     readonly left?: number;
     readonly width?: number;
+}
+/** One-shot feedback for the user (e.g. the result of importing a cookie file). */
+ | {
+    readonly op: 'notice';
+    readonly text: string;
+    readonly level?: 'warn';
 };
 export interface ChromePatchMessage {
     readonly kind: 'patch';

@@ -130,6 +130,8 @@ export type ChromePatchOperation =
    * frame's own button is (the frame is 84px tall — a menu drawn there is clipped).
    */
   | { readonly op: 'panel.state'; readonly id: string; readonly open: boolean; readonly left?: number; readonly width?: number }
+  /** One-shot feedback for the user (e.g. the result of importing a cookie file). */
+  | { readonly op: 'notice'; readonly text: string; readonly level?: 'warn' }
 
 export interface ChromePatchMessage {
   readonly kind: 'patch'

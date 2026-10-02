@@ -16,7 +16,7 @@
  * @module dsh-browser-plus/browser-electron/host-main
  */
 
-import { app, BrowserWindow, session, WebContentsView } from 'electron'
+import { app, BrowserWindow, session, WebContentsView, type Session } from 'electron'
 import { createInterface } from 'node:readline'
 import { createConnection } from 'node:net'
 import { randomBytes } from 'node:crypto'
@@ -457,6 +457,48 @@ let chromeFrameError = ''
 /** Whether the frame's renderer has been told to emulate focus (see chromeInput). */
 let chromeFrameFocused = false
 /**
+ * Apply an exported cookie list to a profile.
+ *
+ * Same normalization the tool-side restore uses: browser cookie editors
+ * (Cookie-Editor, EditThisCookie, Edge's own export) emit domain + path and no url,
+ * so one is derived — requiring url rejected exactly the files this exists for.
+ */
+async function applyExportedCookies(target: Session, cookies: readonly unknown[]): Promise<{ restored: number; failed: number }> {
+  let restored = 0
+  let failed = 0
+  for (const value of cookies) {
+    if (typeof value !== 'object' || value === null) { failed += 1; continue }
+    const record = value as Record<string, unknown>
+    if (typeof record.name !== 'string' || typeof record.value !== 'string') { failed += 1; continue }
+    const path = typeof record.path === 'string' && record.path.startsWith('/') ? record.path : '/'
+    const url = typeof record.url === 'string' && record.url !== ''
+      ? record.url
+      : typeof record.domain === 'string' && record.domain !== ''
+        ? (record.secure === true ? 'https' : 'http') + '://' + record.domain.replace(/^[.]/, '') + path
+        : undefined
+    if (url === undefined) { failed += 1; continue }
+    const sameSite = typeof record.sameSite === 'string' && ['no_restriction', 'lax', 'strict', 'unspecified'].includes(record.sameSite)
+      ? record.sameSite as 'no_restriction' | 'lax' | 'strict' | 'unspecified'
+      : undefined
+    try {
+      await target.cookies.set({
+        url,
+        name: record.name,
+        value: record.value,
+        ...typeof record.domain === 'string' ? { domain: record.domain } : {},
+        ...typeof record.path === 'string' ? { path: record.path } : {},
+        ...typeof record.secure === 'boolean' ? { secure: record.secure } : {},
+        ...typeof record.httpOnly === 'boolean' ? { httpOnly: record.httpOnly } : {},
+        ...typeof record.expirationDate === 'number' ? { expirationDate: record.expirationDate } : {},
+        ...sameSite === undefined ? {} : { sameSite },
+      })
+      restored += 1
+    } catch { failed += 1 }
+  }
+  return { restored, failed }
+}
+
+/**
  * Pseudo view id for the chrome frame view.
  *
  * The frame is not a tab and has no `views` entry, but its chrome emits the same
@@ -495,7 +537,7 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
   const binding = (params ?? {}) as { name?: unknown; payload?: unknown }
   if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
     try {
-      const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown; visible?: unknown; tabs?: unknown; action?: unknown; id?: unknown; open?: unknown; left?: unknown; width?: unknown; toIndex?: unknown }
+      const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown; visible?: unknown; tabs?: unknown; action?: unknown; id?: unknown; open?: unknown; left?: unknown; width?: unknown; toIndex?: unknown; cookies?: unknown }
       // Authenticate before acting: only our injected chrome knows this
       // view's token, so a forged payload never reaches the dispatcher.
       if (!authorizeChromeAction(action, chromeToken)) return
@@ -547,6 +589,17 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
           open: action.open,
           ...typeof action.left === 'number' ? { left: action.left } : {},
           ...typeof action.width === 'number' ? { width: action.width } : {},
+        })
+      } else if (action.type === 'import-cookies' && Array.isArray(action.cookies)) {
+        // From the chrome's ⋮ menu: the user picked a cookie export. Apply it to the
+        // profile the tabs already use, then tell them what happened.
+        const target = pageView?.webContents.session ?? session.defaultSession
+        void applyExportedCookies(target, action.cookies).then(({ restored, failed }) => {
+          queueChromePatch(failed === 0
+            ? { op: 'notice', text: '已导入 ' + String(restored) + ' 个 cookie' }
+            : { op: 'notice', text: '导入 ' + String(restored) + ' 个，失败 ' + String(failed) + ' 个', level: 'warn' })
+        }).catch(() => {
+          queueChromePatch({ op: 'notice', text: '导入失败', level: 'warn' })
         })
       } else if (action.type === 'frame-action' && typeof action.action === 'string') {
         // The other direction: the page's chrome asks the frame's copy to do something

@@ -95,6 +95,21 @@ try {
     const afterImport = (await provider.flushAuth(session)).filter(cookie => cookie.name === 'dsh_probe').length
     return { exported: exported.length, probe: probe(), afterClear, restored: imported.restored, failed: imported.failed, afterImport }
   })
+    // The ⋮ menu's import: the chrome hands a cookie list to the host, which writes it
+    // into the profile. The file picker itself cannot be driven, so the seam below
+    // starts at the same place the picker's reader does.
+    await check('the cookie import path works from the chrome', async () => {
+      const probe = 'dsh_import_probe'
+      await provider.clearAuth(session, { name: probe })
+      const list = [{ domain: '.example.com', name: probe, value: 'from-the-menu', path: '/', secure: true }]
+      const sent = await provider.execute(session, { script: '((list) => (window.__dshChromeImport ? window.__dshChromeImport(list) : -1))(' + JSON.stringify(list) + ')' })
+      for (let i = 0; i < 25; i += 1) {
+        await new Promise(resolve => setTimeout(resolve, 200))
+        const found = (await provider.flushAuth(session)).filter(cookie => cookie.name === probe)
+        if (found.length > 0) return { sent: sent.value, value: found[0].value }
+      }
+      throw new Error('the imported cookie never reached the profile')
+    })
   await check('chromeWorld config reachable', async () => (await provider.listTabs(session)).length)
 // The chrome lives in the page's closed shadow root, so the only honest way to
 // prove its + and × buttons work is to click where they are. That click travels
