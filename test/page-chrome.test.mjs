@@ -278,6 +278,22 @@ test('the frame chrome relays page actions instead of touching its own document'
   assert.ok(frame.includes('onFrameSurface ? activeTabUrl() : location.href'), 'the star saves the page url')
 })
 
+test('hovering a toolbar button needs intent, not a pass-over', () => {
+  const frame = buildPageChromeScript('t', 'frame')
+  // A pointer crossing the toolbar on its way somewhere else must not pop a menu open
+  // (the user hit this), so the hover-open is delayed...
+  assert.ok(frame.includes('const HOVER_OPEN_DELAY_MS = '), 'the hover open is delayed')
+  assert.ok(frame.includes('hoverOpenTimers.set(entry, window.setTimeout('), 'through a per-button timer')
+  // ...and leaving the button before the timer fires cancels it — that is the pass-over.
+  assert.match(frame, /pointerleave', \(\) => \{\s*\n\s*cancelHoverOpen\(entry\)/, 'leaving the button cancels a pending open')
+  // A real open (click, or state pushed by the host) must clear the pending timer too,
+  // or the late timer would re-open it as a hover preview and unpin it.
+  assert.match(frame, /const openMenu = \(entry, byHover\) => \{\s*\n[\s\S]{0,220}cancelHoverOpen\(entry\)/, 'opening for real cancels the timer')
+  // Leaving the button still must NOT schedule a close: the pointer crosses into the
+  // page view on its way to the menu and the frame cannot see it any more.
+  assert.ok(frame.includes("if (!onFrameSurface) scheduleHoverClose(entry.popup)"), 'leaving still does not close')
+})
+
 test('the rest of Chrome keybindings, over capabilities we already have', () => {
   const script = buildPageChromeScript()
   assert.ok(script.includes("chord === 'd' || chordCode === 'KeyD'"), 'Ctrl+D bookmarks')
@@ -582,7 +598,9 @@ test('menu open and close keep workspace state in sync', () => {
   // pointer once it is over the page, so it cannot tell "heading for the menu" from
   // "walking away". Getting this wrong made the menu unreachable by mouse.
   const script2 = buildPageChromeScript()
-  assert.match(script2, /entry\.trigger\.addEventListener\('pointerleave', \(\) => \{ if \(!onFrameSurface\) scheduleHoverClose\(entry\.popup\) \}\)/, 'the frame leaves hover-close to the page')
+  // Leaving the button now also cancels a pending hover-open (a pointer that only
+  // crossed the button must not pop the menu), but it still must not CLOSE anything.
+  assert.match(script2, /entry\.trigger\.addEventListener\('pointerleave', \(\) => \{\s*\n\s*cancelHoverOpen\(entry\)\s*\n\s*if \(!onFrameSurface\) scheduleHoverClose\(entry\.popup\)/, 'the frame leaves hover-close to the page')
 
   const openBlock = script.slice(openStart, script.indexOf('const toggleMenu', openStart))
   assert.match(openBlock, /anchorPopup\(entry\.popup, entry\.trigger, entry\.width\)/, 'openMenu anchors the popup to its trigger')

@@ -228,6 +228,63 @@ await check('Ctrl+L hands the page focus to the frame omnibox', async () => {
   }
   throw new Error('the omnibox never got the focus: ' + JSON.stringify(url))
 })
+// The user's report: the toolbar menus opened when the pointer merely crossed them.
+// Hover now has to rest on the button for a moment, so this check needs BOTH halves —
+// a sweep must open nothing, and resting on the same button must still open it.
+// (Without the second half a "menus never open at all" regression would pass.)
+await check('a pass-over opens nothing, resting on the button does', async () => {
+  const readPanels = async () => JSON.parse(String((await provider.execute(session, {
+    script: 'JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])',
+  })).value))
+  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
+  const openIds = async () => (await readPanels()).filter(entry => entry.open === true).map(entry => entry.id)
+  // A click in the page is "outside the chrome" and closes every menu (the page copy
+  // has always done that), which is how each attempt starts from a known state.
+  const closeAnyMenu = async () => {
+    await provider.click(session, { x: 4, y: 4 })
+    await new Promise(resolve => setTimeout(resolve, 350))
+  }
+  // Cross the toolbar the way a pointer does on its way somewhere else: in and straight
+  // back out. Each RPC round trip is normally ~5-10ms (measured), but a busy machine can
+  // stall one for a second — and a one-second dwell IS a rest, so that sweep would be a
+  // false failure. Measure it, and only accept an attempt that really was a pass-over.
+  let swept = []
+  let dwell = Infinity
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await closeAnyMenu()
+    await moveTo(700, CHROME_TOOLBAR_Y)
+    await new Promise(resolve => setTimeout(resolve, 250))
+    const t0 = Date.now()
+    await moveTo(1362, CHROME_TOOLBAR_Y)
+    await moveTo(700, CHROME_TOOLBAR_Y)
+    dwell = Date.now() - t0
+    if (dwell > 150) continue
+    await new Promise(resolve => setTimeout(resolve, 800))
+    swept = await openIds()
+    break
+  }
+  if (dwell > 150) throw new Error('could not simulate a fast pass-over: the sweep took ' + String(dwell) + 'ms')
+  if (swept.length > 0) throw new Error('crossing the toolbar opened ' + JSON.stringify(swept))
+  // Rest on it: the menu has to appear (this is the half that keeps the check honest).
+  await moveTo(1362, CHROME_TOOLBAR_Y)
+  let rested = []
+  for (let i = 0; i < 20; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 150))
+    rested = await openIds()
+    if (rested.length > 0) break
+  }
+  if (rested.length === 0) throw new Error('resting on the button never opened its menu')
+  // Put it back: click pins the hover-opened menu, a second click closes it.
+  const clickAt = async (x, y) => {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+  }
+  await clickAt(1362, CHROME_TOOLBAR_Y)
+  await new Promise(resolve => setTimeout(resolve, 350))
+  await clickAt(1362, CHROME_TOOLBAR_Y)
+  await new Promise(resolve => setTimeout(resolve, 400))
+  return { swept: 'nothing', rested: rested.join(',') }
+})
 await check('hovering a button after using its menu shows the menu again', async () => {
   const readPanels = async () => JSON.parse(String((await provider.execute(session, {
     script: 'JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])',
