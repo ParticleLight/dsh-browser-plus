@@ -240,7 +240,12 @@ test('the bookmark bar is Chrome-like, and the page offset follows it', () => {
   const script = buildPageChromeScript()
   assert.ok(script.includes('bookmarkBar'), 'the bar ships')
   assert.match(script, /#bookmarkBar \{ position:fixed; top:84px;/)
-  assert.ok(script.includes('#bookmarkBar.open { display:block; white-space:nowrap; animation:dshBarIn'), 'hidden until turned on, then slides in')
+  // 入场动画挂在一个单独的 .animate 上：宿主推来的状态（每次导航都会重推）不许播，
+  // 只有人手点的那一下才播 —— 否则偏好开着的人每加载一个页面书签栏都会再滑一次。
+  assert.ok(script.includes('#bookmarkBar.open { display:block; white-space:nowrap; }'), 'hidden until turned on')
+  assert.ok(script.includes('#bookmarkBar.open.animate { animation:dshBarIn'), 'then slides in')
+  assert.ok(script.includes('applyBookmarksVisible(!bookmarksVisible, true)'), 'the user toggle is the only path that animates')
+  assert.ok(script.includes('animate === true && bookmarksVisible && !wasVisible'), 'and only when it really opened')
   // The chip is inline-block + width:max-content: shrink-to-fit collapsed it to one
   // character wide in the injected shadow root (measured: 30px instead of 132px).
   assert.ok(script.includes('width:max-content; max-width:180px'), 'chips size to their title')
@@ -347,7 +352,7 @@ test('the chrome moves instead of hard-cutting', () => {
   assert.ok(script.indexOf('trailList.append(row)') < script.indexOf("flashChange(row, 'trail-row'"), 'the row is in the document before it animates')
   // 书签栏滑下来 + 页面下移跟着过渡（下移量的过渡只在**第二次**应用之后才补上：
   // chrome 每次导航都会重新注入，第一次就带过渡的话每个页面加载内容都会自己滑一下）。
-  assert.ok(script.includes('@keyframes dshBarIn') && script.includes('#bookmarkBar.open { display:block; white-space:nowrap; animation:dshBarIn'), 'the bookmark bar slides in')
+  assert.ok(script.includes('@keyframes dshBarIn') && script.includes('#bookmarkBar.open.animate { animation:dshBarIn'), 'the bookmark bar slides in')
   assert.ok(script.includes("document.documentElement.style.transition = 'padding-top .16s ease'"), 'the page inset eases')
   assert.ok(script.includes('let insetApplied = false') && script.includes('if (insetApplied) return'), 'but only from the second application on')
   // toast 现在淡出，而不是啪一下没了。

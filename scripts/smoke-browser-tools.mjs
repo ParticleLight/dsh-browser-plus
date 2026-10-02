@@ -815,6 +815,37 @@ await check('a new task thumbnail fades in over the previous one', async () => {
   if (hit === undefined) throw new Error('the new thumbnail swapped in without a fade: ' + JSON.stringify(log))
   return { animation: hit.name }
 })
+// 书签栏的入场只在**人真的去开**时播：开关是宿主级的，而 chrome 每次导航都会重新注入 ——
+// 不挡的话，偏好开着的人每加载一个页面书签栏都会再滑一次。
+await check('the bookmark bar does not replay its entrance on every page load', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const readLog = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  // 从已知状态开始：先确保它是关着的。
+  if (await pageEval('String(window.__dshBookmarkBar === true)') === 'true') {
+    await pageEval('window.__dshChromeBookmarkBar()')
+    await new Promise(resolve => setTimeout(resolve, 400))
+  }
+  // 人开一次：必须播入场。
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  await pageEval('window.__dshChromeBookmarkBar()')
+  let opened = []
+  for (let i = 0; i < 15 && !opened.some(entry => entry.name === 'anim:dshBarIn'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 120))
+    opened = await readLog()
+  }
+  if (!opened.some(entry => entry.name === 'anim:dshBarIn')) throw new Error('turning the bookmark bar on ran no entrance animation: ' + JSON.stringify(opened))
+  // 再导航一次：宿主会把「开着」重推一遍，**不许再播**。
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 1800))
+  const after = await readLog()
+  if (after.some(entry => entry.name === 'anim:dshBarIn')) throw new Error('the bookmark bar replayed its entrance after a navigation: ' + JSON.stringify(after))
+  if (await pageEval('String(window.__dshBookmarkBar === true)') !== 'true') throw new Error('the bar did not stay open across the navigation')
+  // 复原：后面的检查假定它是关着的；页面也回到上一条检查留下的那一页。
+  await pageEval('window.__dshChromeBookmarkBar()')
+  await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
+  await new Promise(resolve => setTimeout(resolve, 1500))
+  return { onToggle: 'anim:dshBarIn', onLoad: 'none' }
+})
 await check('the toolbar star lights up and pops when the page is bookmarked', async () => {
   const frameEval = async script => String(await provider.chromeEval(script))
   await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
