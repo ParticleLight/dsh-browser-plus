@@ -336,6 +336,13 @@ test('the chrome moves instead of hard-cutting', () => {
   assert.ok(script.includes('const flashChange = (element, id, name, frames) =>'), 'in-place changes share one short feedback helper')
   assert.ok(script.includes("flashChange(row, 'trail-row', 'dshRowIn',"), 'a new trail row slides in')
   assert.ok(script.includes("flashChange(zoomLevel, 'zoom', 'dshZoomIn',"), 'and the zoom percentage pops')
+  // 列表行的悬停高亮是淡进来的（Chrome 也是），并且**真实的 CSS 过渡**要能被读到 ——
+  // 只断言「CSS 里写了 transition」等于断言声明，不是行为。
+  assert.ok(script.includes('#panel .item { display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:8px; cursor:pointer; transition:background .12s ease; }'), 'bookmark rows fade their hover')
+  assert.ok(script.includes('#trail .activity-item { transition:background .12s ease;'), 'and so do trail rows')
+  assert.ok(script.includes("root.addEventListener('transitionstart', event => {"), 'the chrome records real CSS transitions, not just WAAPI animations')
+  assert.ok(script.includes("motionLog.push({ id, phase: 'start', name: 'css:' + String(event.propertyName || '') })"), 'with the property that actually transitioned')
+  assert.ok(script.includes("rows: Array.from(entry.popup.querySelectorAll('.item, .activity-item, .task-row'))"), 'and the panel seam exposes the list rows so a test can hover one for real')
   // 行必须**先插进文档**再动画：游离节点上的 WAAPI 动画会停在 pending，永远不显示。
   assert.ok(script.indexOf('trailList.append(row)') < script.indexOf("flashChange(row, 'trail-row'"), 'the row is in the document before it animates')
   // 书签栏滑下来 + 页面下移跟着过渡（下移量的过渡只在**第二次**应用之后才补上：

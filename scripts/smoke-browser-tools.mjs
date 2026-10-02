@@ -671,6 +671,34 @@ await check('the zoom percentage pops when it changes', async () => {
   }
   return { zoom: after, animation: 'dshZoomIn' }
 })
+// 列表行的悬停高亮要淡进来（Chrome 也是这样）—— 用**真实指针**悬停，然后读日志里那条
+// 真实的 CSS 过渡：断言的是**行为**，不是「CSS 里写没写 transition」。
+await check('hovering a list row fades its highlight in', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const rowsOf = async () => JSON.parse(await pageEval("JSON.stringify((window.__dshChromePanels ? window.__dshChromePanels() : []).filter(panel => panel.open && panel.id === 'trail').flatMap(panel => panel.rows || []))"))
+  await provider.pressKey(session, { key: 'h', modifiers: ['ctrl'] })
+  let rows = []
+  for (let i = 0; i < 20 && rows.length === 0; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 250))
+    rows = await rowsOf()
+  }
+  if (rows.length === 0) throw new Error('the trail panel showed no rows to hover')
+  const row = rows[0]
+  // 先停在别处：指针已经在目标上时不会产生新的 :hover 变化。
+  await provider.hover(session, { x: 5, y: 500 })
+  await new Promise(resolve => setTimeout(resolve, 200))
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  await provider.hover(session, { x: row.left + Math.round(row.width / 2), y: row.top + Math.round(row.height / 2) })
+  let log = []
+  for (let i = 0; i < 15 && !log.some(entry => entry.name === 'css:background-color'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 150))
+    log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  }
+  await provider.pressKey(session, { key: 'h', modifiers: ['ctrl'] })
+  const hit = log.find(entry => entry.name === 'css:background-color' && entry.id === row.cls)
+  if (!hit) throw new Error('the row highlighted without a transition: ' + JSON.stringify({ row, log }))
+  return { row: hit.id, transition: hit.name }
+})
 await check('the toolbar star lights up and pops when the page is bookmarked', async () => {
   const frameEval = async script => String(await provider.chromeEval(script))
   await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
