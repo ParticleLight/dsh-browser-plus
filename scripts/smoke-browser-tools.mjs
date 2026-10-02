@@ -308,11 +308,12 @@ await check('opening a menu runs its entrance animation', async () => {
     await new Promise(resolve => setTimeout(resolve, 100))
     const log = await motion()
     if (!Array.isArray(log)) throw new Error('window.__dshChromeMotion is missing: ' + JSON.stringify(log))
-    started = log.find(entry => entry.id === 'main' && entry.phase === 'start')
+    // 只看**入场**那条：上一条检查刚关过菜单，它的退场（dshPopOut）可能还在日志里，
+    // 拿「第一条 main 的动画」当入场会被它骗到（第 40 轮真踩了）。
+    started = log.find(entry => entry.id === 'main' && entry.phase === 'start' && entry.name === 'dshPopIn')
     if (started !== undefined) break
   }
-  if (started === undefined) throw new Error('the ⋮ menu opened without running an entrance animation')
-  if (started.name !== 'dshPopIn') throw new Error('unexpected animation: ' + JSON.stringify(started))
+  if (started === undefined) throw new Error('the ⋮ menu opened without running an entrance animation: ' + JSON.stringify(await motion()))
   // It has to finish, too: an animation stuck at its first keyframe would leave the
   // menu invisible while every class-based check still passed.
   let ended = false
@@ -463,6 +464,48 @@ await check('hovering a button after using its menu shows the menu again', async
   await clickAt(1362, CHROME_TOOLBAR_Y)
   await new Promise(resolve => setTimeout(resolve, 500))
   return { item: item.id, closedAfterClick: closed, reopened: true, tabs: tabsBefore + ' -> ' + String((await provider.listTabs(session)).length) }
+})
+// 关闭也要有动画：收起 ⋮ 菜单时先淡出，而不是「啪」一下没了。同时**逻辑上已经关了**必须
+// 立刻可见 —— 上面那几条「点了菜单项菜单就该关了」的断言全靠这个（否则会被这 150ms 骗到）。
+await check('closing a menu fades it out but reports it closed at once', async () => {
+  const motion = async () => JSON.parse(String((await provider.execute(session, {
+    script: 'JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : null)',
+  })).value))
+  // 这几个辅助函数在上一条检查里是局部的，这里得自己来一份。
+  const readPanels = async () => JSON.parse(String((await provider.execute(session, {
+    script: 'JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])',
+  })).value))
+  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
+  const waitForPanel = async id => {
+    for (let i = 0; i < 20; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      const found = (await readPanels()).find(entry => entry.id === id && entry.open === true)
+      if (found) return found
+    }
+    return null
+  }
+  // 先把指针挪开再移回按钮，才会有真正的 pointerenter。
+  await provider.click(session, { x: 4, y: 4 })
+  await new Promise(resolve => setTimeout(resolve, 400))
+  await moveTo(700, CHROME_TOOLBAR_Y)
+  await new Promise(resolve => setTimeout(resolve, 250))
+  await moveTo(1362, CHROME_TOOLBAR_Y)
+  const opened = await waitForPanel('main')
+  if (opened === null) throw new Error('the ⋮ menu never opened: ' + JSON.stringify(await readPanels()))
+  await provider.execute(session, { script: '(() => { window.__dshChromeMotionClear?.(); return "cleared" })()' })
+  // 点页面空白处 = 在 chrome 之外 → 关。
+  await provider.click(session, { x: 4, y: 4 })
+  const immediately = (await readPanels()).find(entry => entry.id === 'main')
+  if (immediately === undefined || immediately.open === true) {
+    throw new Error('the menu still reported itself open right after being closed: ' + JSON.stringify(immediately))
+  }
+  let faded = false
+  for (let i = 0; i < 12 && !faded; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 80))
+    faded = (await motion()).some(entry => entry.id === 'main' && entry.phase === 'end' && entry.name === 'dshPopOut')
+  }
+  if (!faded) throw new Error('the menu vanished without fading out')
+  return { logicalOpen: false, animation: 'dshPopOut' }
 })
 // The three checks below assert that the page RECEIVED the event. Resolution
 // alone is not a click: browser_click can resolve the right element, report

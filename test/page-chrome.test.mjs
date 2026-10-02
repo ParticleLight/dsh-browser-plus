@@ -313,7 +313,13 @@ test('the chrome moves instead of hard-cutting', () => {
   // Reduced motion: the entrance animations are switched off (the loading spinner stays —
   // it carries state, not decoration).
   assert.ok(script.includes('@media (prefers-reduced-motion:reduce)'), 'reduced motion is honoured')
-  assert.ok(script.includes('#bookmarkBar.open, #toast.closing { animation:none; }'), 'and turns the entrance animations off')
+  assert.ok(script.includes('#mainMenu.closing, #findBar.closing { animation:none; }'), 'and turns the entrance animations off')
+  // 弹层关闭也要有动画；但「逻辑上关没关」必须**立刻**反映给测试缝，否则冒烟里那些
+  // 「点了菜单项菜单就该关了」的断言会被这 150ms 骗到。
+  assert.ok(script.includes('@keyframes dshPopOut') && script.includes('#panel.closing, .glass-panel.closing, #mainMenu.closing, #findBar.closing { animation:dshPopOut'), 'a closing menu fades out')
+  assert.ok(script.includes("const isPanelOpen = popup => popup.classList.contains('open') && !popup.classList.contains('closing')"), 'logical open ignores a menu that is only fading out')
+  assert.ok(script.includes('open: isPanelOpen(entry.popup)'), 'and the test seam reports the logical state')
+  assert.ok(script.includes('const cancelPanelClose = popup =>'), 're-opening cancels a pending close')
   // 书签栏滑下来 + 页面下移跟着过渡（下移量的过渡只在**第二次**应用之后才补上：
   // chrome 每次导航都会重新注入，第一次就带过渡的话每个页面加载内容都会自己滑一下）。
   assert.ok(script.includes('@keyframes dshBarIn') && script.includes('#bookmarkBar.open { display:block; white-space:nowrap; animation:dshBarIn'), 'the bookmark bar slides in')
