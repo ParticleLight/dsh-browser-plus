@@ -710,6 +710,35 @@ await check('the home button returns to the new-tab page', async () => {
   }
   throw new Error('the home button never reached the new-tab page')
 })
+// 起始页是每次开新标签都会看到的那一页，所以它的悬停也不能硬切。这里直接量计算样式，
+// 并且真的改一次底色、用 getAnimations() 确认渲染器**真的**起了一个过渡（不是只写了 CSS）。
+await check('the new-tab page eases its hover states', async () => {
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 600))
+  await chromeClick(133, CHROME_TOOLBAR_Y)
+  await new Promise(resolve => setTimeout(resolve, 800))
+  const url = (await provider.listTabs(session)).find(tab => tab.active)?.url ?? ''
+  if (!url.startsWith('data:text/html')) throw new Error('the home button did not reach the new-tab page: ' + url.slice(0, 40))
+  const read = async script => String((await provider.execute(session, { script })).value)
+  const armed = JSON.parse(await read(`JSON.stringify((() => {
+    const tile = document.querySelector('.tile')
+    if (tile === null) return { tiles: 0 }
+    const style = getComputedStyle(tile)
+    return { tiles: document.querySelectorAll('.tile').length, property: style.transitionProperty, duration: style.transitionDuration }
+  })())`))
+  if (armed.tiles === 0) throw new Error('the new-tab page has no shortcut tiles to hover')
+  if (!String(armed.property).includes('background')) throw new Error('a shortcut tile does not transition its background: ' + JSON.stringify(armed))
+  await read(`(() => { document.querySelector('.tile').style.background = 'rgb(1, 2, 3)'; return 'set' })()`)
+  const running = JSON.parse(await read(`JSON.stringify(document.querySelector('.tile').getAnimations().map(animation => ({ type: animation.constructor.name, property: String(animation.transitionProperty || ''), duration: animation.effect.getTiming().duration })))`))
+  await read(`(() => { document.querySelector('.tile').style.background = ''; return 'restored' })()`)
+  // 必须离开起始页再交棒：后面的检查会「点 body 的正中间」，而起始页正中间就是磁贴
+  // （一个 <a>）—— 点下去会导航走，那个检查的探针就跟着文档一起没了（第 41 轮真踩了：
+  // 'left-click reaches the page' 报 the page saw undefined）。
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 500))
+  if (running.length === 0) throw new Error('the tile background changed without a running transition')
+  return { tiles: armed.tiles, transition: armed.duration, running: running[0].property !== '' ? running[0].property : running[0].type }
+})
 // Page zoom lives on the webContents, so the chrome has to be told the factor
 // rather than derive it (a freshly navigated document's devicePixelRatio is
 // already scaled, which is what made the derived version stop compensating).
@@ -726,6 +755,25 @@ await check('the chrome mounted without an error and its find hook exists', asyn
   if (state.error !== 'undefined') throw new Error('the chrome mount failed: ' + state.error)
   if (state.find !== 'object') throw new Error('window.__dshChromeFind is ' + String(state.find))
   return state
+})
+// 查找栏以前是「啪」一下消失（和菜单一样的病）。关它也要有退场，而且这段动画必须真的跑完。
+await check('the find bar fades out instead of blinking away', async () => {
+  const motion = async () => JSON.parse(String((await provider.execute(session, {
+    script: 'JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : null)',
+  })).value))
+  await provider.execute(session, { script: '(() => { window.__dshChromeMotionClear?.(); window.__dshChromeFind.open(); return "opened" })()' })
+  await new Promise(resolve => setTimeout(resolve, 500))
+  if (!(await motion()).some(entry => entry.id === 'find' && entry.name === 'dshPopIn')) {
+    throw new Error('the find bar opened without its entrance animation: ' + JSON.stringify(await motion()))
+  }
+  await provider.execute(session, { script: '(() => { window.__dshChromeMotionClear?.(); window.__dshChromeFind.close(); return "closed" })()' })
+  let faded = false
+  for (let i = 0; i < 12 && !faded; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 80))
+    faded = (await motion()).some(entry => entry.id === 'find' && entry.phase === 'end' && entry.name === 'dshPopOut')
+  }
+  if (!faded) throw new Error('the find bar vanished without fading out')
+  return { open: 'dshPopIn', close: 'dshPopOut' }
 })
 await check('the host publishes the bookmark list to the chrome', async () => {
   const result = await provider.execute(session, { script: 'Array.isArray(window.__dshBookmarks) ? String(window.__dshBookmarks.length) : "missing"' })

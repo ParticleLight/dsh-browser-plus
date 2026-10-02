@@ -135,7 +135,12 @@ test('a fresh view commits a dark start page instead of staying blank', async ()
   assert.match(page, /__dshBookmarks/, 'and fills its shortcuts from the host-owned bookmarks')
   // 起始页也不再硬切：内容极短地淡入一下，并且尊重系统的减少动态效果。
   assert.match(page, /animation:dshIn .16s ease both/, 'the new-tab page eases in')
-  assert.match(page, /@media \(prefers-reduced-motion:reduce\)\{main\{animation:none\}\}/, 'and honours reduced motion')
+  assert.match(page, /@media \(prefers-reduced-motion:reduce\)\{main\{animation:none\}/, 'and honours reduced motion')
+  // 磁贴也不能硬切：底色过渡、悬停时图标底色跟着变、按下时图标缩一下（和工具栏按钮同款）。
+  assert.match(page, /\.tile\{[^}]*transition:background \.12s ease\}/, 'a shortcut tile eases its hover background')
+  assert.match(page, /\.tile:hover \.ico\{background:#3c4043\}/, 'and its icon lightens with it')
+  assert.match(page, /\.tile:active \.ico\{transform:scale\(\.94\)\}/, 'with a press of its own')
+  assert.match(page, /\.tile:focus-visible\{outline:2px solid #8ab4f8/, 'and a keyboard focus ring')
   // The mark is the browser's own line-art icon, not a wordmark.
   assert.match(page, /<svg class="brand"[^>]*aria-label="DSH Browser"/, 'the mark is the line-art icon')
   assert.ok(!page.includes('>DSH Browser<'), 'and no text wordmark is left')

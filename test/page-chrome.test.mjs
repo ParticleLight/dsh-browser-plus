@@ -64,9 +64,9 @@ test('toolbar reveals from the top center and collapses its related panels', () 
   const closeStart = script.indexOf('const closeToolbar')
   const closeEnd = script.indexOf('window.__dshWorkspaceRender', closeStart)
   const closeBlock = script.slice(closeStart, closeEnd)
-  assert.match(closeBlock, /panel\.classList\.remove\('open'\)/, 'collapse closes bookmarks')
-  assert.match(closeBlock, /trailPanel\.classList\.remove\('open'\)/, 'collapse closes the trail')
-  assert.match(closeBlock, /taskPanel\.classList\.remove\('open'\)/, 'collapse closes tasks')
+  assert.match(closeBlock, /if \(isPanelOpen\(panel\)\) beginSurfaceClose\(panel\)/, 'collapse closes bookmarks (through the shared exit)')
+  assert.match(closeBlock, /if \(isPanelOpen\(trailPanel\)\) beginSurfaceClose\(trailPanel\)/, 'collapse closes the trail (through the shared exit)')
+  assert.match(closeBlock, /if \(isPanelOpen\(taskPanel\)\) beginSurfaceClose\(taskPanel\)/, 'collapse closes tasks (through the shared exit)')
   assert.match(closeBlock, /syncWorkspacePanels\(\)/, 'collapse persists closed workspace panels')
 })
 
@@ -317,9 +317,13 @@ test('the chrome moves instead of hard-cutting', () => {
   // 弹层关闭也要有动画；但「逻辑上关没关」必须**立刻**反映给测试缝，否则冒烟里那些
   // 「点了菜单项菜单就该关了」的断言会被这 150ms 骗到。
   assert.ok(script.includes('@keyframes dshPopOut') && script.includes('#panel.closing, .glass-panel.closing, #mainMenu.closing, #findBar.closing { animation:dshPopOut'), 'a closing menu fades out')
-  assert.ok(script.includes("const isPanelOpen = popup => popup.classList.contains('open') && !popup.classList.contains('closing')"), 'logical open ignores a menu that is only fading out')
+  assert.ok(script.includes("const isPanelOpen = element => element.classList.contains('open') && !element.classList.contains('closing')"), 'logical open ignores a surface that is only fading out')
   assert.ok(script.includes('open: isPanelOpen(entry.popup)'), 'and the test seam reports the logical state')
-  assert.ok(script.includes('const cancelPanelClose = popup =>'), 're-opening cancels a pending close')
+  assert.ok(script.includes('const cancelPanelClose = element =>'), 're-opening cancels a pending close')
+  // 查找栏和菜单共用同一套退场机制（第 41 轮把它抽出来时菜单也一并改用它）。
+  assert.ok(script.includes('const beginSurfaceClose = element =>'), 'one shared exit routine')
+  assert.ok(script.includes('if (isPanelOpen(findBar)) beginSurfaceClose(findBar)'), 'which the find bar uses too')
+  assert.ok(script.includes("findBar.addEventListener('animationend', event => { motionLog.push({ id: 'find'"), 'and the find bar records its own animation events')
   // 书签栏滑下来 + 页面下移跟着过渡（下移量的过渡只在**第二次**应用之后才补上：
   // chrome 每次导航都会重新注入，第一次就带过渡的话每个页面加载内容都会自己滑一下）。
   assert.ok(script.includes('@keyframes dshBarIn') && script.includes('#bookmarkBar.open { display:block; white-space:nowrap; animation:dshBarIn'), 'the bookmark bar slides in')
@@ -635,8 +639,8 @@ test('workspace apply opens both panels from true state while toggles stay indep
   const applyEnd = script.indexOf('const syncWorkspacePanels', applyStart)
   assert.ok(applyEnd !== -1, 'has syncWorkspacePanels after apply')
   const applyBlock = script.slice(applyStart, applyEnd)
-  assert.match(applyBlock, /taskPanel\.classList\.toggle\('open', tasksOpen\)/, 'apply toggles taskPanel from tasksOpen')
-  assert.match(applyBlock, /trailPanel\.classList\.toggle\('open', trailOpen\)/, 'apply toggles trailPanel from trailOpen')
+  assert.match(applyBlock, /if \(tasksOpen\) showSurface\(taskPanel\); else if \(isPanelOpen\(taskPanel\)\) beginSurfaceClose\(taskPanel\)/, 'apply toggles taskPanel from tasksOpen')
+  assert.match(applyBlock, /if \(trailOpen\) showSurface\(trailPanel\); else if \(isPanelOpen\(trailPanel\)\) beginSurfaceClose\(trailPanel\)/, 'apply toggles trailPanel from trailOpen')
   assert.match(applyBlock, /state\.tasks === true/, 'treats only literal true as open for tasks')
   assert.match(applyBlock, /state\.trail === true/, 'treats only literal true as open for trail')
   assert.match(applyBlock, /window\.__dshWorkspacePanels/)
@@ -669,7 +673,7 @@ test('menu open and close keep workspace state in sync', () => {
 
   const openBlock = script.slice(openStart, script.indexOf('const toggleMenu', openStart))
   assert.match(openBlock, /anchorPopup\(entry\.popup, entry\.trigger, entry\.width\)/, 'openMenu anchors the popup to its trigger')
-  assert.match(openBlock, /entry\.popup\.classList\.add\('open'\)/, 'openMenu opens the popup')
+  assert.match(openBlock, /showSurface\(entry\.popup\)/, 'openMenu opens the popup (and cancels a pending close)')
   assert.match(openBlock, /setAttribute\('aria-expanded', 'true'\)/, 'openMenu marks the trigger expanded')
   assert.match(openBlock, /syncWorkspacePanels\(\)/, 'openMenu syncs workspace state')
 
