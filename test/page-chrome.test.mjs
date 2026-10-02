@@ -336,6 +336,14 @@ test('the chrome moves instead of hard-cutting', () => {
   // FLIP：位置变了的标签从旧位置滑过去，而不是瞬移。
   assert.ok(script.includes("motionLog.push({ id: 'tab', phase: 'slide'"), 'a reordered strip records a slide')
   assert.ok(script.includes('node.button.animate([{ transform:'), 'and the survivors animate from their old position')
+  // 新标签从 0 宽长出来（Chrome 就是这样），所以标签必须裁掉自己的内容，否则图标会溢出去。
+  assert.ok(script.includes('@keyframes dshTabIn { from { opacity:0; min-width:0; max-width:0 }'), 'a new tab grows in from zero width')
+  assert.ok(script.includes('color .15s ease; overflow:hidden; }'), 'and clips its own contents while it grows')
+  // 关掉的标签自己也要收起来（不是「啪」一下没了）。
+  assert.ok(script.includes("motionLog.push({ id: 'tab', phase: 'close', name: 'dshTabOut' })"), 'a closed tab records its exit')
+  assert.ok(script.includes("[{ opacity: 1, width: width + 'px' }, { opacity: 0, width: '0px' }]"), 'and collapses from its own width to zero')
+  assert.ok(script.includes("!window.matchMedia('(prefers-reduced-motion: reduce)').matches"), 'skipping the collapse under reduced motion')
+  assert.ok(script.includes('window.setTimeout(() => button.remove(), 400)'), 'with a fallback so no ghost tab is left behind')
   // 监听器只装一次，所以 id 必须从 dataset 现读：捕获的旧 id 在节点复用之后是错的。
   assert.ok(script.includes('const idOfButton = button =>'), 'listeners read the tab id from the dataset')
   assert.ok(script.includes('emitTabClose(chromeSelectedTaskKey, idOfButton(button))'), 'so a close targets the current tab')

@@ -360,6 +360,29 @@ await check('closing a tab slides the survivors into place', async () => {
   if (seen.length === 0) throw new Error('the surviving tabs jumped instead of sliding')
   return { slide: seen[0].name, tabs: String(before) + ' -> ' + String(after) }
 })
+// 关掉的那个标签自己也要收起来：原地淡出 + 宽度收到 0，而不是「啪」一下没了。
+await check('a closed tab collapses instead of blinking out', async () => {
+  const motion = async () => JSON.parse(String((await provider.execute(session, {
+    script: 'JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : null)',
+  })).value))
+  const opened = await provider.listTabs(session)
+  if (opened.length < 2) {
+    await provider.openUrl(session, { url: 'https://example.com/', newTab: true })
+    await new Promise(resolve => setTimeout(resolve, 900))
+  }
+  // 让第一个标签**不是**激活的那个：关它不会换文档，日志就留在原地。
+  await provider.openUrl(session, { url: 'https://example.com/', newTab: true })
+  await new Promise(resolve => setTimeout(resolve, 900))
+  const before = (await provider.listTabs(session)).length
+  await provider.execute(session, { script: '(() => { window.__dshChromeMotionClear?.(); return "cleared" })()' })
+  await chromeClick(221, CHROME_ROW_Y)
+  await new Promise(resolve => setTimeout(resolve, 700))
+  const after = (await provider.listTabs(session)).length
+  if (after >= before) throw new Error('the first tab was not closed: ' + String(before) + ' -> ' + String(after))
+  const closes = (await motion()).filter(entry => entry.id === 'tab' && entry.phase === 'close')
+  if (closes.length === 0) throw new Error('the closed tab blinked out instead of collapsing')
+  return { close: closes[0].name, tabs: String(before) + ' -> ' + String(after) }
+})
 // 同一个记录缝，验另一半动效：新标签浮入。两半都要断言 —— 初始渲染不许播（chrome 每次
 // 导航都会重新注入，不挡的话整条标签栏会在每个页面加载时重弹一次），真的新建标签才播。
 await check('a new tab floats in, but a plain page load does not', async () => {
