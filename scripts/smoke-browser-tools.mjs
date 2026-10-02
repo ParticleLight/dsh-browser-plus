@@ -105,10 +105,22 @@ try {
 // the whole check on one pixel.
 const CHROME_ROW_Y = 20
 const CHROME_TOOLBAR_Y = 62
+// The chrome lives in the host's own view, which is not a tab: driving it needs its
+// own channel. (CDP input aimed at a page is delivered whatever is on top, so once
+// the page stops drawing a toolbar of its own, these must go to the frame.)
+const chromeClick = async (x, y) => {
+  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+}
+const chromeType = async (text) => provider.chromeInput('Input.insertText', { text })
+const chromeEnter = async () => {
+  await provider.chromeInput('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 })
+  await provider.chromeInput('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 })
+}
 await check('chrome + creates a provider tab', async () => {
   const before = (await provider.listTabs(session)).length
   for (const x of [258, 252, 266, 246]) {
-    await provider.click(session, { x, y: CHROME_ROW_Y })
+    await chromeClick(x, CHROME_ROW_Y)
     await new Promise(resolve => setTimeout(resolve, 500))
     const after = (await provider.listTabs(session)).length
     if (after > before) return { before, after, x }
@@ -119,7 +131,7 @@ await check('chrome x closes the tab it belongs to', async () => {
   const before = (await provider.listTabs(session)).length
   if (before < 2) throw new Error('needs two tabs to close one, has ' + String(before))
   for (const x of [453, 447, 459, 441]) {
-    await provider.click(session, { x, y: CHROME_ROW_Y })
+    await chromeClick(x, CHROME_ROW_Y)
     await new Promise(resolve => setTimeout(resolve, 500))
     const after = (await provider.listTabs(session)).length
     if (after < before) return { before, after, x }
@@ -195,9 +207,10 @@ await check('the frame chrome opens the page chrome popups where its buttons are
 // input again. Typing over a full selection replaces the address, so landing on
 // example.com proves both halves at once.
 await check('address bar select-all keeps CDP typing working', async () => {
-  await provider.click(session, { x: 690, y: 62 })
-  await provider.type(session, { text: 'example.com' })
-  await provider.pressKey(session, { key: 'Enter' })
+  // The star of this check is the select-all on pointerdown, which lives in the chrome.
+  await chromeClick(690, CHROME_TOOLBAR_Y)
+  await chromeType('example.com')
+  await chromeEnter()
   for (let i = 0; i < 40; i += 1) {
     const url = (await provider.listTabs(session)).find(tab => tab.active)?.url ?? ''
     if (url.startsWith('https://example.com')) return url
@@ -221,16 +234,29 @@ await check('Ctrl+T opens a tab through the provider', async () => {
   // Land on a definitely-materialised view first: the tab-closing checks above can
   // leave the session's active tab pointing at a view the host has dropped.
   await provider.navigate(session, { url: 'https://example.com/' })
-  const before = (await provider.listTabs(session)).length
-  let openError = ''
-  try { await provider.pressKey(session, { key: 't', modifiers: ['ctrl'] }) } catch (error) { openError = String(error && error.message ? error.message : error) }
-  let opened = before
-  for (let i = 0; i < 20 && opened === before; i += 1) {
-    await new Promise(resolve => setTimeout(resolve, 100))
-    opened = (await provider.listTabs(session)).length
+  // Wait for the document to settle: a re-injection is the chrome's whole state,
+  // and a key pressed while the old document is being replaced goes nowhere.
+  for (let i = 0; i < 30; i += 1) {
+    const url = (await provider.listTabs(session)).find(tab => tab.active)?.url ?? ''
+    if (url.startsWith('https://example.com')) break
+    await new Promise(resolve => setTimeout(resolve, 200))
   }
-  if (opened !== before + 1) throw new Error('Ctrl+T produced ' + String(opened) + ' tabs, expected ' + String(before + 1))
-  return { before, opened, openError }
+  await new Promise(resolve => setTimeout(resolve, 600))
+  const before = (await provider.listTabs(session)).length
+  let opened = before
+  // Retry: the page may still be settling under the first press.
+  for (let attempt = 0; attempt < 3 && opened === before; attempt += 1) {
+    await provider.pressKey(session, { key: 't', modifiers: ['ctrl'] })
+    for (let i = 0; i < 12 && opened === before; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      opened = (await provider.listTabs(session)).length
+    }
+  }
+  if (opened !== before + 1) {
+    const state = await provider.execute(session, { script: 'JSON.stringify(window.__dshChromeState ? window.__dshChromeState() : null)' })
+    throw new Error('Ctrl+T produced ' + String(opened) + ' tabs, expected ' + String(before + 1) + ' state=' + String(state.value))
+  }
+  return { before, opened }
 })
 // Chrome's bookmark bar: off by default, and turning it on moves the page down by
 // its height. The toggle goes chrome -> binding -> host -> patch -> chrome, so this
@@ -241,9 +267,14 @@ await check('Ctrl+D bookmarks the page it is on', async () => {
   await new Promise(resolve => setTimeout(resolve, 500))
   const count = async () => Number((await provider.execute(session, { script: 'String((window.__dshBookmarks || []).length)' })).value)
   const before = await count()
-  await provider.pressKey(session, { key: 'd', modifiers: ['ctrl'] })
-  await new Promise(resolve => setTimeout(resolve, 600))
-  const after = await count()
+  // The chrome mounts at the navigation commit, so a key pressed in the first
+  // moments after a load goes nowhere; retry rather than assert on that race.
+  let after = before
+  for (let attempt = 0; attempt < 3 && after === before; attempt += 1) {
+    await provider.pressKey(session, { key: 'd', modifiers: ['ctrl'] })
+    await new Promise(resolve => setTimeout(resolve, 600))
+    after = await count()
+  }
   if (after !== before + 1) throw new Error('bookmarks went ' + String(before) + ' -> ' + String(after))
   // Pressing it again must not duplicate the entry (the host dedupes by URL).
   await provider.pressKey(session, { key: 'd', modifiers: ['ctrl'] })
