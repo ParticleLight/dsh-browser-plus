@@ -250,6 +250,14 @@ await check('hovering a button after using its menu shows the menu again', async
   await moveTo(1362, CHROME_TOOLBAR_Y)
   const menu = await waitForPanel('main')
   if (menu === null) throw new Error('the ⋮ menu never opened: ' + JSON.stringify(await readPanels()))
+  // Leaving the button must NOT close it: the pointer has to travel from the button
+  // (in the frame) down into the menu (in the page), and the frame cannot see it once
+  // it crosses — so the frame must not decide anything on the way out.
+  await moveTo(1362, 80)
+  await new Promise(resolve => setTimeout(resolve, 700))
+  const stillOpen = (await readPanels()).find(entry => entry.id === 'main' && entry.open === true)
+  if (stillOpen === undefined) throw new Error('the menu vanished as the pointer left the button')
+  if (menu === null) throw new Error('the ⋮ menu never opened: ' + JSON.stringify(await readPanels()))
   const item = Array.isArray(menu.items) ? menu.items.find(candidate => candidate.id === 'mmNewTab') : undefined
   if (item === undefined || item.height <= 0) throw new Error('the menu published no usable items: ' + JSON.stringify(menu.items))
   // Click that item in the PAGE's copy — the visible one. This is what the user did, and

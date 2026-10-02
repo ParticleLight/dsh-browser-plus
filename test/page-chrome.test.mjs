@@ -570,7 +570,12 @@ test('menu open and close keep workspace state in sync', () => {
   assert.match(closeBlock, /setAttribute\('aria-expanded', 'false'\)/, 'closeMenu clears the trigger state')
   // Hovering away must not read as a close on the frame: the pointer has to cross the
   // gap into the page's menu, so the frame only starts the page's grace timer.
-  assert.match(closeBlock, /if \(reason === 'hover'\) emitPanelHover\(entry\.id\); else emitPanelState\(entry\.id, false\)/, 'a hover-out is a grace close, not a close')
+  assert.match(closeBlock, /if \(reason !== 'hover'\) emitPanelState\(entry\.id, false\)/, 'a hover-out relays nothing')
+  // The frame must not close when the pointer leaves its button: it cannot see the
+  // pointer once it is over the page, so it cannot tell "heading for the menu" from
+  // "walking away". Getting this wrong made the menu unreachable by mouse.
+  const script2 = buildPageChromeScript()
+  assert.match(script2, /entry\.trigger\.addEventListener\('pointerleave', \(\) => \{ if \(!onFrameSurface\) scheduleHoverClose\(entry\.popup\) \}\)/, 'the frame leaves hover-close to the page')
 
   const openBlock = script.slice(openStart, script.indexOf('const toggleMenu', openStart))
   assert.match(openBlock, /anchorPopup\(entry\.popup, entry\.trigger, entry\.width\)/, 'openMenu anchors the popup to its trigger')

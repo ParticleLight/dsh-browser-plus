@@ -581,8 +581,6 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
         chromeBookmarks = chromeBookmarks.filter(item => item.url !== action.url)
         saveBookmarksToDisk()
         queueChromePatch({ op: 'bookmarks.set', bookmarks: chromeBookmarks })
-      } else if (action.type === 'panel-hover' && typeof action.id === 'string') {
-        queueChromePatch({ op: 'panel.hover', id: action.id })
       } else if (action.type === 'panel-state' && typeof action.id === 'string' && typeof action.open === 'boolean') {
         // The frame knows where its button is; the page draws the menu there.
         queueChromePatch({

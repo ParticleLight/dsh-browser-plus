@@ -151,11 +151,6 @@ export type ChromePatchOperation = {
     readonly left?: number;
     readonly width?: number;
 }
-/** The frame's pointer left a button: start the page's grace timer, do not close. */
- | {
-    readonly op: 'panel.hover';
-    readonly id: string;
-}
 /** One-shot feedback for the user (e.g. the result of importing a cookie file). */
  | {
     readonly op: 'notice';
