@@ -510,6 +510,11 @@ test('bookmarks come from the host, not from per-origin localStorage', () => {
   assert.ok(script.includes('button:disabled { opacity:.42; cursor:default; }'), 'disabled buttons dim')
   assert.ok(script.includes('opacity .18s ease,color .18s ease'), 'and dim through a transition, not a snap')
   assert.ok(script.includes('canBack: !back.disabled'), 'the test seam reports it')
+  // 工具栏按钮上的字和 toast 正文都是整段换掉的 —— 值真的变了才淡一下。
+  assert.ok(script.includes('const swapText = (element, next, id) => {'), 'one helper swaps a label with a short fade')
+  assert.ok(script.includes("if (element.textContent === value) return"), 'and only when the value really changed')
+  assert.ok(script.includes("swapText(taskControl, human ? '交还 Agent' : '接管', 'task-control')"), 'the task control uses it')
+  assert.ok(script.includes("swapText(toast, text, 'toast')"), 'and so does the toast body')
   // 任务面板的状态变化也是硬切：圆点换色、当前任务那圈高亮凭空出现。
   assert.ok(script.includes('#taskPanel .task-state { width:7px; height:7px; flex:none; border-radius:50%; background:#8792a1; transition:background .18s ease; }'), 'the status dot eases between states')
   assert.ok(script.includes('#taskPanel .task-row { transition:background .18s ease,border-color .18s ease,box-shadow .18s ease; }'), 'and so does the active row')

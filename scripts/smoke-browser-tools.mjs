@@ -848,6 +848,22 @@ await check('the bookmark bar does not replay its entrance on every page load', 
 })
 // 前进/后退能不能点由宿主算（tab.canGoBack/canGoForward）—— 变灰要**淡**进去，不是啪一下。
 // 前进/后退能不能点由宿主算（tab.canGoBack/canGoForward）—— 变灰要**淡**进去，不是啪一下。
+// toast 的正文是整段换掉的：第二句话来的时候要淡一下，不是啪地跳。
+await check('a second notice cross-fades its text', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  await pageEval("(() => { window.__dshChromeToast('first', 'info'); return 'ok' })()")
+  await new Promise(resolve => setTimeout(resolve, 400))
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  await pageEval("(() => { window.__dshChromeToast('second', 'info'); return 'ok' })()")
+  let log = []
+  for (let i = 0; i < 15 && !log.some(entry => entry.name === 'dshTextIn'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 120))
+    log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  }
+  const hit = log.find(entry => entry.name === 'dshTextIn' && entry.id === 'toast')
+  if (hit === undefined) throw new Error('the notice swapped its text without fading: ' + JSON.stringify(log))
+  return { animation: hit.name }
+})
 await check('the back button fades in as it becomes available', async () => {
   const frameEval = async script => String(await provider.chromeEval(script))
   const readLog = async () => JSON.parse(await frameEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
