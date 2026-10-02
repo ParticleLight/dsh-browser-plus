@@ -846,6 +846,35 @@ await check('the bookmark bar does not replay its entrance on every page load', 
   await new Promise(resolve => setTimeout(resolve, 1500))
   return { onToggle: 'anim:dshBarIn', onLoad: 'none' }
 })
+// 前进/后退能不能点由宿主算（tab.canGoBack/canGoForward）—— 变灰要**淡**进去，不是啪一下。
+// 前进/后退能不能点由宿主算（tab.canGoBack/canGoForward）—— 变灰要**淡**进去，不是啪一下。
+await check('the back button fades in as it becomes available', async () => {
+  const frameEval = async script => String(await provider.chromeEval(script))
+  const readLog = async () => JSON.parse(await frameEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  const state = async () => JSON.parse(await frameEval('JSON.stringify(window.__dshChromeState ? window.__dshChromeState() : {})'))
+  // 先导航到一个新地址：这样「前进」一定是灰的（历史末端）。
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 1600))
+  const before = await state()
+  if (before.canForward !== false) throw new Error('forward was already available at the end of the history: ' + JSON.stringify(before))
+  // 后退一次 → 前进可用，而且必须是淡进去的。
+  await frameEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  await provider.pressKey(session, { key: 'ArrowLeft', modifiers: ['alt'] })
+  let log = []
+  for (let i = 0; i < 20 && !log.some(entry => entry.name === 'css:opacity' && entry.el === 'forward'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 150))
+    log = await readLog()
+  }
+  const now = await state()
+  const faded = log.find(entry => entry.name === 'css:opacity' && entry.el === 'forward')
+  // 回到历史末端，把状态交回去。
+  await provider.pressKey(session, { key: 'ArrowRight', modifiers: ['alt'] })
+  await new Promise(resolve => setTimeout(resolve, 900))
+  if (now.canForward !== true) throw new Error('forward never became available after going back: ' + JSON.stringify(now))
+  if (faded === undefined) throw new Error('the forward button snapped instead of fading: ' + JSON.stringify(log))
+  return { atEnd: 'disabled', afterBack: 'css:opacity' }
+})
+
 await check('the toolbar star lights up and pops when the page is bookmarked', async () => {
   const frameEval = async script => String(await provider.chromeEval(script))
   await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })

@@ -346,7 +346,7 @@ test('the chrome moves instead of hard-cutting', () => {
   assert.ok(script.includes('#panel .item { display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:8px; cursor:pointer; transition:background .12s ease; }'), 'bookmark rows fade their hover')
   assert.ok(script.includes('#trail .activity-item { transition:background .12s ease;'), 'and so do trail rows')
   assert.ok(script.includes("root.addEventListener('transitionstart', event => {"), 'the chrome records real CSS transitions, not just WAAPI animations')
-  assert.ok(script.includes("motionLog.push({ id, phase: 'start', name: 'css:' + String(event.propertyName || '') })"), 'with the property that actually transitioned')
+  assert.ok(script.includes("motionLog.push({ id, phase: 'start', name: 'css:' + String(event.propertyName || ''), el: String(target.id || '') })"), 'with the property that actually transitioned, and the element it belongs to')
   assert.ok(script.includes("rows: Array.from(entry.popup.querySelectorAll('.item, .activity-item, .task-row'))"), 'and the panel seam exposes the list rows so a test can hover one for real')
   // 行必须**先插进文档**再动画：游离节点上的 WAAPI 动画会停在 pending，永远不显示。
   assert.ok(script.indexOf('trailList.append(row)') < script.indexOf("flashChange(row, 'trail-row'"), 'the row is in the document before it animates')
@@ -502,6 +502,16 @@ test('bookmarks come from the host, not from per-origin localStorage', () => {
   assert.ok(script.includes("motionLog.push({ id: 'task-thumb', phase: 'start', name: 'dshThumbIn' })"), 'and records the fade')
   assert.ok(script.includes("animation.finished.then(drop, drop)"), 'the old frame is dropped when the fade finishes (or is cancelled)')
   assert.ok(script.includes('#taskPanel .task-thumb > * { grid-area:1 / 1; }'), 'both frames share one grid cell')
+  // 前进/后退能不能点由宿主算（frame 读不到页面历史，页面那份的 history.length 不可靠），
+  // 而变灰必须是**淡**下去的：按钮的基础过渡要带上 opacity。
+  assert.ok(script.includes('const applyNavState = () => {'), 'the chrome has one place that decides nav availability')
+  assert.ok(script.includes('back.disabled = !(tab && tab.canGoBack === true)'), 'back follows the host summary')
+  assert.ok(script.includes('forward.disabled = !(tab && tab.canGoForward === true)'), 'and so does forward')
+  assert.ok(script.includes('button:disabled { opacity:.42; cursor:default; }'), 'disabled buttons dim')
+  assert.ok(script.includes('opacity .18s ease,color .18s ease'), 'and dim through a transition, not a snap')
+  assert.ok(script.includes('canBack: !back.disabled'), 'the test seam reports it')
+  // 日志条目带上元素 id：只按 className 认元素，按钮（无 class）会全变成 BUTTON。
+  assert.ok(script.includes("el: String(target.id || '')"), 'the motion log names the element it belongs to')
 })
 
 test('the chrome survives a strict CSP: styles go through CSSOM, never a <style> element', () => {

@@ -62,6 +62,15 @@ export interface ChromeTabSummary {
    */
   readonly starred?: boolean
   /**
+   * Whether the tab has somewhere to go back / forward to.
+   *
+   * Like `starred`, only the host can answer this: the page copy of the chrome
+   * shares the page's own document, but the frame copy does not, and the two
+   * copies must agree. Drives the toolbar's back/forward buttons dimming.
+   */
+  readonly canGoBack?: boolean
+  readonly canGoForward?: boolean
+  /**
    * True while this tab's document is still loading.
    *
    * Drives the two Chrome affordances the strip mirrors: a spinner in place of
