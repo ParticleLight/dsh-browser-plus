@@ -317,6 +317,20 @@ test('the chrome moves instead of hard-cutting', () => {
   // The recorder the smoke asserts against.
   assert.ok(script.includes('window.__dshChromeMotion'), 'the chrome records what animated')
   assert.ok(script.includes("motionLog.push({ id: 'tab', phase: 'start', name: 'dshTabIn' })"), 'including the tab entrance')
+  // 标签节点按 id 复用：重建整条标签栏会让 active/hover 的过渡永远播不出来，
+  // 而且没有「前一刻的位置」，关掉一个标签后剩下的只能硬跳。
+  assert.ok(script.includes('const tabNodes = new Map()'), 'tab nodes are reused by id')
+  assert.ok(script.includes("button.classList.toggle('active', tab.active === true)"), 'the active state is toggled, not re-rendered')
+  assert.ok(script.includes('if (tabstrip.firstElementChild !== node.button)'), 'nodes move only when they are out of place')
+  // FLIP：位置变了的标签从旧位置滑过去，而不是瞬移。
+  assert.ok(script.includes("motionLog.push({ id: 'tab', phase: 'slide'"), 'a reordered strip records a slide')
+  assert.ok(script.includes('node.button.animate([{ transform:'), 'and the survivors animate from their old position')
+  // 监听器只装一次，所以 id 必须从 dataset 现读：捕获的旧 id 在节点复用之后是错的。
+  assert.ok(script.includes('const idOfButton = button =>'), 'listeners read the tab id from the dataset')
+  assert.ok(script.includes('emitTabClose(chromeSelectedTaskKey, idOfButton(button))'), 'so a close targets the current tab')
+  // 复用节点之后，favicon 不能再无条件重画：它会「先摆字母、再异步换 canvas」，每来一次
+  // patch 都重画的话，标签图标就会一直闪。
+  assert.ok(script.includes('if (node.paintedUrl !== url || node.paintedFavicon !== favicon || node.paintedLoading !== loading) {'), 'the favicon is only repainted when it changed')
   assert.ok(script.includes('const motionLog = []'), 'and the log is declared once')
 })
 

@@ -330,6 +330,36 @@ await check('opening a menu runs its entrance animation', async () => {
   await moveTo(700, CHROME_TOOLBAR_Y)
   return { animation: started.name, finished: true }
 })
+// 关掉一个标签，剩下的标签要**滑**到新位置，而不是瞬移。用「关掉一个后台标签」来验：
+// 这样当前文档不变（日志就在这个文档里），标签栏的顺序变了，FLIP 必须记一笔。
+await check('closing a tab slides the survivors into place', async () => {
+  const motion = async () => JSON.parse(String((await provider.execute(session, {
+    script: 'JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : null)',
+  })).value))
+  const slide = log => (Array.isArray(log) ? log : []).filter(entry => entry.id === 'tab' && entry.phase === 'slide')
+  // 保证至少两个标签，并且让**不是第一个**的那个处于激活状态。
+  const opened = await provider.listTabs(session)
+  if (opened.length < 2) {
+    await provider.openUrl(session, { url: 'https://example.com/', newTab: true })
+    await new Promise(resolve => setTimeout(resolve, 900))
+  }
+  const firstId = (await provider.listTabs(session))[0]?.id
+  await provider.openUrl(session, { url: 'https://example.com/', newTab: true })
+  await new Promise(resolve => setTimeout(resolve, 900))
+  const before = (await provider.listTabs(session)).length
+  await provider.execute(session, { script: '(() => { window.__dshChromeMotionClear?.(); return "cleared" })()' })
+  // 关掉**第一个**标签：激活的那个不动，所以当前文档不变，日志留在原地。
+  await chromeClick(221, CHROME_ROW_Y)
+  await new Promise(resolve => setTimeout(resolve, 800))
+  const after = (await provider.listTabs(session)).length
+  if (after >= before) throw new Error('the first tab was not closed: ' + String(before) + ' -> ' + String(after))
+  if (firstId !== undefined && (await provider.listTabs(session)).some(tab => tab.id === firstId)) {
+    throw new Error('the wrong tab was closed')
+  }
+  const seen = slide(await motion())
+  if (seen.length === 0) throw new Error('the surviving tabs jumped instead of sliding')
+  return { slide: seen[0].name, tabs: String(before) + ' -> ' + String(after) }
+})
 // 同一个记录缝，验另一半动效：新标签浮入。两半都要断言 —— 初始渲染不许播（chrome 每次
 // 导航都会重新注入，不挡的话整条标签栏会在每个页面加载时重弹一次），真的新建标签才播。
 await check('a new tab floats in, but a plain page load does not', async () => {
