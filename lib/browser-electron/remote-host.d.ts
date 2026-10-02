@@ -105,6 +105,14 @@ export declare class RemoteElectronViewHost implements ElectronBrowserViewHost {
     private onChildExit;
     createView(key?: string, label?: string): ElectronViewHandle;
     private ensureView;
+    /**
+     * Send a CDP `Input.*` command to the host's chrome frame view.
+     *
+     * The frame is not a tab, so it has no view handle: this is a direct channel to
+     * it, used to drive the toolbar (the click tests, and anything that needs to
+     * exercise the chrome the way a human does).
+     */
+    chromeInput(method: string, params?: Record<string, unknown>): Promise<void>;
     showView(handle: ElectronViewHandle): void;
     destroyView(handle: ElectronViewHandle): void;
     /** Append one operation to the child's per-view trail. */

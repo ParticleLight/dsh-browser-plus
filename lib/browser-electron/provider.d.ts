@@ -59,6 +59,18 @@ export interface ElectronBrowserViewHost {
      */
     showView?(handle: ElectronViewHandle): void;
     /**
+     * Send a CDP `Input.*` command to the host's chrome frame view.
+     *
+     * The frame is not a tab and has no handle, so this is its own channel. It
+     * exists because the chrome can live in a view of its own (which is what lets
+     * the page viewport really shrink): input aimed at a page never reaches that
+     * view, and CDP input targets a webContents regardless of view stacking, so
+     * the page cannot stand in for it. Optional for hosts without a frame view.
+     * @param method - a CDP Input domain command, e.g. 'Input.dispatchMouseEvent'.
+     * @param params - that command's parameters.
+     */
+    chromeInput?(method: string, params?: Record<string, unknown>): Promise<void>;
+    /**
      * Append one operation to the human-facing trail for a view. Optional.
      * @param viewId - the view to attribute the operation to.
      * @param entry - the trail entry ({ action, params, ok, at }).
@@ -356,6 +368,15 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     type(session: BrowserSessionId, request: {
         readonly text: string;
     }, signal?: AbortSignal): Promise<void>;
+    /**
+     * Drive the host's chrome frame view with a raw CDP command.
+     *
+     * The chrome can live in a view of its own so the page viewport can really
+     * shrink; that view is not a tab, so this is the only way to click the toolbar
+     * (the click tests use it, and so does anything that needs to exercise the
+     * chrome the way a person does).
+     */
+    chromeInput(method: string, params?: Record<string, unknown>): Promise<void>;
     /** Press a key into the page (keyDown + keyUp), as a physical-input path
      * for shortcuts and keyboard-driven UI. */
     pressKey(session: BrowserSessionId, request: BrowserPressKeyRequest, signal?: AbortSignal): Promise<void>;

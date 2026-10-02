@@ -454,6 +454,8 @@ const CHROME_FRAME_HEIGHT = 84
 let chromeFrame: WebContentsView | undefined
 /** Why the frame view could not be created, if it could not. Published to the chrome. */
 let chromeFrameError = ''
+/** Whether the frame's renderer has been told to emulate focus (see chromeInput). */
+let chromeFrameFocused = false
 
 function ensureWindow(): BrowserWindow {
   if (window !== undefined && !window.isDestroyed()) return window
@@ -481,7 +483,13 @@ function ensureChromeFrame(): void {
     chromeFrameError = ''
     win.contentView.addChildView(frame)
     frame.setBounds({ x: 0, y: 0, width: win.getContentSize()[0] ?? 0, height: CHROME_FRAME_HEIGHT })
-    frame.setVisible(true)
+    // HIDDEN until the frame's chrome can drive the page. A visible frame sits on
+    // top of the page view, so a person's clicks land on it — and the frame's
+    // chrome can only do the things it can do *in its own document* today: its
+    // address bar, back/forward/reload and find bar all act on the frame, not on
+    // the page. (The click tests did not catch this: CDP input is delivered to the
+    // target webContents whatever is on top.) Step 2 is the relay that fixes it.
+    frame.setVisible(false)
     frame.setBackgroundColor('#202124')
     frame.webContents.on('did-finish-load', () => {
       const token = chromeTokens.get(frame) ?? ''
@@ -1450,6 +1458,33 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // switchVisibleTask (which pushed its own list), so this is a no-op there.
         if (entry !== undefined && entry.taskKey === visibleTaskKey) queueTabsSet()
         reply(msg.id, { ok: true })
+        return
+      }
+      case 'chromeInput': {
+        // An Input.* command aimed at the chrome frame view.
+        //
+        // The frame is a view of its own, so page-directed input (which is what
+        // every browser_* tool sends) never reaches it — and CDP input targets a
+        // webContents regardless of which view is on top, so the page cannot be
+        // used as a proxy either. This is the only way to drive the toolbar.
+        const frame = chromeFrame
+        if (frame === undefined || frame.webContents.isDestroyed()) throw new Error('chromeInput: no chrome frame')
+        const method = msg.method
+        if (typeof method !== 'string' || !method.startsWith('Input.')) {
+          throw new Error('chromeInput: only Input.* commands are accepted')
+        }
+        try { frame.webContents.debugger.attach('1.3') } catch { /* already attached */ }
+        const params = typeof msg.params === 'object' && msg.params !== null ? msg.params : {}
+        // Same reason the provider does this for pages: a renderer that believes it
+        // is unfocused drops synthesized mouse presses on the floor.
+        if (!chromeFrameFocused) {
+          chromeFrameFocused = true
+          void frame.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => undefined)
+        }
+        frame.webContents.debugger.sendCommand(method, params).then(
+          () => reply(msg.id, { ok: true }),
+          (error: unknown) => reply(msg.id, { ok: false, err: String(error instanceof Error ? error.message : error) }),
+        )
         return
       }
       case 'showView': {

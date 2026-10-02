@@ -702,6 +702,18 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
     return view
   }
 
+  /**
+   * Send a CDP `Input.*` command to the host's chrome frame view.
+   *
+   * The frame is not a tab, so it has no view handle: this is a direct channel to
+   * it, used to drive the toolbar (the click tests, and anything that needs to
+   * exercise the chrome the way a human does).
+   */
+  async chromeInput(method: string, params: Record<string, unknown> = {}): Promise<void> {
+    await this.ready()
+    await this.client?.call('chromeInput', { method, params })
+  }
+
   showView(handle: ElectronViewHandle): void {
     // Fire-and-forget by design (visibility is best-effort), but a rejected
     // promise must not become an unhandled rejection (crash on Node >= 15).
