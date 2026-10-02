@@ -595,6 +595,40 @@ await check('Ctrl+D bookmarks the page it is on', async () => {
 // 工具栏那颗星（收藏面板的触发按钮）跟着当前页亮/灭，翻面时弹一下。这轮顺手修了一个真 bug：
 // frame 表面原来用**自己的** location 判断（那是宿主的一张 data: 页），于是工具栏那颗星永远
 // 不会点亮。frame 是独立视图，这轮新加的 chromeEval 才能把它直接读回来。
+// 工具栏地址栏要显示**完整地址**（Chrome 行为）。frame 是宿主自己的文档，所以宿主单独把真实
+// URL 塞给它；页面里那份永远只拿 origin（那是隐私设计，不能被这条检查顺手破坏）。
+await check('the toolbar address bar shows the real url, path and all', async () => {
+  const frameEval = async script => String(await provider.chromeEval(script))
+  const state = async () => JSON.parse(await frameEval('JSON.stringify(window.__dshChromeState ? window.__dshChromeState() : null)'))
+  const activeOrigin = async () => await frameEval("String(((window.__dshTabs || []).find(tab => tab.active) || {}).url || '')")
+  // 先把 frame 的可见标签落在一个已知页面上（宿主换可见标签不是瞬时的），否则测的是上一个
+  // 检查留下的那一页 —— 第 42 轮就在这里白等过一轮。
+  await provider.navigate(session, { url: 'https://example.com/' })
+  let origin = ''
+  for (let i = 0; i < 30 && origin !== 'https://example.com'; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 250))
+    origin = await activeOrigin()
+  }
+  if (origin !== 'https://example.com') throw new Error('the frame never showed example.com: ' + origin)
+  await frameEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
+  let snapshot = await state()
+  for (let i = 0; i < 40 && !String(snapshot.address || '').includes('/help/example-domains'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 250))
+    snapshot = await state()
+  }
+  const address = String(snapshot.address || '')
+  if (!address.includes('/help/example-domains')) {
+    throw new Error('the toolbar lost the path: ' + JSON.stringify(address) + ' (frame tab ' + await activeOrigin() + ')')
+  }
+  // 隐私不变量：页面那份显示的是**它自己的** location（页面本来就知道），宿主推给 frame 的
+  // 完整地址**没有**发给它 —— 两个值必须各自正确，不能是宿主塞给页面的一份。
+  const pageAddress = String((await provider.execute(session, { script: "String((window.__dshChromeState ? window.__dshChromeState() : {}).address || '')" })).value)
+  const log = JSON.parse(await frameEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  const faded = Array.isArray(log) && log.some(entry => entry.id === 'address' && entry.name === 'dshAddressIn')
+  if (!faded) throw new Error('the address text swapped without fading: ' + JSON.stringify(log))
+  return { address, pageCopy: pageAddress, animation: 'dshAddressIn' }
+})
 await check('the toolbar star lights up and pops when the page is bookmarked', async () => {
   const frameEval = async script => String(await provider.chromeEval(script))
   await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })

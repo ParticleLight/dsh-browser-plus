@@ -521,8 +521,14 @@ test('the address bar hides the scheme and shows a real security indicator', () 
   // URL when it is focused.
   assert.match(script, /const prettifyAddress = href => href\.replace\(\/\^https\?:\[\/\]\[\/\]\/, ''\)/, 'the scheme is stripped')
   // The frame surface cannot read its own location (that document belongs to the
-  // host), so it takes the address from the tab summary instead.
-  assert.ok(script.includes("const shownUrl = CHROME_SURFACE === 'frame' ? activeTabUrl() : location.href"), 'the address comes from the tab on the frame surface')
+  // host), so it takes the address from the tab summary instead — and prefers the
+  // FULL url the host hands it directly, because the summary only carries the
+  // origin (the chrome also runs inside the page, which must not see paths).
+  assert.ok(script.includes("const shownUrl = CHROME_SURFACE === 'frame' ? (frameAddressUrl || activeTabUrl()) : location.href"), 'the frame address prefers the full url the host pushed')
+  assert.ok(script.includes("window.__dshChromeAddress = url => { frameAddressUrl = typeof url === 'string' ? url : ''; refreshAddress() }"), 'which arrives through a frame-only setter')
+  assert.ok(script.includes("if (lastAddressUrl !== undefined && lastAddressUrl !== shownUrl && !internal) fadeAddress()"), 'and the text cross-fades when the address really changes')
+  assert.ok(script.includes("if (event.key === 'Enter') { event.preventDefault(); const typed = address.value; address.blur(); navigate(typed) }"), 'Enter blurs the omnibox before navigating (blur resets the value)')
+  assert.ok(script.includes('const navigate = (typed) =>'), 'so navigate takes the typed value explicitly')
   assert.ok(script.includes("address.value = internal ? '' : prettifyAddress(shownUrl)"), 'unfocused shows the pretty form')
   assert.ok(script.includes("const insecure = !internal && !/^https:/i.test(secUrl)"), 'the lock follows the real scheme')
   assert.match(script, /address\.addEventListener\('focus', \(\) => \{ if \(!isInternalLocation\(\)\) address\.value = location\.href \}\)/, 'focus expands it')

@@ -1270,6 +1270,8 @@ function pushVisibleChromeState(): void {
   resetChromeDelivery()
   const script = chromeBootstrapScript(visibleTaskKey)
   for (const surfaceView of chromeSurfaces()) runChromeScript(surfaceView, script)
+  // A bootstrap carries the tab list but never the full URL — see queueFrameAddress.
+  queueFrameAddress()
 }
 
 function flushChromePatches(): void {
@@ -1301,6 +1303,26 @@ function queueChromePatch(...operations: ChromePatchOperation[]): void {
  */
 function queueTabsSet(): void {
   queueChromePatch({ op: 'tabs.set', tabs: tabSummaries(visibleTaskKey) })
+  queueFrameAddress()
+}
+
+/**
+ * Hand the frame's copy of the chrome the visible tab's REAL url.
+ *
+ * The tab summary only carries the origin on purpose: the chrome also runs inside
+ * the page, so a full URL would hand that page the query string and any token in
+ * it. The frame is the host's own document, and it is the copy a person actually
+ * reads — so the full address goes to it alone, through a direct call rather than
+ * the patch stream (which is broadcast to every surface).
+ */
+function queueFrameAddress(): void {
+  const frame = chromeFrame
+  if (frame === undefined || frame.webContents.isDestroyed()) return
+  const viewId = visibleTaskKey === undefined ? undefined : activeViewByTask.get(visibleTaskKey)
+  const entry = viewId === undefined ? undefined : views.get(viewId)
+  let url = ''
+  try { url = entry?.webContentsView.webContents.getURL() ?? '' } catch { /* closing */ }
+  runChromeScript(frame, `window.__dshChromeAddress && window.__dshChromeAddress(${JSON.stringify(url)})`)
 }
 
 function scheduleVisibleTaskThumbnail(taskKey: string, delayMs = 360): void {
@@ -1484,6 +1506,9 @@ function installPageChrome(view: WebContentsView, viewId: string): void {
     // callback the chrome talks back through must be re-registered for it.
     chromeContexts.delete(view)
     void ensureChromeBinding(view).then(() => applyPageChrome(view, viewId))
+    // did-navigate-in-page lands here too, so the frame's address bar follows
+    // hash and history changes as well as full loads.
+    if (views.get(viewId)?.taskKey === visibleTaskKey) queueFrameAddress()
   }
   view.webContents.on('did-navigate', apply)
   view.webContents.on('did-navigate-in-page', apply)
