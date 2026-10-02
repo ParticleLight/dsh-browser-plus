@@ -592,6 +592,40 @@ await check('Ctrl+D bookmarks the page it is on', async () => {
   if (again !== after) throw new Error('Ctrl+D duplicated the bookmark: ' + String(after) + ' -> ' + String(again))
   return { before, after, again }
 })
+// 工具栏那颗星（收藏面板的触发按钮）跟着当前页亮/灭，翻面时弹一下。这轮顺手修了一个真 bug：
+// frame 表面原来用**自己的** location 判断（那是宿主的一张 data: 页），于是工具栏那颗星永远
+// 不会点亮。frame 是独立视图，这轮新加的 chromeEval 才能把它直接读回来。
+await check('the toolbar star lights up and pops when the page is bookmarked', async () => {
+  const frameEval = async script => String(await provider.chromeEval(script))
+  await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
+  // 等导航真的落定再断言：宿主只把 origin 下发给 chrome，所以按 origin 比对。
+  const state = async () => JSON.parse(await frameEval('JSON.stringify(window.__dshChromeState ? window.__dshChromeState() : null)'))
+  const landedOrigin = async () => await frameEval("String(((window.__dshTabs || []).find(tab => tab.active) || {}).url || '')")
+  let origin = ''
+  for (let i = 0; i < 30 && origin !== 'https://www.iana.org'; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 250))
+    origin = await landedOrigin()
+  }
+  if (origin !== 'https://www.iana.org') throw new Error('the new page never became the active tab: ' + origin)
+  // 工具栏在 frame 的闭影子根里，外面查不到 —— 读 chrome 自己的测试缝。
+  const before = (await state()).starred
+  if (before !== '0') throw new Error('a page that is not bookmarked still reads as starred: ' + String(before))
+  await frameEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  // 导航后头几百毫秒按的键会丢（chrome 在 commit 才挂载），所以按键要重试 —— 和上面
+  // 那条 Ctrl+D 检查同一个道理。
+  let snapshot = { starred: before, iconAnimations: 0, log: [] }
+  for (let attempt = 0; attempt < 3 && snapshot.starred !== '1'; attempt += 1) {
+    await provider.pressKey(session, { key: 'd', modifiers: ['ctrl'] })
+    for (let i = 0; i < 12 && snapshot.starred !== '1'; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 60))
+      snapshot = { ...(await state()), log: JSON.parse(await frameEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])')) }
+    }
+  }
+  if (snapshot.starred !== '1') throw new Error('the toolbar star never lit up after Ctrl+D: ' + JSON.stringify(snapshot))
+  const popped = Array.isArray(snapshot.log) && snapshot.log.some(entry => entry.id === 'star' && entry.name === 'dshIconIn')
+  if (!popped) throw new Error('the star flipped without a pop: ' + JSON.stringify(snapshot.log))
+  return { starred: snapshot.starred, animation: 'dshIconIn', running: snapshot.iconAnimations }
+})
 await check('the bookmark bar is host state and the page offset follows it', async () => {
   await provider.navigate(session, { url: 'https://example.com/' })
   await new Promise(resolve => setTimeout(resolve, 500))
@@ -774,6 +808,40 @@ await check('the find bar fades out instead of blinking away', async () => {
   }
   if (!faded) throw new Error('the find bar vanished without fading out')
   return { open: 'dshPopIn', close: 'dshPopOut' }
+})
+// 安全指示：http 页面给琥珀提示、https 给锁 —— 换的时候淡入，不硬切。为了造出真正的 http
+// 页面，这里临时起一个只有本机能访问的小服务器（外网 http 站会重定向/升级，不可靠）。
+await check('the security icon cross-fades when the connection kind changes', async () => {
+  const { createServer } = await import('node:http')
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html' })
+    response.end('<!doctype html><title>plain http</title>ok')
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const port = server.address().port
+  try {
+    const frameEval = async script => String(await provider.chromeEval(script))
+    await provider.navigate(session, { url: 'https://example.com/' })
+    await new Promise(resolve => setTimeout(resolve, 900))
+    const state = async () => JSON.parse(await frameEval('JSON.stringify(window.__dshChromeState ? window.__dshChromeState() : null)'))
+    const secure = (await state()).insecure
+    if (secure !== '0') throw new Error('an https page did not show the lock: ' + String(secure))
+    await frameEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+    await provider.navigate(session, { url: 'http://127.0.0.1:' + String(port) + '/' })
+    let insecure = secure
+    for (let i = 0; i < 25 && insecure !== '1'; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      insecure = (await state()).insecure
+    }
+    if (insecure !== '1') throw new Error('an http page did not switch to the insecure icon: ' + insecure)
+    const log = JSON.parse(await frameEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+    if (!Array.isArray(log) || !log.some(entry => entry.id === 'security' && entry.name === 'dshIconIn')) {
+      throw new Error('the security icon swapped without a cross-fade: ' + JSON.stringify(log))
+    }
+    return { https: 'lock', http: 'amber', animation: 'dshIconIn' }
+  } finally {
+    await new Promise(resolve => server.close(resolve))
+  }
 })
 await check('the host publishes the bookmark list to the chrome', async () => {
   const result = await provider.execute(session, { script: 'Array.isArray(window.__dshBookmarks) ? String(window.__dshBookmarks.length) : "missing"' })

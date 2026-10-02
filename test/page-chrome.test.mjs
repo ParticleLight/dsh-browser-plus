@@ -324,6 +324,14 @@ test('the chrome moves instead of hard-cutting', () => {
   assert.ok(script.includes('const beginSurfaceClose = element =>'), 'one shared exit routine')
   assert.ok(script.includes('if (isPanelOpen(findBar)) beginSurfaceClose(findBar)'), 'which the find bar uses too')
   assert.ok(script.includes("findBar.addEventListener('animationend', event => { motionLog.push({ id: 'find'"), 'and the find bar records its own animation events')
+  // 图标换面时的短促反馈：星标 / 安全指示共用 popIcon；首帧不播（用 dataset 记上一次状态）。
+  assert.ok(script.includes('const popIcon = (element, id) =>'), 'icon swaps share one pop helper')
+  assert.ok(script.includes("if (previous !== undefined && previous !== secIcon.dataset.insecure) popIcon(secIcon, 'security')"), 'the security icon cross-fades when the connection kind flips')
+  assert.ok(script.includes("if (previous !== undefined && previous !== starSvg.dataset.starred) popIcon(starSvg, 'star')"), 'and the star pops when the page gets bookmarked')
+  // 顺带修的真 bug：frame 表面原来用**自己的** location 判断星标（那是宿主的一张 data: 页）。
+  assert.ok(script.includes("const tab = CHROME_SURFACE === 'frame' ? activeChromeTab() : undefined"), 'the toolbar star asks for the visible tab, not the frame document')
+  assert.ok(script.includes('? tab.starred === true'), 'and takes the host\'s verdict — the chrome only receives the redacted origin')
+  assert.ok(script.includes('#secIcon, #bookmarks svg { transform-box:fill-box; transform-origin:center; }'), 'and SVG icons pivot on their own centre')
   // 书签栏滑下来 + 页面下移跟着过渡（下移量的过渡只在**第二次**应用之后才补上：
   // chrome 每次导航都会重新注入，第一次就带过渡的话每个页面加载内容都会自己滑一下）。
   assert.ok(script.includes('@keyframes dshBarIn') && script.includes('#bookmarkBar.open { display:block; white-space:nowrap; animation:dshBarIn'), 'the bookmark bar slides in')

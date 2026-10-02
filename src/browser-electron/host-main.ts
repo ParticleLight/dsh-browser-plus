@@ -651,6 +651,10 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
         chromeBookmarks = [{ url: action.url, title }, ...chromeBookmarks.filter(item => item.url !== action.url)].slice(0, 500)
         saveBookmarksToDisk()
         queueChromePatch({ op: 'bookmarks.set', bookmarks: chromeBookmarks })
+        // The toolbar's star rides on the tab summary (the chrome only sees the
+        // origin, so the host decides), which means the strip has to be re-pushed
+        // too — otherwise the star stays stale until the next navigation.
+        queueTabsSet()
       } else if (action.type === 'bookmark-bar' && typeof action.visible === 'boolean') {
         // The bar is a profile-wide preference, so the host owns it and the
         // chrome reads it back from the bootstrap / patch stream.
@@ -661,6 +665,7 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
         chromeBookmarks = chromeBookmarks.filter(item => item.url !== action.url)
         saveBookmarksToDisk()
         queueChromePatch({ op: 'bookmarks.set', bookmarks: chromeBookmarks })
+        queueTabsSet()
       } else if (action.type === 'panel-state' && typeof action.id === 'string' && typeof action.open === 'boolean') {
         // The frame knows where its button is; the page draws the menu there.
         queueChromePatch({
@@ -1057,6 +1062,12 @@ function rememberFavicon(view: WebContentsView, viewId: string, rawUrl: string):
  * puts it in the button's title attribute), so a query string or an in-URL token
  * must never reach the page. The strip itself renders only the title.
  */
+/** Compare two page URLs ignoring a trailing slash (the tab URL is normalized). */
+function samePageUrl(left: string, right: string): boolean {
+  const trim = (value: string): string => value.replace(/[/]$/, '')
+  return trim(left) === trim(right)
+}
+
 function tabSummaries(taskKey: string | undefined): ChromeTabSummary[] {
   if (taskKey === undefined) return []
   const viewIds = taskViewIds.get(taskKey)
@@ -1087,6 +1098,9 @@ function tabSummaries(taskKey: string | undefined): ChromeTabSummary[] {
       title: internal || title === '' ? '新标签页' : title,
       url: url ?? '',
       active: viewId === activeViewId,
+      // The chrome only sees the origin, so "is this page bookmarked" is decided
+      // here — see ChromeTabSummary.starred.
+      starred: rawUrl === '' ? false : chromeBookmarks.some(bookmark => samePageUrl(bookmark.url, rawUrl)),
       ...favicon === undefined ? {} : { favicon },
       ...loadingViews.has(viewId) ? { loading: true } : {},
     })
@@ -1520,7 +1534,7 @@ function authorizeChromeAction(action: unknown, token: string): boolean {
 }
 
 /** Handle one command. */
-async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean }): Promise<void> {
+async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean }): Promise<void> {
   try {
     switch (op) {
       case 'ping':
@@ -1750,6 +1764,31 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           () => reply(msg.id, { ok: true }),
           (error: unknown) => reply(msg.id, { ok: false, err: String(error instanceof Error ? error.message : error) }),
         )
+        return
+      }
+      case 'chromeEval': {
+        // Read state back out of the chrome frame's own document.
+        //
+        // The frame is a view of its own, so nothing that targets the page can see
+        // it: the toolbar's own animations were previously only observable through
+        // whatever the page's copy of the chrome happened to log. Runtime.evaluate
+        // is deliberately the only command this accepts — the frame is our own
+        // document, and the tests need to read it back.
+        const frame = chromeFrame
+        if (frame === undefined || frame.webContents.isDestroyed()) throw new Error('chromeEval: no chrome frame')
+        const expression = msg.expression
+        if (typeof expression !== 'string') throw new Error('chromeEval: expression must be a string')
+        try { frame.webContents.debugger.attach('1.3') } catch { /* already attached */ }
+        frame.webContents.debugger
+          .sendCommand('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
+          .then(
+            (result: unknown) => {
+              // The client resolves with `msg.result`, so the value goes in there.
+              const value = (result as { result?: { value?: unknown } } | undefined)?.result?.value
+              reply(msg.id, { ok: true, result: value ?? null })
+            },
+            (error: unknown) => reply(msg.id, { ok: false, err: String(error instanceof Error ? error.message : error) }),
+          )
         return
       }
       case 'showView': {
@@ -2056,7 +2095,7 @@ void app.whenReady().then(() => {
   rl.on('line', line => {
     const text = line.trim()
     if (text === '') return
-    let msg: { id: number; op?: string; viewId?: string; method?: string; params?: Record<string, unknown>; url?: string; savePath?: string; cookies?: unknown[]; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean }
+    let msg: { id: number; op?: string; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean }
     try {
       msg = JSON.parse(text) as typeof msg
     } catch {

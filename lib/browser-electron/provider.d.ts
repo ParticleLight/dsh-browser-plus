@@ -73,6 +73,15 @@ export interface ElectronBrowserViewHost {
      */
     chromeInput?(method: string, params?: Record<string, unknown>): Promise<void>;
     /**
+     * Evaluate an expression inside the chrome frame's own document.
+     *
+     * The frame is a view of its own, so no page-directed call can read it. This is
+     * how the tests assert the toolbar's own animations instead of inferring them
+     * from the page's copy of the chrome. Optional for hosts without a frame view.
+     * @param expression - JavaScript evaluated in the frame, by value.
+     */
+    chromeEval?(expression: string): Promise<unknown>;
+    /**
      * Append one operation to the human-facing trail for a view. Optional.
      * @param viewId - the view to attribute the operation to.
      * @param entry - the trail entry ({ action, params, ok, at }).
@@ -379,6 +388,13 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
      * chrome the way a person does).
      */
     chromeInput(method: string, params?: Record<string, unknown>): Promise<void>;
+    /**
+     * Read a value back out of the chrome frame's own document.
+     *
+     * The frame is not a tab, so a page-directed evaluate cannot see it; without
+     * this the toolbar's animations could only be inferred from the page's copy.
+     */
+    chromeEval(expression: string): Promise<unknown>;
     /** Press a key into the page (keyDown + keyUp), as a physical-input path
      * for shortcuts and keyboard-driven UI. */
     pressKey(session: BrowserSessionId, request: BrowserPressKeyRequest, signal?: AbortSignal): Promise<void>;

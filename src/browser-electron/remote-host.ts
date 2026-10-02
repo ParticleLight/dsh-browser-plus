@@ -716,6 +716,19 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
     await this.client?.call('chromeInput', { method, params })
   }
 
+  /**
+   * Evaluate an expression inside the chrome frame's document and return its value.
+   *
+   * The frame is not a tab, so nothing that targets the page can read it — without
+   * this, the toolbar's own animations could only be inferred from whatever the
+   * page's copy of the chrome logged. Used to assert the frame's motion directly.
+   */
+  async chromeEval(expression: string): Promise<unknown> {
+    await this.ready()
+    // call() already unwraps the reply's `result` field.
+    return await this.client?.call('chromeEval', { expression })
+  }
+
   showView(handle: ElectronViewHandle): void {
     // Fire-and-forget by design (visibility is best-effort), but a rejected
     // promise must not become an unhandled rejection (crash on Node >= 15).

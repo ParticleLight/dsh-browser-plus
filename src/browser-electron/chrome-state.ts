@@ -54,6 +54,14 @@ export interface ChromeTabSummary {
   readonly url: string
   readonly active: boolean
   /**
+   * Whether this tab's page is bookmarked.
+   *
+   * The chrome only receives the redacted origin (the page copy lives in the page,
+   * so a full URL would hand it the query string), which means the toolbar cannot
+   * decide this for itself — the host computes it from the real URL.
+   */
+  readonly starred?: boolean
+  /**
    * True while this tab's document is still loading.
    *
    * Drives the two Chrome affordances the strip mirrors: a spinner in place of

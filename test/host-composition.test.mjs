@@ -244,6 +244,14 @@ test('task summaries redact paths and query strings before page injection', asyn
   const end = source.indexOf('function activeTraceForTask', start)
   assert.ok(start >= 0 && end > start, 'task summary block exists')
   assert.match(source.slice(start, end), /url: taskSummaryUrl\(url\)/)
+  // The toolbar's star cannot be decided in the chrome: the chrome only gets the
+  // origin, so the host has to say whether the page is bookmarked — and re-push
+  // the strip when the bookmark list changes, or the star stays stale.
+  assert.match(source.slice(start, end), /starred: rawUrl === '' \? false : chromeBookmarks\.some/, 'the host decides the star from the real URL')
+  const addStart = source.indexOf("action.type === 'bookmark-add'")
+  const addEnd = source.indexOf("action.type === 'bookmark-bar'", addStart)
+  assert.ok(addStart >= 0 && addEnd > addStart, 'bookmark-add block exists')
+  assert.match(source.slice(addStart, addEnd), /queueChromePatch\(\{ op: 'bookmarks\.set'[\s\S]*queueTabsSet\(\)/, 'and re-pushes the strip so the star updates')
 })
 
 test('host synchronizes selected task trace with chrome state', async () => {

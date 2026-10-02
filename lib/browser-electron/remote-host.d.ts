@@ -113,6 +113,14 @@ export declare class RemoteElectronViewHost implements ElectronBrowserViewHost {
      * exercise the chrome the way a human does).
      */
     chromeInput(method: string, params?: Record<string, unknown>): Promise<void>;
+    /**
+     * Evaluate an expression inside the chrome frame's document and return its value.
+     *
+     * The frame is not a tab, so nothing that targets the page can read it — without
+     * this, the toolbar's own animations could only be inferred from whatever the
+     * page's copy of the chrome logged. Used to assert the frame's motion directly.
+     */
+    chromeEval(expression: string): Promise<unknown>;
     showView(handle: ElectronViewHandle): void;
     destroyView(handle: ElectronViewHandle): void;
     /** Append one operation to the child's per-view trail. */
