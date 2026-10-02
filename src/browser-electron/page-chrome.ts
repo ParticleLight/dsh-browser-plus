@@ -1198,7 +1198,7 @@ export function buildPageChromeScript(bindingToken = '', surface: ChromeSurface 
     "            const label = row.querySelector('[data-dsh-task-label]')",
     "            if (label !== null) label.textContent = (typeof task.label === 'string' && task.label !== '' ? task.label : key)",
     "            const meta = row.querySelector('[data-dsh-task-meta]')",
-    "            if (meta !== null) meta.textContent = statusText(status) + ' · ' + (control === 'human' ? '人工控制' : 'Agent 控制')",
+    "        if (meta instanceof HTMLElement) swapText(meta, statusText(status) + ' · ' + (control === 'human' ? '人工控制' : 'Agent 控制'), 'task-meta')",
     "            const recent = row.querySelector('[data-dsh-task-latest]')",
     "            if (recent !== null) recent.textContent = latestText(task.latest)",
     "            const failure = row.querySelector('[data-dsh-task-error]')",

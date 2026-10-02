@@ -1328,6 +1328,9 @@ function queueFrameAddress(): void {
   const entry = viewId === undefined ? undefined : views.get(viewId)
   let url = ''
   try { url = entry?.webContentsView.webContents.getURL() ?? '' } catch { /* closing */ }
+  // 起始页是一整条 data: URL —— 把它原样显示出来就是满屏的百分号编码（真机截图里很难看）。
+  // Chrome 在新标签页的地址栏是空的，所以这里也推空串。
+  if (url === START_PAGE_URL) url = ''
   runChromeScript(frame, `window.__dshChromeAddress && window.__dshChromeAddress(${JSON.stringify(url)})`)
 }
 

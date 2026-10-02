@@ -1128,6 +1128,9 @@ await check('the home button returns to the new-tab page', async () => {
     await new Promise(resolve => setTimeout(resolve, 700))
     const url = (await provider.listTabs(session)).find(tab => tab.active)?.url ?? ''
     if (url.startsWith('data:text/html')) {
+      // 起始页的 data: URL **不该**出现在地址栏里（真机截图里那是一整屏百分号编码）。
+      const address = String(await provider.chromeEval("String(window.__dshChromeState ? window.__dshChromeState().address : 'x')"))
+      if (address !== '') throw new Error('the new-tab address showed the data: URL: ' + address.slice(0, 40))
       // Leave the tab on a real page: later checks navigate anyway, but the next
       // few read the live document.
       await provider.navigate(session, { url: 'https://example.com/' })

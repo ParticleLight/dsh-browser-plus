@@ -132,6 +132,9 @@ test('a fresh view commits a dark start page instead of staying blank', async ()
   assert.ok(page !== undefined, 'the start page is one template literal')
   assert.doesNotMatch(page, /\bsrc=|@import|<link|<img|<iframe/i, 'it must not pull a single external resource')
   assert.match(page, /<input id="q"/, 'it offers the in-page search box')
+  // 起始页的 data: URL 不该被原样丢进地址栏（Chrome 在新标签页是空的）。
+  const hostSource = await readFile(hostPath, 'utf8')
+  assert.ok(hostSource.includes("if (url === START_PAGE_URL) url = ''"), 'the new-tab address is blank, not the data: URL')
   assert.match(page, /__dshBookmarks/, 'and fills its shortcuts from the host-owned bookmarks')
   // 起始页也不再硬切：内容极短地淡入一下，并且尊重系统的减少动态效果。
   assert.match(page, /animation:dshIn .16s ease both/, 'the new-tab page eases in')
