@@ -250,6 +250,25 @@ test('the bookmark bar is Chrome-like, and the page offset follows it', () => {
   assert.ok(script.includes('window.__dshBookmarkBar = bookmarksVisible'), 'and published for tests')
 })
 
+test('the frame chrome relays page actions instead of touching its own document', () => {
+  const frame = buildPageChromeScript('t', 'frame')
+  const full = buildPageChromeScript('t', 'full')
+  // The frame's document is a data: page, so every page-level control is relayed.
+  assert.ok(frame.includes("const onFrameSurface = CHROME_SURFACE === 'frame'"), 'the surface decides')
+  assert.ok(frame.includes("type: 'page-action'"), 'actions go through the binding')
+  for (const verb of ['back', 'forward', 'reload', 'stop', 'home', 'find']) {
+    assert.ok(frame.includes("emitPageAction('" + verb + "')"), verb + ' is relayed')
+  }
+  assert.ok(frame.includes("emitPageAction('navigate', { url: target })"), 'the omnibox is relayed')
+  // ...while the page's own copy keeps doing it locally, exactly as before.
+  assert.ok(full.includes('else history.back()'), 'the page chrome still goes back itself')
+  assert.ok(full.includes("else location.assign(target)"), 'and navigates itself')
+  // The frame is a separate view: the page's zoom must not scale it or pad it.
+  assert.ok(frame.includes("if (CHROME_SURFACE !== 'frame') {"), 'no zoom compensation on the frame')
+  // Bookmarking from the frame must save the PAGE's url, not the frame's.
+  assert.ok(frame.includes('onFrameSurface ? activeTabUrl() : location.href'), 'the star saves the page url')
+})
+
 test('the rest of Chrome keybindings, over capabilities we already have', () => {
   const script = buildPageChromeScript()
   assert.ok(script.includes("chord === 'd' || chordCode === 'KeyD'"), 'Ctrl+D bookmarks')

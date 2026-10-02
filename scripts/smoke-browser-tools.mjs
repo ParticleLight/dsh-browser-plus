@@ -104,6 +104,7 @@ try {
 // edge), so these candidates bracket the expected centres rather than betting
 // the whole check on one pixel.
 const CHROME_ROW_Y = 20
+const CHROME_TOOLBAR_Y = 62
 await check('chrome + creates a provider tab', async () => {
   const before = (await provider.listTabs(session)).length
   for (const x of [258, 252, 266, 246]) {
@@ -141,6 +142,24 @@ await check('the chrome frame view drives the tab list', async () => {
     if (after > before) return { before, after, x }
   }
   throw new Error('the frame chrome never created a tab (tabs=' + String(before) + ')')
+})
+// The frame's chrome cannot touch the page itself — its address bar has to be
+// relayed through the host. This drives it the way a person would: click the
+// omnibox, type, Enter, and the PAGE navigates.
+await check('the frame chrome drives the page it is showing', async () => {
+  const frameInput = async (method, params) => provider.chromeInput(method, params)
+  await frameInput('Input.dispatchMouseEvent', { type: 'mousePressed', x: 690, y: CHROME_TOOLBAR_Y, button: 'left', clickCount: 1 })
+  await frameInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 690, y: CHROME_TOOLBAR_Y, button: 'left', clickCount: 1 })
+  await frameInput('Input.insertText', { text: 'example.com' })
+  await frameInput('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 })
+  await frameInput('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 })
+  let url = ''
+  for (let i = 0; i < 25; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    url = (await provider.listTabs(session)).find(tab => tab.active)?.url ?? ''
+    if (url.includes('example.com')) return { url }
+  }
+  throw new Error('the page never navigated: ' + JSON.stringify(url))
 })
 // The three checks below assert that the page RECEIVED the event. Resolution
 // alone is not a click: browser_click can resolve the right element, report

@@ -487,10 +487,15 @@ function ensureWindow(): BrowserWindow {
  * (new-tab, close-tab, bookmark-add, set-zoom, ...).
  */
 function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: string, params: unknown): void {
+  // Actions from the host's chrome frame view cannot act on the frame's own
+  // document (that is a data: page); they resolve the visible task's page view.
+  const pageView = view !== chromeFrame
+    ? view
+    : (visibleTaskKey === undefined ? undefined : views.get(activeViewByTask.get(visibleTaskKey) ?? '')?.webContentsView)
   const binding = (params ?? {}) as { name?: unknown; payload?: unknown }
   if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
     try {
-      const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown; visible?: unknown; tabs?: unknown }
+      const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown; visible?: unknown; tabs?: unknown; action?: unknown }
       // Authenticate before acting: only our injected chrome knows this
       // view's token, so a forged payload never reaches the dispatcher.
       if (!authorizeChromeAction(action, chromeToken)) return
@@ -534,6 +539,30 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
         chromeBookmarks = chromeBookmarks.filter(item => item.url !== action.url)
         saveBookmarksToDisk()
         queueChromePatch({ op: 'bookmarks.set', bookmarks: chromeBookmarks })
+      } else if (action.type === 'page-action' && typeof action.action === 'string') {
+        // Relayed from the chrome frame view, which cannot act on the page itself.
+        const page = pageView
+        if (page !== undefined && !page.webContents.isDestroyed()) {
+          const verb = action.action
+          try {
+            if (verb === 'navigate' && typeof action.url === 'string' && action.url !== '') {
+              void page.webContents.loadURL(action.url).catch(() => undefined)
+            } else if (verb === 'back') {
+              // Same route the page's own chrome uses, so history behaves identically.
+              runChromeScript(page, ';try { window.history.back() } catch {}')
+            } else if (verb === 'forward') {
+              runChromeScript(page, ';try { window.history.forward() } catch {}')
+            } else if (verb === 'reload') {
+              page.webContents.reload()
+            } else if (verb === 'stop') {
+              page.webContents.stop()
+            } else if (verb === 'home') {
+              void page.webContents.loadURL('https://www.bing.com').catch(() => undefined)
+            } else if (verb === 'find') {
+              runChromeScript(page, ';try { window.__dshChromeFind?.open?.() } catch {}')
+            }
+          } catch { /* closing */ }
+        }
       } else if (action.type === 'set-zoom'
         && typeof action.factor === 'number'
         && Number.isFinite(action.factor)) {
@@ -542,11 +571,18 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
         // chrome cannot fake it in CSS. The chrome compensates for its
         // own share of the scale — see page-chrome.ts.
         const factor = Math.min(3, Math.max(0.25, action.factor))
+        const zoomTarget = pageView ?? view
         try {
-          view.webContents.setZoomFactor(factor)
+          zoomTarget.webContents.setZoomFactor(factor)
           // Echo it back: the chrome polls __dshZoom to correct drift, so
           // a stale value there would undo the zoom the user just asked
           // for on the very next tick.
+          // Both copies are told the factor: the page's chrome compensates its own
+          // scale with it, and the frame shows it in the ⋮ menu (it is a separate
+          // view, so it never scales — see the surface guard in page-chrome.ts).
+          if (view === chromeFrame && pageView !== undefined) {
+            runChromeScript(pageView, ';window.__dshZoom = ' + String(factor) + ';try { window.__dshChromeSetZoom?.(' + String(factor) + ') } catch {}')
+          }
           runChromeScript(view, ';window.__dshZoom = ' + String(factor)
             + ';try { window.__dshChromeSetZoom?.(' + String(factor) + ') } catch {}')
         } catch { /* closing */ }
