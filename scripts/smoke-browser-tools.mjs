@@ -285,6 +285,83 @@ await check('a pass-over opens nothing, resting on the button does', async () =>
   await new Promise(resolve => setTimeout(resolve, 400))
   return { swept: 'nothing', rested: rested.join(',') }
 })
+// 动效：二级菜单是「浮出来」的，不是一个 display 硬切。弹层在闭影子根里，测试从外面
+// 既点不到也算不到它的 opacity，所以由 chrome 自己记录动画事件，这里断言它真的跑了。
+await check('opening a menu runs its entrance animation', async () => {
+  const motion = async () => JSON.parse(String((await provider.execute(session, {
+    script: 'JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : null)',
+  })).value))
+  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
+  const clickAt = async (x, y) => {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+  }
+  await provider.execute(session, { script: '(() => { window.__dshChromeMotionClear?.(); return "cleared" })()' })
+  // Start from a closed menu: a click in the page is "outside the chrome".
+  await provider.click(session, { x: 4, y: 4 })
+  await new Promise(resolve => setTimeout(resolve, 400))
+  await moveTo(700, CHROME_TOOLBAR_Y)
+  await new Promise(resolve => setTimeout(resolve, 250))
+  await moveTo(1362, CHROME_TOOLBAR_Y)
+  let started
+  for (let i = 0; i < 24; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 100))
+    const log = await motion()
+    if (!Array.isArray(log)) throw new Error('window.__dshChromeMotion is missing: ' + JSON.stringify(log))
+    started = log.find(entry => entry.id === 'main' && entry.phase === 'start')
+    if (started !== undefined) break
+  }
+  if (started === undefined) throw new Error('the ⋮ menu opened without running an entrance animation')
+  if (started.name !== 'dshPopIn') throw new Error('unexpected animation: ' + JSON.stringify(started))
+  // It has to finish, too: an animation stuck at its first keyframe would leave the
+  // menu invisible while every class-based check still passed.
+  let ended = false
+  for (let i = 0; i < 12 && !ended; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 80))
+    ended = (await motion()).some(entry => entry.id === 'main' && entry.phase === 'end' && entry.name === 'dshPopIn')
+  }
+  if (!ended) throw new Error('the entrance animation never finished')
+  // Put it back the way we found it: click pins the hover-opened menu, a second closes it.
+  await clickAt(1362, CHROME_TOOLBAR_Y)
+  await new Promise(resolve => setTimeout(resolve, 300))
+  await clickAt(1362, CHROME_TOOLBAR_Y)
+  await new Promise(resolve => setTimeout(resolve, 400))
+  // 指针挪开，别让下一个检查的「移进按钮」变成原地不动（那样没有 pointerenter）。
+  await moveTo(700, CHROME_TOOLBAR_Y)
+  return { animation: started.name, finished: true }
+})
+// 同一个记录缝，验另一半动效：新标签浮入。两半都要断言 —— 初始渲染不许播（chrome 每次
+// 导航都会重新注入，不挡的话整条标签栏会在每个页面加载时重弹一次），真的新建标签才播。
+await check('a new tab floats in, but a plain page load does not', async () => {
+  const motion = async () => JSON.parse(String((await provider.execute(session, {
+    script: 'JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : null)',
+  })).value))
+  const tabStarts = log => (Array.isArray(log) ? log : []).filter(entry => entry.id === 'tab' && entry.phase === 'start')
+  // 导航 = chrome 重新注入 = 新文档、新日志。所以不用清空：这个文档的第一次渲染
+  // 如果也播了动画，日志里当场就会有记录（去掉 guard 这条立刻变红）。
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 1200))
+  const quiet = tabStarts(await motion())
+  if (quiet.length > 0) throw new Error('a plain page load animated the tab strip: ' + JSON.stringify(quiet))
+  // The entrance animation belongs to the document that was ALREADY open when the tab
+  // appeared — and the new tab takes focus, so the log has to be read from the old tab
+  // after switching back to it.
+  const opened = await provider.listTabs(session)
+  const firstTabId = opened.find(tab => tab.active)?.id
+  if (firstTabId === undefined) throw new Error('no active tab before opening a new one')
+  const before = opened.length
+  // 用 provider 的新标签 API，而不是点 ：那个按钮的位置会随着标签数量往右漂。
+  await provider.openUrl(session, { url: 'https://example.com/', newTab: true })
+  await new Promise(resolve => setTimeout(resolve, 900))
+  if ((await provider.listTabs(session)).length <= before) throw new Error('no tab was created')
+  await provider.switchTab(session, firstTabId)
+  await new Promise(resolve => setTimeout(resolve, 500))
+  const started = tabStarts(await motion()).find(entry => entry.name === 'dshTabIn')
+  if (started === undefined) throw new Error('the new tab appeared without an entrance animation')
+  // 把指针挪开：下一个检查靠「移进按钮」触发悬停，指针停在按钮上的话不会有 pointerenter。
+  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 700, y: CHROME_TOOLBAR_Y })
+  return { animation: started.name, pageLoadsQuiet: true }
+})
 await check('hovering a button after using its menu shows the menu again', async () => {
   const readPanels = async () => JSON.parse(String((await provider.execute(session, {
     script: 'JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])',

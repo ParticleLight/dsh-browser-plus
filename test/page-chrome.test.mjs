@@ -294,6 +294,32 @@ test('hovering a toolbar button needs intent, not a pass-over', () => {
   assert.ok(frame.includes("if (!onFrameSurface) scheduleHoverClose(entry.popup)"), 'leaving still does not close')
 })
 
+test('the chrome moves instead of hard-cutting', () => {
+  const script = buildPageChromeScript('t', 'page')
+  // Popups float in instead of appearing on one frame.
+  assert.ok(script.includes('@keyframes dshPopIn'), 'there is an entrance keyframe')
+  assert.ok(script.includes('#panel.open, .glass-panel.open, #mainMenu.open, #findBar.open { animation:dshPopIn'), 'every popup uses it')
+  assert.ok(script.includes('@keyframes dshDropIn') && script.includes('#toast.open { animation:dshDropIn'), 'the toast drops in')
+  assert.ok(script.includes('@keyframes dshTabIn') && script.includes('#tabstrip .tab.enter { animation:dshTabIn'), 'a new tab floats in')
+  // The omnibox used to switch background/border/ring on one frame.
+  assert.ok(script.includes('#addressWrap { transition:background .15s ease,border-color .15s ease,box-shadow .15s ease; }'), 'the omnibox eases')
+  // Only tabs that appear AFTER the first render of this document animate: the chrome
+  // is re-injected on every navigation, so animating the first render would pop the
+  // whole strip on every page load.
+  assert.ok(script.includes('if (tabsRendered && !lastTabIds.includes(tab.id)) {'), 'only genuinely new tabs animate')
+  assert.ok(script.includes("button.classList.add('enter')"), 'and they get the entrance class')
+  assert.ok(script.includes('tabsRendered = true'), 'the first render is exempt')
+  assert.ok(script.includes("target.classList.contains('enter')"), 'the class is dropped when the animation ends, so it cannot fight the drag transform')
+  // Reduced motion: the entrance animations are switched off (the loading spinner stays —
+  // it carries state, not decoration).
+  assert.ok(script.includes('@media (prefers-reduced-motion:reduce)'), 'reduced motion is honoured')
+  assert.ok(script.includes('#toast.open, #tabstrip .tab.enter { animation:none; }'), 'and turns the entrance animations off')
+  // The recorder the smoke asserts against.
+  assert.ok(script.includes('window.__dshChromeMotion'), 'the chrome records what animated')
+  assert.ok(script.includes("motionLog.push({ id: 'tab', phase: 'start', name: 'dshTabIn' })"), 'including the tab entrance')
+  assert.ok(script.includes('const motionLog = []'), 'and the log is declared once')
+})
+
 test('the rest of Chrome keybindings, over capabilities we already have', () => {
   const script = buildPageChromeScript()
   assert.ok(script.includes("chord === 'd' || chordCode === 'KeyD'"), 'Ctrl+D bookmarks')

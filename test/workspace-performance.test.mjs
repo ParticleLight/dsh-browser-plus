@@ -133,6 +133,9 @@ test('a fresh view commits a dark start page instead of staying blank', async ()
   assert.doesNotMatch(page, /\bsrc=|@import|<link|<img|<iframe/i, 'it must not pull a single external resource')
   assert.match(page, /<input id="q"/, 'it offers the in-page search box')
   assert.match(page, /__dshBookmarks/, 'and fills its shortcuts from the host-owned bookmarks')
+  // 起始页也不再硬切：内容极短地淡入一下，并且尊重系统的减少动态效果。
+  assert.match(page, /animation:dshIn .16s ease both/, 'the new-tab page eases in')
+  assert.match(page, /@media \(prefers-reduced-motion:reduce\)\{main\{animation:none\}\}/, 'and honours reduced motion')
   // The mark is the browser's own line-art icon, not a wordmark.
   assert.match(page, /<svg class="brand"[^>]*aria-label="DSH Browser"/, 'the mark is the line-art icon')
   assert.ok(!page.includes('>DSH Browser<'), 'and no text wordmark is left')
