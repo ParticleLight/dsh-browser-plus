@@ -273,27 +273,129 @@ const traces = new Map<string, unknown[]>()
 const chromeActiveApplied = new WeakMap<WebContentsView, boolean>()
 
 /**
- * The empty state a fresh view shows before its first navigation. A
- * WebContentsView with no committed document paints white AND leaves CDP with
- * no frame to evaluate against, so an un-navigated window was both unpleasant
- * and unusable — every browser_* call timed out on it.
+ * The empty state a fresh view shows before its first navigation — a Chrome-style
+ * new tab: the mark, an in-page search box and the shortcuts the chrome already
+ * binds. It has to be a committed document: a WebContentsView with no document
+ * paints white AND leaves CDP with no frame to evaluate against, so every
+ * browser_* call timed out on it. Nothing in here may reach the network (no
+ * fonts, no images, no remote scripts) — it is a `data:` page that has to render
+ * instantly, offline, on every new tab.
  */
-const START_PAGE_HTML = [
-  '<!doctype html><meta charset="utf-8"><title></title>',
-  '<style>',
-  'html,body{height:100%;margin:0}',
-  'body{display:flex;align-items:center;justify-content:center;text-align:center;',
-  'background:radial-gradient(120% 90% at 50% 0%,#182030 0%,#0e1218 62%,#0b0e13 100%);',
-  'color:#8b97a9;font:13px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;',
-  '-webkit-user-select:none;user-select:none}',
-  '.mark{font:600 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;',
-  'letter-spacing:.32em;color:#3f4a5c;margin-bottom:14px}',
-  '.sub{margin-top:6px;color:#5b6675;font-size:12px}',
-  '</style>',
-  '<div><div class="mark">DSH BROWSER</div>',
-  '<div>等待打开页面</div>',
-  '<div class="sub">在上方地址栏输入网址，或让 Agent 打开一个页面</div></div>',
-].join('')
+const START_PAGE_HTML = `
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="dark">
+<title>新标签页</title>
+<style>
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(1100px 640px at 50% -14%,rgba(64,120,230,.34),transparent 68%),
+    radial-gradient(820px 560px at 2% 112%,rgba(128,84,228,.24),transparent 70%),
+    radial-gradient(820px 560px at 100% 108%,rgba(18,162,176,.20),transparent 70%),
+    radial-gradient(140% 120% at 50% 50%,transparent 40%,rgba(0,0,0,.45) 100%),
+    linear-gradient(180deg,#0c111a 0%,#090d13 100%);
+  color:#e8eefb;
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  -webkit-user-select:none;user-select:none;overflow:hidden;
+}
+.grid{position:fixed;inset:0;pointer-events:none;opacity:.55;
+  background-image:linear-gradient(rgba(255,255,255,.055) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.055) 1px,transparent 1px);
+  background-size:46px 46px;
+  -webkit-mask-image:radial-gradient(58% 54% at 50% 40%,#000 0%,transparent 78%);
+  mask-image:radial-gradient(58% 54% at 50% 40%,#000 0%,transparent 78%)}
+.wrap{position:relative;width:min(620px,calc(100vw - 56px));text-align:center}
+.halo{position:absolute;left:50%;top:-6px;width:340px;height:220px;transform:translateX(-50%);
+  background:radial-gradient(closest-side,rgba(104,150,255,.22),transparent 72%);pointer-events:none}
+.logo{position:relative;width:62px;height:62px;margin:0 auto 20px;display:grid;place-items:center;border-radius:18px;
+  background:linear-gradient(150deg,#639bff 0%,#7c5cff 100%);
+  box-shadow:0 18px 40px rgba(62,110,220,.36),inset 0 1px 0 rgba(255,255,255,.36),inset 0 -1px 0 rgba(0,0,0,.2)}
+.logo svg{display:block}
+h1{margin:0;font-size:28px;font-weight:600;letter-spacing:.3px}
+h1 .dsh{background:linear-gradient(100deg,#93bcff,#bb9fff);-webkit-background-clip:text;background-clip:text;color:transparent}
+h1 .br{color:#9dabc0;font-weight:500}
+.tag{margin:10px 0 28px;color:#77869c;font-size:13px}
+.search{display:flex;align-items:center;gap:11px;height:48px;padding:0 16px;border-radius:24px;
+  background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.11);
+  box-shadow:0 12px 30px rgba(3,7,14,.46),inset 0 1px 0 rgba(255,255,255,.055);
+  transition:background .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s ease}
+.search:hover{background:rgba(255,255,255,.078)}
+.search:focus-within{background:rgba(255,255,255,.095);border-color:#6ea6ff;
+  box-shadow:0 0 0 4px rgba(96,150,255,.16),0 14px 34px rgba(3,7,14,.52);transform:translateY(-1px)}
+.search .ico{flex:none;width:17px;height:17px;color:#7c8ca4;transition:color .18s ease}
+.search:focus-within .ico{color:#9cc2ff}
+.search input{flex:1;min-width:0;height:100%;border:0;outline:none;background:transparent;color:#eaf1fd;
+  font:inherit;font-size:14.5px;padding:0;-webkit-user-select:text;user-select:text}
+.search input::placeholder{color:#66748a}
+.hint{flex:none;padding:2px 8px;border:1px solid rgba(255,255,255,.14);border-radius:7px;color:#7e8da4;
+  font:11px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;opacity:0;transition:opacity .18s ease}
+.search:focus-within .hint,.search.has-text .hint{opacity:1}
+.keys{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:22px}
+.key{padding:11px 8px 9px;border-radius:13px;border:1px solid rgba(255,255,255,.075);
+  background:rgba(255,255,255,.032);transition:background .18s ease,border-color .18s ease,transform .18s ease}
+.key:hover{background:rgba(255,255,255,.062);border-color:rgba(255,255,255,.14);transform:translateY(-2px)}
+.combo{display:flex;justify-content:center;gap:4px;margin-bottom:7px}
+.combo kbd{min-width:22px;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.1);border-bottom-color:rgba(0,0,0,.5);color:#cbd8ec;
+  font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.cap{color:#7d8ca3;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.foot{margin:28px 0 0;color:#5d6a7e;font-size:12px}
+.foot b{color:#8496ae;font-weight:500}
+@media (max-height:520px){.keys,.foot{display:none}.tag{margin-bottom:20px}}
+@media (max-width:560px){.keys{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="grid"></div>
+<main class="wrap">
+  <div class="halo"></div>
+  <div class="logo">
+    <svg viewBox="0 0 32 32" width="31" height="31" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="4.5" y="6.5" width="23" height="19" rx="5"/>
+      <path d="M4.5 12.5h23"/>
+      <circle cx="8.6" cy="9.5" r="1" fill="#fff" stroke="none"/>
+      <circle cx="12.1" cy="9.5" r="1" fill="#fff" stroke="none"/>
+    </svg>
+  </div>
+  <h1><span class="dsh">DSH</span> <span class="br">Browser</span></h1>
+  <p class="tag">输入网址开始，或让 Agent 帮你打开一个页面</p>
+  <form class="search" id="f" autocomplete="off">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M16.6 16.6 21 21"/></svg>
+    <input id="q" type="text" placeholder="搜索或输入网址" autocomplete="off" spellcheck="false" aria-label="搜索或输入网址">
+    <span class="hint">Enter</span>
+  </form>
+  <div class="keys">
+    <div class="key"><div class="combo"><kbd>Ctrl</kbd><kbd>T</kbd></div><div class="cap">新建标签页</div></div>
+    <div class="key"><div class="combo"><kbd>Ctrl</kbd><kbd>L</kbd></div><div class="cap">聚焦地址栏</div></div>
+    <div class="key"><div class="combo"><kbd>Ctrl</kbd><kbd>F</kbd></div><div class="cap">页内查找</div></div>
+    <div class="key"><div class="combo"><kbd>Ctrl</kbd><kbd>D</kbd></div><div class="cap">收藏此页</div></div>
+  </div>
+  <p class="foot">Agent 与你在同一个浏览器里协作 · <b>标签、收藏、登录态都是共享的</b></p>
+</main>
+<script>
+(function(){
+  var form=document.getElementById('f'),input=document.getElementById('q');
+  // 和地址栏同一套口径（normalizeBrowserAddress）：带空格的、没有点的都当搜索词。
+  function normalize(raw){
+    var v=String(raw||'').trim();
+    if(v==='')return '';
+    if(/^https?:[/][/]/i.test(v))return v;
+    if(/^[a-z][a-z0-9+.-]*:/i.test(v))return '';
+    if(v.indexOf(' ')>-1||v.indexOf('.')<0)return 'https://www.bing.com/search?q='+encodeURIComponent(v);
+    return 'https://'+v;
+  }
+  function go(){var t=normalize(input.value);if(t)location.assign(t)}
+  form.addEventListener('submit',function(e){e.preventDefault();go()});
+  input.addEventListener('input',function(){form.classList.toggle('has-text',input.value!=='')});
+})();
+</script>
+</body>
+</html>
+`
 
 /** data: URL for that empty state; its opaque origin simply has no bookmarks. */
 const START_PAGE_URL = 'data:text/html;charset=utf-8,' + encodeURIComponent(START_PAGE_HTML)

@@ -123,4 +123,11 @@ test('a fresh view commits a dark start page instead of staying blank', async ()
   assert.match(source, /void view\.webContents\.loadURL\(START_PAGE_URL\)/, 'createView loads it')
   assert.match(source, /backgroundColor: '#0e1218'/, 'the window frame is dark too')
   assert.match(source, /START_PAGE_HTML[\s\S]{0,600}background:radial-gradient/, 'and the page itself is dark')
+  // The new-tab page has to stay offline and instant. It is a data: document
+  // with an opaque origin, so a font, an icon or a remote script would be both
+  // a leak and a flash of unstyled content on every single new tab.
+  const page = source.match(/const START_PAGE_HTML = `([\s\S]*?)`/)?.[1]
+  assert.ok(page !== undefined, 'the start page is one template literal')
+  assert.doesNotMatch(page, /\bsrc=|\bhref=|@import/i, 'it must not pull a single external resource')
+  assert.match(page, /<input id="q"/, 'it offers the in-page search box')
 })
