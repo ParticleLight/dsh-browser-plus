@@ -34,8 +34,8 @@ test('page chrome exposes a task manager drawer and host binding action', () => 
   assert.ok(script.includes('event.detail === 0'), 'preserves keyboard activation without duplicate mouse toggles')
   assert.ok(script.includes('event.target === host'), 'excludes chrome events from automatic handoff')
   assert.ok(script.includes('textContent'), 'renders task fields as text content')
-  assert.ok(script.includes("taskKey !== undefined"), 'guards malformed task keys before binding')
-  assert.ok(script.includes("row.disabled = taskKey === undefined"), 'disables malformed task rows')
+  assert.ok(script.includes("'malformed-' + index"), 'malformed task keys get a synthetic key instead of a broken binding')
+  assert.ok(script.includes("row.disabled = task.active === true || !(typeof task.key === 'string' && task.key.trim() !== '')"), 'and those rows stay disabled')
 })
 
 
@@ -511,6 +511,11 @@ test('bookmarks come from the host, not from per-origin localStorage', () => {
   assert.ok(script.includes('opacity .18s ease,color .18s ease'), 'and dim through a transition, not a snap')
   assert.ok(script.includes('canBack: !back.disabled'), 'the test seam reports it')
   // 工具栏按钮上的字和 toast 正文都是整段换掉的 —— 值真的变了才淡一下。
+  // 任务行也要复用节点：整列重建时后面的行会瞬移（书签第 46 轮修过同一个病）。
+  assert.ok(script.includes('reconcileList(taskList, keys, () => {'), 'the task rows are reconciled, not rebuilt')
+  assert.ok(!script.includes("taskList.textContent = ''"), 'the wholesale clear is gone')
+  assert.ok(script.includes("const key = row.dataset.dshTaskKey"), 'the click handler reads the key at click time')
+  assert.ok(script.includes("'task-panel')"), 'and the slide is logged under the task panel')
   assert.ok(script.includes('const swapText = (element, next, id) => {'), 'one helper swaps a label with a short fade')
   assert.ok(script.includes("if (element.textContent === value) return"), 'and only when the value really changed')
   assert.ok(script.includes("swapText(taskControl, human ? '交还 Agent' : '接管', 'task-control')"), 'the task control uses it')

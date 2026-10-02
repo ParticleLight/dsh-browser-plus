@@ -849,6 +849,60 @@ await check('the bookmark bar does not replay its entrance on every page load', 
 // 前进/后退能不能点由宿主算（tab.canGoBack/canGoForward）—— 变灰要**淡**进去，不是啪一下。
 // 前进/后退能不能点由宿主算（tab.canGoBack/canGoForward）—— 变灰要**淡**进去，不是啪一下。
 // toast 的正文是整段换掉的：第二句话来的时候要淡一下，不是啪地跳。
+// 任务行也是复用节点：换个顺序要滑过去，不是瞬移（书签第 46 轮修过同一个病）。
+await check('the task rows slide instead of jumping', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const readPanels = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])'))
+  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
+  const clickAt = async (x, y) => {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+  }
+  const waitForPanel = async id => {
+    for (let i = 0; i < 24; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      const found = (await readPanels()).find(entry => entry.id === id && entry.open === true)
+      if (found) return found
+    }
+    return null
+  }
+  let menu = null
+  for (let attempt = 0; attempt < 4 && menu === null; attempt += 1) {
+    // 先把指针挪开：已经在按钮上时不会再产生 pointerenter，悬停意图也就不会启动。
+    await moveTo(5, 200)
+    await new Promise(resolve => setTimeout(resolve, 150))
+    await moveTo(1362, 62)
+    await new Promise(resolve => setTimeout(resolve, 400))
+    if (attempt > 0) await clickAt(1362, 62)
+    menu = await waitForPanel('main')
+  }
+  if (menu === null) throw new Error('the ⋮ menu never opened')
+  const tasksItem = menu.items.find(item => item.id === 'mmTasks')
+  if (tasksItem === undefined) throw new Error('no tasks item: ' + JSON.stringify(menu.items.map(item => item.id)))
+  await provider.click(session, { x: tasksItem.left + 12, y: tasksItem.top + Math.round(tasksItem.height / 2) })
+  const panel = await waitForPanel('tasks')
+  if (panel === null) throw new Error('the tasks panel never opened')
+  // 用两个假任务驱动**真实的渲染路径**，量完把真实列表还回去。
+  const fake = [
+    { key: 'slide-a', label: 'A', status: 'idle', control: 'agent', active: false },
+    { key: 'slide-b', label: 'B', status: 'running', control: 'agent', active: false },
+  ]
+  await pageEval('(() => { window.__dshTasksBackup = window.__dshTasks; window.__dshTasks = ' + JSON.stringify(fake) + '; window.__dshTaskRender(); return \'ok\' })()')
+  await new Promise(resolve => setTimeout(resolve, 400))
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  const swapped = [fake[1], fake[0]]
+  await pageEval('(() => { window.__dshTasks = ' + JSON.stringify(swapped) + '; window.__dshTaskRender(); return \'ok\' })()')
+  let log = []
+  for (let i = 0; i < 15 && !log.some(entry => entry.id === 'task-panel'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 120))
+    log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  }
+  await pageEval('(() => { if (window.__dshTasksBackup !== undefined) window.__dshTasks = window.__dshTasksBackup; window.__dshTaskRender(); return \'restored\' })()')
+  await provider.pressKey(session, { key: 'Escape' })
+  const hit = log.find(entry => entry.id === 'task-panel' && entry.phase === 'slide')
+  if (hit === undefined) throw new Error('the task rows jumped instead of sliding: ' + JSON.stringify(log))
+  return { list: hit.id, moved: hit.name }
+})
 await check('a second notice cross-fades its text', async () => {
   const pageEval = async script => String((await provider.execute(session, { script })).value)
   await pageEval("(() => { window.__dshChromeToast('first', 'info'); return 'ok' })()")
