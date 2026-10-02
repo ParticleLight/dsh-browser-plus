@@ -903,6 +903,48 @@ await check('the task rows slide instead of jumping', async () => {
   if (hit === undefined) throw new Error('the task rows jumped instead of sliding: ' + JSON.stringify(log))
   return { list: hit.id, moved: hit.name }
 })
+// 切标签时页面从表面色淡进来；**导航绝不能播**（否则每次加载都闪一下）。
+await check('a tab switch fades the incoming page in, a navigation does not', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const readLog = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  const clickAt = async (x, y) => {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+  }
+  const waitForTabs = async want => {
+    for (let i = 0; i < 25; i += 1) {
+      const list = await provider.listTabs(session)
+      if (list.length === want) return list
+      await new Promise(resolve => setTimeout(resolve, 150))
+    }
+    return null
+  }
+  let tabs = await provider.listTabs(session)
+  if (tabs.length < 2) { await clickAt(258, 20); tabs = await waitForTabs(2) }
+  if (tabs === null || tabs.length < 2) throw new Error('could not get two tabs: ' + JSON.stringify(tabs))
+  // 先导航一次（在第二个标签上）：导航**不许**播 reveal。
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 1600))
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
+  await new Promise(resolve => setTimeout(resolve, 1800))
+  const afterNav = await readLog()
+  if (afterNav.some(entry => entry.name === 'dshReveal')) throw new Error('a navigation replayed the reveal: ' + JSON.stringify(afterNav))
+  // 再切回第一个标签：这一次**必须**播。
+  await clickAt(221, 20)
+  await new Promise(resolve => setTimeout(resolve, 900))
+  let log = []
+  for (let i = 0; i < 12 && !log.some(entry => entry.name === 'dshReveal'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 120))
+    log = await readLog()
+  }
+  const hit = log.find(entry => entry.name === 'dshReveal')
+  if (hit === undefined) throw new Error('switching tabs did not reveal the page: ' + JSON.stringify(log))
+  // 收尾：把多出来的标签关掉，后面的检查假定只有一个。
+  const extra = (await provider.listTabs(session)).length
+  if (extra > 1) { await clickAt(453, 20); await waitForTabs(1) }
+  return { switch: hit.name, navigation: 'none' }
+})
 await check('a second notice cross-fades its text', async () => {
   const pageEval = async script => String((await provider.execute(session, { script })).value)
   await pageEval("(() => { window.__dshChromeToast('first', 'info'); return 'ok' })()")

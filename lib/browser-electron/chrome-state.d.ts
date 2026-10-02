@@ -156,6 +156,8 @@ export type ChromePatchOperation = {
 } | {
     readonly op: 'bookmarkbar.set';
     readonly visible: boolean;
+} | {
+    readonly op: 'reveal';
 }
 /**
  * A popup the chrome frame view asked the page's copy to show, anchored where the

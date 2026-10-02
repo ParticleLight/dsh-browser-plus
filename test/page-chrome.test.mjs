@@ -516,6 +516,10 @@ test('bookmarks come from the host, not from per-origin localStorage', () => {
   assert.ok(!script.includes("taskList.textContent = ''"), 'the wholesale clear is gone')
   assert.ok(script.includes("const key = row.dataset.dshTaskKey"), 'the click handler reads the key at click time')
   assert.ok(script.includes("'task-panel')"), 'and the slide is logged under the task panel')
+  // 切标签时新露出来的页面从表面色淡进来；**导航不播**（否则每次加载都闪一下）。
+  assert.ok(script.includes('#reveal { position:fixed; inset:0; background:#202124; opacity:0; pointer-events:none; }'), 'a surface-coloured overlay covers the viewport')
+  assert.ok(script.includes("operation.op === 'reveal'"), 'the chrome reacts to the host\'s reveal patch')
+  assert.ok(script.includes("motionLog.push({ id: 'reveal', phase: 'start', name: 'dshReveal' })"), 'and records it for the smoke')
   assert.ok(script.includes('const swapText = (element, next, id) => {'), 'one helper swaps a label with a short fade')
   assert.ok(script.includes("if (element.textContent === value) return"), 'and only when the value really changed')
   assert.ok(script.includes("swapText(taskControl, human ? '交还 Agent' : '接管', 'task-control')"), 'the task control uses it')

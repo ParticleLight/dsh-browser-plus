@@ -142,6 +142,8 @@ export type ChromePatchOperation =
   | { readonly op: 'tabs.set'; readonly tabs: readonly ChromeTabSummary[] }
   | { readonly op: 'bookmarks.set'; readonly bookmarks: readonly ChromeBookmark[] }
   | { readonly op: 'bookmarkbar.set'; readonly visible: boolean }
+  // 切任务/切标签时让**新露出来的那个页面**从表面色淡进来（只在这一刻播，导航不播）。
+  | { readonly op: 'reveal' }
   /**
    * A popup the chrome frame view asked the page's copy to show, anchored where the
    * frame's own button is (the frame is 84px tall — a menu drawn there is clipped).
