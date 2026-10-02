@@ -491,6 +491,12 @@ test('bookmarks come from the host, not from per-origin localStorage', () => {
   assert.ok(script.includes("const dy = Math.round(was.top - box.top)"), 'the slide covers both axes')
   assert.ok(script.includes("node.animate([{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }]"), 'and animates both')
   assert.ok(script.includes("if (chip.dataset.title === title) return"), 'a reused chip is only redrawn when its title really changed')
+  // 任务缩略图每隔几秒来一帧：新的淡入盖住旧的，旧帧等动画结束再摘（硬换会闪）。
+  assert.ok(script.includes('const paintThumbCanvas = (thumb, canvas) =>'), 'thumbnails go through one painter')
+  assert.ok(script.includes("const previous = thumb.querySelector('canvas.task-thumb-canvas')"), 'which finds the frame it is covering')
+  assert.ok(script.includes("motionLog.push({ id: 'task-thumb', phase: 'start', name: 'dshThumbIn' })"), 'and records the fade')
+  assert.ok(script.includes("animation.finished.then(drop, drop)"), 'the old frame is dropped when the fade finishes (or is cancelled)')
+  assert.ok(script.includes('#taskPanel .task-thumb > * { grid-area:1 / 1; }'), 'both frames share one grid cell')
 })
 
 test('the chrome survives a strict CSP: styles go through CSSOM, never a <style> element', () => {
@@ -640,8 +646,9 @@ test('task thumbnail guards a missing 2d context before clearing the fallback', 
   const script = buildPageChromeScript()
   const start = script.indexOf("const ctx = canvas.getContext('2d')")
   assert.ok(start !== -1, 'success callback obtains a 2d context')
-  const end = script.indexOf("thumb.textContent = ''", start)
-  assert.ok(end !== -1, 'success callback clears the thumb fallback')
+  // 成功回调把画布交给 paintThumbCanvas（它负责盖掉 fallback、并让旧帧淡出）。
+  const end = script.indexOf('paintThumbCanvas(thumb, canvas)', start)
+  assert.ok(end !== -1, 'success callback hands the canvas to the thumbnail painter')
   const guard = script.slice(start, end)
   assert.ok(guard.includes('if (!ctx)'), 'guards a missing 2d context before any clear/append')
   assert.ok(guard.includes('return'), 'returns early so the origin/DSH fallback remains')

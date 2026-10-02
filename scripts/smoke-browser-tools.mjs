@@ -763,6 +763,58 @@ await check('removing a bookmark slides the ones after it', async () => {
   if (slide === undefined) throw new Error('the remaining rows jumped instead of sliding: ' + JSON.stringify(log))
   return { list: slide.id, moved: slide.name }
 })
+// 缩略图每隔几秒就来一帧：新的一帧要**淡入盖住旧的**，硬换会闪。
+await check('a new task thumbnail fades in over the previous one', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const readPanels = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])'))
+  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
+  const clickAt = async (x, y) => {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+  }
+  const waitForPanel = async id => {
+    for (let i = 0; i < 24; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      const found = (await readPanels()).find(entry => entry.id === id && entry.open === true)
+      if (found) return found
+    }
+    return null
+  }
+  let menu = null
+  for (let attempt = 0; attempt < 4 && menu === null; attempt += 1) {
+    // 先把指针挪开：**已经在按钮上**时不会再产生 pointerenter，悬停意图也就不会启动。
+    await moveTo(5, 200)
+    await new Promise(resolve => setTimeout(resolve, 150))
+    await moveTo(1362, 62)
+    await new Promise(resolve => setTimeout(resolve, 400))
+    if (attempt > 0) await clickAt(1362, 62)
+    menu = await waitForPanel('main')
+  }
+  if (menu === null) throw new Error('the ⋮ menu never opened')
+  const tasksItem = menu.items.find(item => item.id === 'mmTasks')
+  if (tasksItem === undefined) throw new Error('no tasks item: ' + JSON.stringify(menu.items.map(item => item.id)))
+  await provider.click(session, { x: tasksItem.left + 12, y: tasksItem.top + Math.round(tasksItem.height / 2) })
+  const panel = await waitForPanel('tasks')
+  if (panel === null) throw new Error('the tasks panel never opened')
+  // 用 Chromium 自己生成的 JPEG：一定是能解码的真帧。
+  const jpeg = await pageEval("(() => { const c = document.createElement('canvas'); c.width = 16; c.height = 16; const x = c.getContext('2d'); x.fillStyle = '#336699'; x.fillRect(0, 0, 16, 16); return c.toDataURL('image/jpeg') })()")
+  if (!jpeg.startsWith('data:image/jpeg;base64,')) throw new Error('could not build a jpeg frame: ' + jpeg.slice(0, 40))
+  const first = Number(await pageEval('String(window.__dshChromeTaskThumb ? window.__dshChromeTaskThumb(' + JSON.stringify(jpeg) + ', 0) : 0)'))
+  if (first !== 1) throw new Error('the tasks panel exposed no thumbnail to paint into')
+  await new Promise(resolve => setTimeout(resolve, 600))
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  // 第二帧：这时已经有一张旧 canvas，走的是「淡入盖住旧的」那条路。
+  await pageEval('String(window.__dshChromeTaskThumb(' + JSON.stringify(jpeg) + ', 0))')
+  let log = []
+  for (let i = 0; i < 20 && !log.some(entry => entry.id === 'task-thumb'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 150))
+    log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  }
+  await provider.pressKey(session, { key: 'Escape' })
+  const hit = log.find(entry => entry.id === 'task-thumb' && entry.name === 'dshThumbIn')
+  if (hit === undefined) throw new Error('the new thumbnail swapped in without a fade: ' + JSON.stringify(log))
+  return { animation: hit.name }
+})
 await check('the toolbar star lights up and pops when the page is bookmarked', async () => {
   const frameEval = async script => String(await provider.chromeEval(script))
   await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
