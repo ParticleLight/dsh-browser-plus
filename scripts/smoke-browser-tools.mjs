@@ -228,27 +228,46 @@ await check('Ctrl+L hands the page focus to the frame omnibox', async () => {
   }
   throw new Error('the omnibox never got the focus: ' + JSON.stringify(url))
 })
-await check('the frame chrome opens the page chrome popups where its buttons are', async () => {
+await check('hovering a button after using its menu shows the menu again', async () => {
   const readPanels = async () => JSON.parse(String((await provider.execute(session, {
     script: 'JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])',
   })).value))
-  const before = await readPanels()
-  if (before.some(entry => entry.open)) throw new Error('a panel was already open: ' + JSON.stringify(before))
-  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x: 1199, y: CHROME_TOOLBAR_Y, button: 'left', clickCount: 1 })
-  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 1199, y: CHROME_TOOLBAR_Y, button: 'left', clickCount: 1 })
-  let opened = null
-  for (let i = 0; i < 20; i += 1) {
-    await new Promise(resolve => setTimeout(resolve, 150))
-    const panels = await readPanels()
-    opened = panels.find(entry => entry.id === 'bookmarks' && entry.open === true)
-    if (opened) break
+  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
+  const clickAt = async (x, y) => {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
   }
-  if (!opened) throw new Error('the page never opened the bookmarks panel: ' + JSON.stringify(await readPanels()))
-  // Close it again: a pinned panel would sit over the page for every later check.
-  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x: 1199, y: CHROME_TOOLBAR_Y, button: 'left', clickCount: 1 })
-  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 1199, y: CHROME_TOOLBAR_Y, button: 'left', clickCount: 1 })
+  const waitForPanel = async (id) => {
+    for (let i = 0; i < 20; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      const found = (await readPanels()).find(entry => entry.id === id && entry.open === true)
+      if (found) return found
+    }
+    return null
+  }
+  // Open the ⋮ menu from the FRAME (its button is the real one): the page puts its own
+  // copy of the menu under that button.
+  await moveTo(1362, CHROME_TOOLBAR_Y)
+  const menu = await waitForPanel('main')
+  if (menu === null) throw new Error('the ⋮ menu never opened: ' + JSON.stringify(await readPanels()))
+  const item = Array.isArray(menu.items) ? menu.items.find(candidate => candidate.id === 'mmNewTab') : undefined
+  if (item === undefined || item.height <= 0) throw new Error('the menu published no usable items: ' + JSON.stringify(menu.items))
+  // Click that item in the PAGE's copy — the visible one. This is what the user did, and
+  // afterwards the frame's own (clipped) copy still believed its menu was open, so the
+  // next hover did nothing at all.
+  const tabsBefore = (await provider.listTabs(session)).length
+  await provider.click(session, { x: item.left + 12, y: item.top + Math.round(item.height / 2) })
+  await new Promise(resolve => setTimeout(resolve, 600))
+  const closed = (await readPanels()).every(entry => entry.open !== true)
+  // Hover the same button again: the menu must come back.
+  await moveTo(1350, CHROME_TOOLBAR_Y)
+  await moveTo(1362, CHROME_TOOLBAR_Y)
+  const reopened = await waitForPanel('main')
+  if (reopened === null) throw new Error('hovering ⋮ again after clicking an item showed no menu (closedAfterClick=' + String(closed) + ')')
+  // Close it again so it cannot sit over the page for every later check.
+  await clickAt(1362, CHROME_TOOLBAR_Y)
   await new Promise(resolve => setTimeout(resolve, 500))
-  return { left: opened.left, width: opened.width, closedAgain: (await readPanels()).every(entry => entry.open !== true) }
+  return { item: item.id, closedAfterClick: closed, reopened: true, tabs: tabsBefore + ' -> ' + String((await provider.listTabs(session)).length) }
 })
 // The three checks below assert that the page RECEIVED the event. Resolution
 // alone is not a click: browser_click can resolve the right element, report

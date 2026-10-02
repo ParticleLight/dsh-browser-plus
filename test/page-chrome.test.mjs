@@ -560,7 +560,7 @@ test('workspace apply opens both panels from true state while toggles stay indep
 
 test('menu open and close keep workspace state in sync', () => {
   const script = buildPageChromeScript()
-  const closeStart = script.indexOf('const closeMenu = popup => {')
+  const closeStart = script.indexOf('const closeMenu = (popup, reason) => {')
   const openStart = script.indexOf('const openMenu = (entry, byHover) => {')
   assert.ok(closeStart !== -1 && openStart > closeStart, 'closeMenu is defined before openMenu')
 
@@ -568,6 +568,9 @@ test('menu open and close keep workspace state in sync', () => {
   assert.match(closeBlock, /popup\.classList\.remove\('open'\)/, 'closeMenu removes the open class')
   assert.match(closeBlock, /syncWorkspacePanels\(\)/, 'closeMenu syncs workspace state')
   assert.match(closeBlock, /setAttribute\('aria-expanded', 'false'\)/, 'closeMenu clears the trigger state')
+  // Hovering away must not read as a close on the frame: the pointer has to cross the
+  // gap into the page's menu, so the frame only starts the page's grace timer.
+  assert.match(closeBlock, /if \(reason === 'hover'\) emitPanelHover\(entry\.id\); else emitPanelState\(entry\.id, false\)/, 'a hover-out is a grace close, not a close')
 
   const openBlock = script.slice(openStart, script.indexOf('const toggleMenu', openStart))
   assert.match(openBlock, /anchorPopup\(entry\.popup, entry\.trigger, entry\.width\)/, 'openMenu anchors the popup to its trigger')
