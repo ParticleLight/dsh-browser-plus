@@ -395,6 +395,27 @@ await check('a settled tab is not stuck loading', async () => {
   if (loading.some(Boolean)) throw new Error('the strip still shows a tab as loading: ' + String(flags.value))
   return { tabs: loading.length, loading: 0 }
 })
+// Home is this browser's own new-tab page, and that page is a data: document.
+// Chromium blocks renderer-initiated navigation to one, so the button can only
+// work if the frame relays it and the HOST does the loadURL — which is exactly
+// what this drives end to end (the home button sits after back/forward/reload,
+// at 33/66/99/133 in a full-width bar; the candidates bracket that centre).
+await check('the home button returns to the new-tab page', async () => {
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 600))
+  for (const x of [133, 127, 139, 121]) {
+    await chromeClick(x, CHROME_TOOLBAR_Y)
+    await new Promise(resolve => setTimeout(resolve, 700))
+    const url = (await provider.listTabs(session)).find(tab => tab.active)?.url ?? ''
+    if (url.startsWith('data:text/html')) {
+      // Leave the tab on a real page: later checks navigate anyway, but the next
+      // few read the live document.
+      await provider.navigate(session, { url: 'https://example.com/' })
+      return { x, url: url.slice(0, 21) }
+    }
+  }
+  throw new Error('the home button never reached the new-tab page')
+})
 // Page zoom lives on the webContents, so the chrome has to be told the factor
 // rather than derive it (a freshly navigated document's devicePixelRatio is
 // already scaled, which is what made the derived version stop compensating).

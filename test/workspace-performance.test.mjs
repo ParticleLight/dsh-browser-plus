@@ -133,4 +133,10 @@ test('a fresh view commits a dark start page instead of staying blank', async ()
   assert.doesNotMatch(page, /\bsrc=|@import|<link|<img|<iframe/i, 'it must not pull a single external resource')
   assert.match(page, /<input id="q"/, 'it offers the in-page search box')
   assert.match(page, /__dshBookmarks/, 'and fills its shortcuts from the host-owned bookmarks')
+  // The mark is the browser's own line-art icon, not a wordmark.
+  assert.match(page, /<svg class="brand"[^>]*aria-label="DSH Browser"/, 'the mark is the line-art icon')
+  assert.ok(!page.includes('>DSH Browser<'), 'and no text wordmark is left')
+  // Home has to land on this document, so the host must do the loadURL: a page
+  // cannot navigate itself to a data: URL.
+  assert.match(source, /verb === 'home'\)[\s\S]{0,500}loadURL\(START_PAGE_URL\)/, 'the home button returns to the start page')
 })

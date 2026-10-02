@@ -89,7 +89,9 @@ test('page chrome script is top-frame-only, closed-shadow, and idempotent', () =
   assert.ok(script.includes('anchorPopup'), 'secondary menus anchor to their trigger button')
   assert.ok(script.includes('__dshTrail'), 'renders injected trail')
   assert.ok(script.includes('window.stop()'), 'has stop action')
-  assert.ok(script.includes("'https://www.bing.com'"), 'has home action')
+  // Home is the browser's own new-tab page (a data: document), so the button is
+  // relayed to the host instead of navigating the page itself.
+  assert.ok(script.includes("emitPageAction('home')"), 'has home action')
   assert.ok(script.includes('bookmarkList'), 'has bookmarks logic')
   // Bookmarks deliberately do NOT use localStorage any more: it is per origin, so
   // the list has to come from the host (see the bookmarks test below).
@@ -262,6 +264,11 @@ test('the frame chrome relays page actions instead of touching its own document'
     assert.ok(frame.includes("emitPageAction('" + verb + "')"), verb + ' is relayed')
   }
   assert.ok(frame.includes("emitPageAction('navigate', { url: target })"), 'the omnibox is relayed')
+  // Home is the browser's own new-tab page, and that is a data: document: a page
+  // cannot navigate itself to one, so even the page's copy has to relay it. The
+  // old behaviour (jump to a search engine) must be gone from BOTH surfaces.
+  assert.ok(full.includes("home.addEventListener('click', () => emitPageAction('home'))"), 'home is relayed from both surfaces')
+  assert.ok(!full.includes("location.assign('https://www.bing.com')"), 'home no longer jumps to a search engine')
   // ...while the page's own copy keeps doing it locally, exactly as before.
   assert.ok(full.includes('else history.back()'), 'the page chrome still goes back itself')
   assert.ok(full.includes("else location.assign(target)"), 'and navigates itself')

@@ -7,20 +7,37 @@ const png256 = new URL('../assets/dsh-browser-plus-256.png', import.meta.url)
 const png512 = new URL('../assets/dsh-browser-plus-512.png', import.meta.url)
 const ico = new URL('../assets/dsh-browser-plus.ico', import.meta.url)
 
-test('Browser Flow SVG has the approved vector structure', async () => {
+const smallSvgPath = new URL('../assets/dsh-browser-plus-small.svg', import.meta.url)
+
+test('the icon is minimal white line art on the chrome surface', async () => {
   const svg = await readFile(svgPath, 'utf8')
   assert.match(svg, /viewBox="0 0 256 256"/)
   assert.match(svg, /role="img"/)
   assert.match(svg, /aria-label="dsh-browser-plus"/)
-  assert.match(svg, /id="browser-window"/)
-  assert.match(svg, /id="task-flow"/)
-  assert.match(svg, /id="task-node-a"/)
-  assert.match(svg, /id="task-node-b"/)
-  assert.match(svg, /#68c9e8/)
-  assert.match(svg, /#77d59a/)
+  // White strokes only — the style this icon was asked for.
+  assert.match(svg, /stroke="#ffffff"/)
+  assert.match(svg, /fill="none"/)
+  // The plate is the browser's own surface colour, which is what keeps a white
+  // outline legible on a light taskbar (on a dark one it disappears).
+  assert.match(svg, /fill="#202124"/)
+  // The old art is gone: no gradients, no accent colours, no raster/foreign content.
+  assert.doesNotMatch(svg, /<(linearGradient|radialGradient|filter)\b/)
+  assert.doesNotMatch(svg, /#68c9e8|#77d59a|#9adff0|#1d3048|#142235/)
   assert.doesNotMatch(svg, /<text\b/)
   assert.doesNotMatch(svg, /<(image|foreignObject)\b/)
   assert.doesNotMatch(svg, /\b(?:href|xlink:href)=/)
+})
+
+test('the small-size icon drops what would be sub-pixel', async () => {
+  const small = await readFile(smallSvgPath, 'utf8')
+  assert.match(small, /stroke="#ffffff"/)
+  assert.match(small, /stroke-width="2.1"/, 'the outline is drawn heavier instead')
+  // The two title-bar dots are sub-pixel mush at 16/32px, so they are dropped.
+  assert.doesNotMatch(small, /<circle\b/)
+  const build = await readFile(new URL('../scripts/build-icons.mjs', import.meta.url), 'utf8')
+  assert.match(build, /renderPng\(16, smallSvg\)/, '16px uses the small variant')
+  assert.match(build, /renderPng\(32, smallSvg\)/, 'and so does 32px')
+  assert.match(build, /renderPng\(48\)/, '48px keeps the full art')
 })
 
 test('icon derivatives exist with valid PNG/ICO signatures', async () => {

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="dsh-browser-plus">
+  <!-- The 16/32px derivative: the two title-bar dots are sub-pixel at that size, so
+       they are dropped and the outline is drawn a little heavier instead. -->
+  <rect x="10" y="10" width="236" height="236" rx="54" fill="#202124"/>
+  <g transform="translate(20 20) scale(9)" fill="none" stroke="#ffffff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.25" y="4.75" width="17.5" height="14.5" rx="3.25"/>
+    <path d="M3.25 9.4h17.5"/>
+  </g>
+</svg>
