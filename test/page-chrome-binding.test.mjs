@@ -160,7 +160,7 @@ test('host authorizes page-emitted actions with the per-view token', async () =>
   assert.equal(authorize(['set-control-owner'], 'tok-abc123'), false)
 
   assert.match(source, /const chromeToken = randomBytes\(24\)\.toString\('hex'\)/, 'each view gets a random token')
-  assert.match(source, /buildPageChromeScript\(chromeTokens\.get\(view\) \?\? ''\)/, 'the chrome is built with the view token')
+  assert.match(source, /buildPageChromeScript\(chromeTokens\.get\(view\) \?\? '', 'page'\)/, 'the page is built with the view token, on the surface that keeps only popups')
   assert.match(source, /if \(!authorizeChromeAction\(action, chromeToken\)\)/, 'the binding handler checks the token')
   const gate = source.indexOf('authorizeChromeAction(action, chromeToken)')
   const dispatch = source.indexOf('switchVisibleTask(action.taskKey)')

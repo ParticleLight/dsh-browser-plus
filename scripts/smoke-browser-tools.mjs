@@ -286,24 +286,26 @@ await check('Ctrl+D bookmarks the page it is on', async () => {
 await check('the bookmark bar is host state and the page offset follows it', async () => {
   await provider.navigate(session, { url: 'https://example.com/' })
   await new Promise(resolve => setTimeout(resolve, 500))
+  // The page's own viewport now starts below the chrome frame, so its offset is
+  // just the bookmark bar (34px) — the toolbar is no longer part of this document.
   const read = async () => {
     const state = await provider.execute(session, {
-      script: '(() => { const el = document.elementFromPoint(200, 100); return JSON.stringify({ bar: window.__dshBookmarkBar === true, pad: getComputedStyle(document.documentElement).paddingTop, atBar: (el && el.id) || (el && el.tagName) || "none" }) })()',
+      script: '(() => { const el = document.elementFromPoint(200, 16); return JSON.stringify({ bar: window.__dshBookmarkBar === true, pad: getComputedStyle(document.documentElement).paddingTop, atBar: (el && el.id) || (el && el.tagName) || "none" }) })()',
     })
     return JSON.parse(String(state.value))
   }
   const before = await read()
-  if (before.bar !== false || before.pad !== '84px') throw new Error('unexpected start state ' + JSON.stringify(before))
+  if (before.bar !== false || before.pad !== '0px') throw new Error('unexpected start state ' + JSON.stringify(before))
   await provider.execute(session, { script: '(() => { window.__dshChromeBookmarkBar(); return "on" })()' })
   await new Promise(resolve => setTimeout(resolve, 600))
   const opened = await read()
   if (opened.bar !== true) throw new Error('the host did not keep the bar on: ' + JSON.stringify(opened))
-  if (opened.pad !== '118px') throw new Error('the page was not moved down: ' + JSON.stringify(opened))
-  if (opened.atBar !== '__dsh_browser_chrome_host__') throw new Error('the bar is not painted at y=100: ' + JSON.stringify(opened))
+  if (opened.pad !== '34px') throw new Error('the page was not moved down: ' + JSON.stringify(opened))
+  if (opened.atBar !== '__dsh_browser_chrome_host__') throw new Error('the bar is not painted at the top of the page: ' + JSON.stringify(opened))
   await provider.execute(session, { script: '(() => { window.__dshChromeBookmarkBar(); return "off" })()' })
   await new Promise(resolve => setTimeout(resolve, 600))
   const closed = await read()
-  if (closed.bar !== false || closed.pad !== '84px') throw new Error('the bar did not go away: ' + JSON.stringify(closed))
+  if (closed.bar !== false || closed.pad !== '0px') throw new Error('the bar did not go away: ' + JSON.stringify(closed))
   return { opened: opened.pad, closed: closed.pad }
 })
 await check('a settled tab is not stuck loading', async () => {
@@ -474,27 +476,30 @@ await check('click_ref reaches the page', async () => {
 // Shrinking the real viewport (chrome as its own WebContentsView) is what fixes
 // it. If this check ever starts failing, the occlusion is gone and this block
 // should be replaced by one that asserts the click DOES reach the page.
-await check('fixed element under the chrome is occluded (known)', async () => {
+await check('a fixed element at the top of the page is no longer occluded', async () => {
   await provider.execute(session, { script: `(() => {
     document.getElementById('__occl_probe')?.remove()
     const button = document.createElement('button')
     button.id = '__occl_probe'
-    button.textContent = 'Occluded Probe'
+    button.textContent = 'Top Probe'
     button.style.cssText = 'position:fixed;left:60px;top:60px;width:140px;height:40px;z-index:2147483647'
     document.body.appendChild(button)
     window.__occl = []
     button.addEventListener('click', () => window.__occl.push('click'), true)
     return 'armed'
   })()` })
-  // Centre of the probe: (130, 80) -- inside the chrome band.
+  // The page's viewport starts below the chrome frame now, so a fixed element at
+  // page y=60..100 is genuinely on screen and clickable. Before the chrome moved
+  // into its own view this probe was unreachable — that was the whole reason for
+  // the refactor.
   await provider.click(session, { x: 130, y: 80 })
   await new Promise(resolve => setTimeout(resolve, 400))
   const seen = await provider.execute(session, { script: 'window.__occl.join(",")' })
   await provider.execute(session, { script: "document.getElementById('__occl_probe')?.remove()" })
-  if (seen.value !== '') {
-    throw new Error('the covered element received the click (' + JSON.stringify(seen.value) + '), so the chrome no longer occludes it')
+  if (seen.value !== 'click') {
+    throw new Error('the page never received the click (' + JSON.stringify(seen.value) + '): the chrome still covers the top of the page')
   }
-  return 'covered: the page saw nothing'
+  return 'reachable'
 })
 await check('double-click reaches the page', async () => {
   await provider.execute(session, { script: `(() => {

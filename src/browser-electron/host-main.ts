@@ -667,7 +667,7 @@ function ensureChromeFrame(): void {
     // address bar, back/forward/reload and find bar all act on the frame, not on
     // the page. (The click tests did not catch this: CDP input is delivered to the
     // target webContents whatever is on top.) Step 2 is the relay that fixes it.
-    frame.setVisible(false)
+    frame.setVisible(true)
     frame.setBackgroundColor('#202124')
     // The frame's chrome speaks through the very same binding, and its actions go
     // through the very same dispatcher; without this listener it could paint a
@@ -710,7 +710,14 @@ function layoutViews(): void {
   const [width, height] = win.getContentSize()
   for (const entry of views.values()) {
     try {
-      entry.webContentsView.setBounds({ x: 0, y: 0, width: width ?? 0, height: height ?? 0 })
+      // Below the chrome frame: the page viewport is genuinely smaller now, so a
+      // sticky/fixed header lands at the top of the page instead of under the chrome.
+      entry.webContentsView.setBounds({
+        x: 0,
+        y: CHROME_FRAME_HEIGHT,
+        width: width ?? 0,
+        height: Math.max(0, (height ?? 0) - CHROME_FRAME_HEIGHT),
+      })
     } catch { /* destroyed */ }
   }
   // The frame sits above the pages, so it has to be re-appended whenever page
@@ -1242,7 +1249,10 @@ async function ensureChromeBinding(view: WebContentsView): Promise<void> {
  * actions; the provider's own fallback injection has no token to offer.
  */
 function applyPageChrome(view: WebContentsView, viewId: string): void {
-  const source = buildPageChromeScript(chromeTokens.get(view) ?? '')
+  // The page keeps the popups and nothing else: the tab strip and toolbar are drawn
+  // by the chrome frame view, which is what lets the page's viewport really start at
+  // y=84 (and a site's position:fixed header stop hiding under the toolbar).
+  const source = buildPageChromeScript(chromeTokens.get(view) ?? '', 'page')
   try {
     // The ACTIVE VIEW of the visible task, not merely any view belonging to it:
     // a background tab of the visible task must not claim to be on screen.

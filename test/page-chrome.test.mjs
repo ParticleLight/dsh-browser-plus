@@ -244,7 +244,9 @@ test('the bookmark bar is Chrome-like, and the page offset follows it', () => {
   assert.ok(script.includes('width:max-content; max-width:180px'), 'chips size to their title')
   assert.ok(script.includes('显示书签栏'), 'a menu item turns it on')
   // The page offset has to move with the bar: 84px of toolbar, 118px with the bar.
-  assert.ok(script.includes('const chromeInset = () => 84 + (bookmarksVisible ? 34 : 0)'), 'the inset is computed')
+  // The page's own viewport starts below the frame, so its inset is just the bar —
+  // the toolbar is drawn by the frame view and is not part of this document.
+  assert.ok(script.includes("const chromeInset = () => CHROME_SURFACE === 'page'"), 'the inset is surface-aware')
   // State comes from the host, because localStorage is per origin.
   assert.ok(script.includes("operation.op === 'bookmarkbar.set'"), 'patched from the host')
   assert.ok(script.includes('window.__dshBookmarkBar = bookmarksVisible'), 'and published for tests')
