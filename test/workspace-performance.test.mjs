@@ -135,9 +135,13 @@ test('a fresh view commits a dark start page instead of staying blank', async ()
   assert.match(page, /__dshBookmarks/, 'and fills its shortcuts from the host-owned bookmarks')
   // 起始页也不再硬切：内容极短地淡入一下，并且尊重系统的减少动态效果。
   assert.match(page, /animation:dshIn .16s ease both/, 'the new-tab page eases in')
-  assert.match(page, /@media \(prefers-reduced-motion:reduce\)\{main\{animation:none\}/, 'and honours reduced motion')
+  assert.match(page, /@media \(prefers-reduced-motion:reduce\)\{main\{animation:none\}/, 'the page honours reduced motion')
   // 磁贴也不能硬切：底色过渡、悬停时图标底色跟着变、按下时图标缩一下（和工具栏按钮同款）。
-  assert.match(page, /\.tile\{[^}]*transition:background \.12s ease\}/, 'a shortcut tile eases its hover background')
+  assert.match(page, /\.tile\{[^}]*transition:background \.12s ease/, 'a shortcut tile eases its hover background')
+  // 磁贴是轮询到收藏之后才画出来的 —— 之前是**凭空出现**，现在淡进来（不逐项错落）。
+  assert.match(page, /\.tile\{[^}]*animation:dshTileIn \.18s ease both\}/, 'a shortcut tile fades in when it appears')
+  assert.match(page, /@keyframes dshTileIn\{from\{opacity:0/, 'with its own keyframes')
+  assert.match(page, /@media \(prefers-reduced-motion:reduce\)\{main\{animation:none\}\.tile\{animation:none\}/, 'and it is off under reduced motion')
   assert.match(page, /\.tile:hover \.ico\{background:#3c4043\}/, 'and its icon lightens with it')
   assert.match(page, /\.tile:active \.ico\{transform:scale\(\.94\)\}/, 'with a press of its own')
   assert.match(page, /\.tile:focus-visible\{outline:2px solid #8ab4f8/, 'and a keyboard focus ring')
