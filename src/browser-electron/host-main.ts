@@ -224,6 +224,31 @@ function saveBookmarksToDisk(): void {
   try { writeFileSync(bookmarksFile, JSON.stringify(chromeBookmarks, null, 2), 'utf8') } catch { /* read-only profile */ }
 }
 
+/**
+ * Chrome's bookmark bar. Off by default, like a fresh Chrome profile.
+ *
+ * It lives here rather than in the page because every other kind of chrome state
+ * has to survive navigation, and localStorage is per origin — a toggle kept there
+ * would silently reset the moment the user visited another site.
+ */
+let chromeBookmarkBar = false
+
+let chromePrefsFile: string | undefined
+
+function loadPrefsFromDisk(): void {
+  try {
+    chromePrefsFile = join(app.getPath('userData'), 'chrome-prefs.json')
+    const parsed: unknown = JSON.parse(readFileSync(chromePrefsFile, 'utf8'))
+    if (typeof parsed !== 'object' || parsed === null) return
+    chromeBookmarkBar = (parsed as { bookmarkBar?: unknown }).bookmarkBar === true
+  } catch { /* first run, or an unreadable file */ }
+}
+
+function savePrefsToDisk(): void {
+  if (chromePrefsFile === undefined) return
+  try { writeFileSync(chromePrefsFile, JSON.stringify({ bookmarkBar: chromeBookmarkBar }, null, 2), 'utf8') } catch { /* read-only profile */ }
+}
+
 /** Only these raster types are admitted; anything else keeps the letter fallback. */
 const FAVICON_TYPES: readonly string[] = [
   'image/png',
@@ -720,6 +745,7 @@ function chromeWorkspaceState(selectedTaskKey = visibleTaskKey): ChromeWorkspace
     tabs: tabSummaries(selectedTaskKey),
     trail: activeTraceForTask(selectedTaskKey),
     bookmarks: chromeBookmarks,
+    bookmarkBar: chromeBookmarkBar,
   }
 }
 
@@ -1088,7 +1114,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             const binding = (params ?? {}) as { name?: unknown; payload?: unknown }
             if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
               try {
-                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown }
+                const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown; visible?: unknown }
                 // Authenticate before acting: only our injected chrome knows this
                 // view's token, so a forged payload never reaches the dispatcher.
                 if (!authorizeChromeAction(action, chromeToken)) return
@@ -1121,6 +1147,12 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
                   chromeBookmarks = [{ url: action.url, title }, ...chromeBookmarks.filter(item => item.url !== action.url)].slice(0, 500)
                   saveBookmarksToDisk()
                   queueChromePatch({ op: 'bookmarks.set', bookmarks: chromeBookmarks })
+                } else if (action.type === 'bookmark-bar' && typeof action.visible === 'boolean') {
+                  // The bar is a profile-wide preference, so the host owns it and the
+                  // chrome reads it back from the bootstrap / patch stream.
+                  chromeBookmarkBar = action.visible
+                  savePrefsToDisk()
+                  queueChromePatch({ op: 'bookmarkbar.set', visible: chromeBookmarkBar })
                 } else if (action.type === 'bookmark-remove' && typeof action.url === 'string') {
                   chromeBookmarks = chromeBookmarks.filter(item => item.url !== action.url)
                   saveBookmarksToDisk()
@@ -1614,6 +1646,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
 void app.whenReady().then(() => {
   installRequestFingerprint()
   loadBookmarksFromDisk()
+  loadPrefsFromDisk()
   const portArg = process.argv.indexOf('--rpc-port')
   const port = portArg >= 0 ? Number(process.argv[portArg + 1]) : NaN
   if (!Number.isFinite(port)) {

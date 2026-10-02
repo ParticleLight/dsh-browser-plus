@@ -234,6 +234,22 @@ test('the tab strip is the window frame: draggable, with room for the caption bu
   assert.match(script, /host\.dataset\.dshCaption = /, 'the chrome decides which side')
 })
 
+test('the bookmark bar is Chrome-like, and the page offset follows it', () => {
+  const script = buildPageChromeScript()
+  assert.ok(script.includes('bookmarkBar'), 'the bar ships')
+  assert.match(script, /#bookmarkBar \{ position:fixed; top:84px;/)
+  assert.ok(script.includes('#bookmarkBar.open { display:block; white-space:nowrap; }'), 'hidden until turned on')
+  // The chip is inline-block + width:max-content: shrink-to-fit collapsed it to one
+  // character wide in the injected shadow root (measured: 30px instead of 132px).
+  assert.ok(script.includes('width:max-content; max-width:180px'), 'chips size to their title')
+  assert.ok(script.includes('显示书签栏'), 'a menu item turns it on')
+  // The page offset has to move with the bar: 84px of toolbar, 118px with the bar.
+  assert.ok(script.includes('const chromeInset = () => 84 + (bookmarksVisible ? 34 : 0)'), 'the inset is computed')
+  // State comes from the host, because localStorage is per origin.
+  assert.ok(script.includes("operation.op === 'bookmarkbar.set'"), 'patched from the host')
+  assert.ok(script.includes('window.__dshBookmarkBar = bookmarksVisible'), 'and published for tests')
+})
+
 test('Chrome tab shortcuts and middle-click close', () => {
   const script = buildPageChromeScript()
   // All of these reach the provider's existing capabilities: new-tab, close-tab
@@ -294,7 +310,7 @@ test('bookmarks come from the host, not from per-origin localStorage', () => {
   // The host pushes the authoritative list back, and the bootstrap carries it too.
   assert.match(script, /operation\.op === 'bookmarks\.set'/)
   assert.match(script, /if \(Array\.isArray\(message\.bookmarks\)\) \{ window\.__dshBookmarks = message\.bookmarks; bookmarksChanged = true \}/)
-  assert.match(script, /if \(bookmarksChanged\) \{ renderBookmarks\(\); updateBookmarkStar\(\) \}/)
+  assert.ok(script.includes('if (bookmarksChanged) { renderBookmarks(); updateBookmarkStar(); renderBookmarkBar()'), 'the bar re-renders with the list')
   // Saving and removing update locally first (instant feedback) and then tell the host.
   assert.match(script, /emitBookmarkAdd\(\)/)
   assert.match(script, /emitBookmarkRemove\(item\.url\)/)
@@ -329,7 +345,8 @@ test('page zoom compensates the chrome instead of scaling it', () => {
   // undoes its own share of the scale and re-scales the offset it adds to the page.
   assert.match(script, /window\.__dshChromeSetZoom = applyZoomFactor/)
   assert.match(script, /host\.style\.zoom = next === 1 \? '' : String\(1 \/ next\)/)
-  assert.match(script, /setProperty\('padding-top', \(84 \/ next\) \+ 'px', 'important'\)/)
+  // The offset tracks both zoom and the bookmark bar (see chromeInset).
+  assert.ok(script.includes("setProperty('padding-top', (chromeInset() / next) + 'px', 'important')"))
   assert.match(script, /const syncZoomFromHost = \(\) => \{ applyZoomFactor\(window\.__dshZoom\) \}/)
   // The factor must come from the host. Deriving it from devicePixelRatio looked
   // equivalent and was not: a freshly navigated document's dpr is already scaled,

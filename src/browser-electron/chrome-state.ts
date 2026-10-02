@@ -95,6 +95,8 @@ export interface ChromeWorkspaceState {
   readonly tabs: readonly ChromeTabSummary[]
   readonly trail: readonly ChromeTrailEntry[]
   readonly bookmarks: readonly ChromeBookmark[]
+  /** Chrome's bookmark bar, off until the user turns it on from the ⋮ menu. */
+  readonly bookmarkBar: boolean
 }
 
 export interface ChromeBootstrapMessage extends ChromeWorkspaceState {
@@ -111,6 +113,7 @@ export type ChromePatchOperation =
   | { readonly op: 'panels.set'; readonly panels: ChromePanels }
   | { readonly op: 'tabs.set'; readonly tabs: readonly ChromeTabSummary[] }
   | { readonly op: 'bookmarks.set'; readonly bookmarks: readonly ChromeBookmark[] }
+  | { readonly op: 'bookmarkbar.set'; readonly visible: boolean }
 
 export interface ChromePatchMessage {
   readonly kind: 'patch'

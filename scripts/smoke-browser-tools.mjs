@@ -171,6 +171,32 @@ await check('Ctrl+T opens a tab through the provider', async () => {
   if (opened !== before + 1) throw new Error('Ctrl+T produced ' + String(opened) + ' tabs, expected ' + String(before + 1))
   return { before, opened, openError }
 })
+// Chrome's bookmark bar: off by default, and turning it on moves the page down by
+// its height. The toggle goes chrome -> binding -> host -> patch -> chrome, so this
+// also proves the preference round-trips through the host (localStorage is per origin).
+await check('the bookmark bar is host state and the page offset follows it', async () => {
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 500))
+  const read = async () => {
+    const state = await provider.execute(session, {
+      script: '(() => { const el = document.elementFromPoint(200, 100); return JSON.stringify({ bar: window.__dshBookmarkBar === true, pad: getComputedStyle(document.documentElement).paddingTop, atBar: (el && el.id) || (el && el.tagName) || "none" }) })()',
+    })
+    return JSON.parse(String(state.value))
+  }
+  const before = await read()
+  if (before.bar !== false || before.pad !== '84px') throw new Error('unexpected start state ' + JSON.stringify(before))
+  await provider.execute(session, { script: '(() => { window.__dshChromeBookmarkBar(); return "on" })()' })
+  await new Promise(resolve => setTimeout(resolve, 600))
+  const opened = await read()
+  if (opened.bar !== true) throw new Error('the host did not keep the bar on: ' + JSON.stringify(opened))
+  if (opened.pad !== '118px') throw new Error('the page was not moved down: ' + JSON.stringify(opened))
+  if (opened.atBar !== '__dsh_browser_chrome_host__') throw new Error('the bar is not painted at y=100: ' + JSON.stringify(opened))
+  await provider.execute(session, { script: '(() => { window.__dshChromeBookmarkBar(); return "off" })()' })
+  await new Promise(resolve => setTimeout(resolve, 600))
+  const closed = await read()
+  if (closed.bar !== false || closed.pad !== '84px') throw new Error('the bar did not go away: ' + JSON.stringify(closed))
+  return { opened: opened.pad, closed: closed.pad }
+})
 await check('a settled tab is not stuck loading', async () => {
   await provider.navigate(session, { url: 'https://example.com/' })
   await new Promise(resolve => setTimeout(resolve, 600))
