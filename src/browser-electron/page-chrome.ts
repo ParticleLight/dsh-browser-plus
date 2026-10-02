@@ -1421,6 +1421,8 @@ export function buildPageChromeScript(bindingToken = '', surface: ChromeSurface 
     "    const importInput = document.createElement('input')",
     "    importInput.type = 'file'",
     "    importInput.accept = '.json,application/json'",
+    "    // 必须藏起来：它在 DOM 里是为了 .click() 可靠，但原生文件控件会直接画出来（实测）。",
+    "    importInput.style.display = 'none'",
     "    importInput.addEventListener('change', () => {",
     "      const file = importInput.files && importInput.files.length > 0 ? importInput.files[0] : null",
     "      importInput.value = ''",
