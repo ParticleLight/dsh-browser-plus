@@ -699,6 +699,70 @@ await check('hovering a list row fades its highlight in', async () => {
   if (!hit) throw new Error('the row highlighted without a transition: ' + JSON.stringify({ row, log }))
   return { row: hit.id, transition: hit.name }
 })
+// 删掉中间一项，后面的要**滑**过去而不是瞬移 —— 收藏面板和书签栏走同一个 reconcile。
+// 删掉中间一项，后面的要**滑**过去而不是瞬移 —— 收藏面板和书签栏走同一个 reconcile。
+await check('removing a bookmark slides the ones after it', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const readPanels = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])'))
+  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
+  const clickAt = async (x, y) => {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+  }
+  const waitForPanel = async id => {
+    for (let i = 0; i < 24; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      const found = (await readPanels()).find(entry => entry.id === id && entry.open === true)
+      if (found) return found
+    }
+    return null
+  }
+  // 先攒够两个书签（Ctrl+D 只加不删）。
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 1200))
+  await provider.pressKey(session, { key: 'd', modifiers: ['ctrl'] })
+  await new Promise(resolve => setTimeout(resolve, 400))
+  await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
+  await new Promise(resolve => setTimeout(resolve, 1800))
+  await provider.pressKey(session, { key: 'd', modifiers: ['ctrl'] })
+  await new Promise(resolve => setTimeout(resolve, 400))
+  const count = Number(await pageEval('String((window.__dshBookmarks || []).length)'))
+  if (count < 2) throw new Error('expected at least two bookmarks, got ' + count)
+  // 书签栏也开着：它的 chip 同样按 key 复用（横排，靠 left 变化）。
+  const barWasOn = await pageEval('String(window.__dshBookmarkBar === true)') === 'true'
+  const restoreBar = async () => { if (!barWasOn) await pageEval('window.__dshChromeBookmarkBar()') }
+  if (!barWasOn) await pageEval('window.__dshChromeBookmarkBar()')
+  // 打开收藏面板：从 frame 的 ⋮ 进去（真人就是这么点的）。悬停意图要停够 240ms。
+  let menu = null
+  for (let attempt = 0; attempt < 3 && menu === null; attempt += 1) {
+    await moveTo(1362, 62)
+    await new Promise(resolve => setTimeout(resolve, 400))
+    if (attempt > 0) await clickAt(1362, 62)
+    menu = await waitForPanel('main')
+  }
+  if (menu === null) { await restoreBar(); throw new Error('the ⋮ menu never opened') }
+  const bookmarksItem = menu.items.find(item => item.id === 'mmBookmarks')
+  if (bookmarksItem === undefined) { await restoreBar(); throw new Error('no bookmarks item: ' + JSON.stringify(menu.items)) }
+  await provider.click(session, { x: bookmarksItem.left + 12, y: bookmarksItem.top + Math.round(bookmarksItem.height / 2) })
+  const panel = await waitForPanel('bookmarks')
+  if (panel === null) { await restoreBar(); throw new Error('the bookmarks panel never opened') }
+  const removeButtons = panel.items.filter(item => item.id === 'x' && item.height > 0)
+  if (removeButtons.length < 2) { await restoreBar(); throw new Error('the panel showed no per-row remove buttons: ' + JSON.stringify(panel.items)) }
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  const first = removeButtons[0]
+  await provider.click(session, { x: first.left + Math.round(first.height / 2), y: first.top + Math.round(first.height / 2) })
+  // 立刻复原书签栏：后面的检查假定它是关着的，而后面任何一步失败都会跳过收尾。
+  await restoreBar()
+  let log = []
+  for (let i = 0; i < 15 && !log.some(entry => entry.phase === 'slide'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 150))
+    log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  }
+  await provider.pressKey(session, { key: 'Escape' })
+  const slide = log.find(entry => entry.phase === 'slide' && (entry.id === 'bookmark' || entry.id === 'bookmark-bar'))
+  if (slide === undefined) throw new Error('the remaining rows jumped instead of sliding: ' + JSON.stringify(log))
+  return { list: slide.id, moved: slide.name }
+})
 await check('the toolbar star lights up and pops when the page is bookmarked', async () => {
   const frameEval = async script => String(await provider.chromeEval(script))
   await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })

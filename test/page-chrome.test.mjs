@@ -479,7 +479,18 @@ test('bookmarks come from the host, not from per-origin localStorage', () => {
   assert.ok(script.includes('if (bookmarksChanged) { renderBookmarks(); updateBookmarkStar(); renderBookmarkBar()'), 'the bar re-renders with the list')
   // Saving and removing update locally first (instant feedback) and then tell the host.
   assert.match(script, /emitBookmarkAdd\(\)/)
-  assert.match(script, /emitBookmarkRemove\(item\.url\)/)
+  // 删除时读**当前**的 key（节点会被复用，闭包里的旧 item 会过期）。
+  assert.ok(script.includes('const url = row.dataset.dshKey'), 'the remove handler reads the row\'s current key')
+  assert.match(script, /emitBookmarkRemove\(url\)/)
+  // 两个收藏列表都按 key 复用节点 + FLIP：删掉中间一项时后面的要滑，不是瞬移。
+  assert.ok(script.includes('const reconcileList = (container, keys, create, fill, id) =>'), 'the chrome has one list reconciler')
+  assert.ok(script.includes("reconcileList(bookmarkBar, items.map(item => item.url)"), 'the bookmark bar uses it')
+  assert.ok(script.includes("reconcileList(bookmarkList, list.map(item => item.url)"), 'and so does the bookmarks panel')
+  assert.ok(script.includes("motionLog.push({ id, phase: 'slide', name: String(moved.length) })"), 'moved rows are recorded before they slide')
+  // 两个轴都要：书签栏横排（left 变）、面板列表竖排（top 变）。
+  assert.ok(script.includes("const dy = Math.round(was.top - box.top)"), 'the slide covers both axes')
+  assert.ok(script.includes("node.animate([{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }]"), 'and animates both')
+  assert.ok(script.includes("if (chip.dataset.title === title) return"), 'a reused chip is only redrawn when its title really changed')
 })
 
 test('the chrome survives a strict CSP: styles go through CSSOM, never a <style> element', () => {
