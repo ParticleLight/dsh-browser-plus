@@ -280,9 +280,10 @@ test('host persists task/trail panel state through bootstrap and patch messages'
 
 test('host applies set-workspace-panels only when both panel flags are booleans', async () => {
   const source = await readFile(hostPath, 'utf8')
-  const start = source.indexOf('Runtime.bindingCalled')
-  assert.ok(start >= 0, 'binding handler exists')
-  const bindingBlock = source.slice(start, start + 2600)
+  // The dispatcher moved out of createView so the chrome frame view can share it.
+  const start = source.indexOf('function handleChromeAction(')
+  assert.ok(start >= 0, 'the chrome action dispatcher exists')
+  const bindingBlock = source.slice(start, start + 6000)
   assert.match(bindingBlock, /set-workspace-panels/)
   assert.match(bindingBlock, /typeof action\.tasks === 'boolean'/)
   assert.match(bindingBlock, /typeof action\.trail === 'boolean'/)

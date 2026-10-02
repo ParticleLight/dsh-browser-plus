@@ -125,6 +125,23 @@ await check('chrome x closes the tab it belongs to', async () => {
   }
   throw new Error('no tab was closed: the × was never hit (tabs=' + String(before) + ')')
 })
+// The chrome also has a copy in the host's own 84px view (that is what will let the
+// page viewport really shrink). That view is not a tab, so driving it needs its own
+// channel — and its buttons must work, because a person's click lands there.
+await check('the chrome frame view drives the tab list', async () => {
+  const before = (await provider.listTabs(session)).length
+  const click = async (x) => {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y: CHROME_ROW_Y, button: 'left', clickCount: 1 })
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y: CHROME_ROW_Y, button: 'left', clickCount: 1 })
+  }
+  for (const x of [258, 252, 266, 246]) {
+    await click(x)
+    await new Promise(resolve => setTimeout(resolve, 500))
+    const after = (await provider.listTabs(session)).length
+    if (after > before) return { before, after, x }
+  }
+  throw new Error('the frame chrome never created a tab (tabs=' + String(before) + ')')
+})
 // The three checks below assert that the page RECEIVED the event. Resolution
 // alone is not a click: browser_click can resolve the right element, report
 // success, and still leave the page untouched.
