@@ -176,6 +176,24 @@ await check('the frame chrome drives the page it is showing', async () => {
 // The frame's buttons are the real ones once it is on screen, but its own popups
 // would be clipped at 84px — so it reports where the button is and the PAGE draws
 // the menu there. Clicking the frame's star must open the page's bookmarks panel.
+// Ctrl+L belongs to the toolbar, which lives in the frame now, so the page's copy
+// relays it. If the relay works the frame's omnibox ends up focused — proved by
+// typing into the frame and watching the PAGE navigate.
+await check('Ctrl+L hands the page focus to the frame omnibox', async () => {
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 600))
+  await provider.pressKey(session, { key: 'l', modifiers: ['ctrl'] })
+  await new Promise(resolve => setTimeout(resolve, 400))
+  await chromeType('example.org')
+  await chromeEnter()
+  let url = ''
+  for (let i = 0; i < 25; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    url = (await provider.listTabs(session)).find(tab => tab.active)?.url ?? ''
+    if (url.includes('example.org')) return { url }
+  }
+  throw new Error('the omnibox never got the focus: ' + JSON.stringify(url))
+})
 await check('the frame chrome opens the page chrome popups where its buttons are', async () => {
   const readPanels = async () => JSON.parse(String((await provider.execute(session, {
     script: 'JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])',

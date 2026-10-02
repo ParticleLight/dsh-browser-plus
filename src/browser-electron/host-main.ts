@@ -548,6 +548,15 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
           ...typeof action.left === 'number' ? { left: action.left } : {},
           ...typeof action.width === 'number' ? { width: action.width } : {},
         })
+      } else if (action.type === 'frame-action' && typeof action.action === 'string') {
+        // The other direction: the page's chrome asks the frame's copy to do something
+        // (Ctrl+L belongs to the toolbar, which lives in the frame now).
+        const frame = chromeFrame
+        if (frame !== undefined && !frame.webContents.isDestroyed()) {
+          if (action.action === 'focus-address') {
+            runChromeScript(frame, ';try { window.__dshChromeFocusAddress?.() } catch {}')
+          }
+        }
       } else if (action.type === 'page-action' && typeof action.action === 'string') {
         // Relayed from the chrome frame view, which cannot act on the page itself.
         const page = pageView
