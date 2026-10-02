@@ -97,6 +97,17 @@ export interface ChromeWorkspaceState {
   readonly bookmarks: readonly ChromeBookmark[]
   /** Chrome's bookmark bar, off until the user turns it on from the ⋮ menu. */
   readonly bookmarkBar: boolean
+  /** Empty unless the chrome frame view failed to come up; then, why. */
+  readonly frameError?: string
+  /**
+   * What the host's own window reports: visible/minimized/content size/frame size.
+   *
+   * Kept because the window's real state and what a screenshot tool *thinks* it is
+   * are not the same thing — a capture that grabbed a helper window once looked
+   * exactly like the browser window having come up 158x26, and that cost two
+   * rounds before this made it visible.
+   */
+  readonly windowProbe?: string
 }
 
 export interface ChromeBootstrapMessage extends ChromeWorkspaceState {

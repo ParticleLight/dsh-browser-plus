@@ -17,4 +17,5 @@ export declare function normalizeBrowserAddress(raw: string): string;
  *   call the CDP binding but cannot read the token back out. Omit it for hosts
  *   that do not authenticate page-emitted controls (see {@link PAGE_CHROME_SCRIPT}).
  */
-export declare function buildPageChromeScript(bindingToken?: string): string;
+export type ChromeSurface = 'full' | 'frame' | 'page';
+export declare function buildPageChromeScript(bindingToken?: string, surface?: ChromeSurface): string;

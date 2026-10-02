@@ -1,4 +1,4 @@
-param([string]$Out = 'F:\deepseekharness\dsh-browser-plus\.tmp\window.png')
+param([string]$Out = 'F:\deepseekharness\dsh-browser-plus\.tmp\window.png', [long]$Hwnd = 0)
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System;
@@ -26,9 +26,30 @@ public class CapFg {
 }
 "@
 [void][CapFg]::SetProcessDPIAware()
+# An explicit handle wins: Electron can own several top-level windows and
+# MainWindowHandle sometimes picks a helper instead of the browser window.
+$h = if ($Hwnd -ne 0) { [IntPtr]$Hwnd } else { 0 }
+$p = $null
+if ($Hwnd -eq 0) {
+# Pick the LARGEST top-level window owned by an electron process with our title.
+# MainWindowHandle is unreliable here: Electron owns several top-level windows and
+# Windows happily reports a small helper, which silently screenshots the wrong thing.
 $p = Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like '*dsh-browser-plus*' -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1
 if (-not $p) { Write-Output 'NO WINDOW'; exit 1 }
-$h = $p.MainWindowHandle
+$best = [IntPtr]::Zero
+$bestArea = 0
+foreach ($proc in $p) {
+  foreach ($h in @($proc.MainWindowHandle)) {
+    if ($h -eq [IntPtr]::Zero) { continue }
+    $rect = New-Object CapFg+RECT
+    if (-not [CapFg]::GetWindowRect($h, [ref]$rect)) { continue }
+    $area = ($rect.Right - $rect.Left) * ($rect.Bottom - $rect.Top)
+    if ($area -gt $bestArea) { $bestArea = $area; $best = $h }
+  }
+}
+if ($best -eq [IntPtr]::Zero) { Write-Output 'NO WINDOW'; exit 1 }
+$h = $best
+}
 [void][CapFg]::ShowWindow($h, 9)
 Start-Sleep -Milliseconds 500
 [CapFg]::Force($h)

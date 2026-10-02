@@ -439,10 +439,66 @@ function makeWindow(): BrowserWindow {
   return win
 }
 
+/**
+ * The host's own chrome view: tab strip and toolbar, 84px, above the pages.
+ *
+ * The chrome is injected into the page today, which forces the page to fake its
+ * own viewport with a 84px padding-top — and a site's `position: fixed` header
+ * ignores that padding, so it ends up hidden under the chrome. A view of its own
+ * is the only way to shrink the page viewport for real.
+ *
+ * Kept HIDDEN while it is being brought up: a visible view would sit on top of
+ * the page and swallow clicks in the top 84px (the chrome is drawn there today).
+ */
+const CHROME_FRAME_HEIGHT = 84
+let chromeFrame: WebContentsView | undefined
+/** Why the frame view could not be created, if it could not. Published to the chrome. */
+let chromeFrameError = ''
+
 function ensureWindow(): BrowserWindow {
   if (window !== undefined && !window.isDestroyed()) return window
   window = makeWindow()
+  ensureChromeFrame()
   return window
+}
+
+/**
+ * Bring the frame view up, reporting (not swallowing) anything that goes wrong.
+ *
+ * The previous attempt at this refactor left the window at 158x26 with no clue
+ * why, so this one records the failure where it can be read back — the chrome
+ * surfaces it as `window.__dshChromeBootstrap.frameError`.
+ */
+function ensureChromeFrame(): void {
+  const win = window
+  if (win === undefined || win.isDestroyed() || chromeFrame !== undefined) return
+  try {
+    const frame = new WebContentsView({
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+    })
+    chromeFrame = frame
+    chromeTokens.set(frame, randomBytes(16).toString('hex'))
+    chromeFrameError = ''
+    win.contentView.addChildView(frame)
+    frame.setBounds({ x: 0, y: 0, width: win.getContentSize()[0] ?? 0, height: CHROME_FRAME_HEIGHT })
+    frame.setVisible(true)
+    frame.setBackgroundColor('#202124')
+    frame.webContents.on('did-finish-load', () => {
+      const token = chromeTokens.get(frame) ?? ''
+      void ensureChromeBinding(frame).then(() => {
+        runChromeScript(frame, buildPageChromeScript(token, 'frame')
+          + ';window.__dshZoom = 1;window.__dshChromeActive = true'
+          + ';try { window.__dshChromeSetActive?.(true) } catch {}'
+          + chromeBootstrapScript())
+      }).catch(() => undefined)
+    })
+    void frame.webContents.loadURL('data:text/html;charset=utf-8,<!doctype html><meta charset="utf-8"><title>chrome frame</title>').catch((error: unknown) => {
+      chromeFrameError = 'load: ' + String(error instanceof Error ? error.message : error)
+    })
+  } catch (error) {
+    chromeFrame = undefined
+    chromeFrameError = 'create: ' + String(error instanceof Error ? error.message : error)
+  }
 }
 
 /** Keep every task view aligned with the one shared content surface. */
@@ -455,6 +511,20 @@ function layoutViews(): void {
       entry.webContentsView.setBounds({ x: 0, y: 0, width: width ?? 0, height: height ?? 0 })
     } catch { /* destroyed */ }
   }
+  // The frame sits above the pages, so it has to be re-appended whenever page
+  // views are added (child views stack in insertion order).
+  raiseChromeFrame()
+}
+
+/** Put the chrome frame back on top of the page views. */
+function raiseChromeFrame(): void {
+  const win = window
+  if (win === undefined || win.isDestroyed() || chromeFrame === undefined) return
+  try { win.contentView.removeChildView(chromeFrame) } catch { /* not attached */ }
+  try {
+    win.contentView.addChildView(chromeFrame)
+    chromeFrame.setBounds({ x: 0, y: 0, width: win.getContentSize()[0] ?? 0, height: CHROME_FRAME_HEIGHT })
+  } catch { /* destroyed */ }
 }
 
 /** Restore the one visible task after any operation that touched child views. */
@@ -746,6 +816,16 @@ function chromeWorkspaceState(selectedTaskKey = visibleTaskKey): ChromeWorkspace
     trail: activeTraceForTask(selectedTaskKey),
     bookmarks: chromeBookmarks,
     bookmarkBar: chromeBookmarkBar,
+    frameError: chromeFrameError,
+    windowProbe: (() => {
+      const win = window
+      if (win === undefined || win.isDestroyed()) return 'no window'
+      try {
+        const b = win.getBounds()
+        const cs = win.getContentSize()
+        return JSON.stringify({ visible: win.isVisible(), minimized: win.isMinimized(), bounds: b, content: cs, frame: chromeFrame === undefined ? 'none' : String(chromeFrame.getBounds().width) + 'x' + String(chromeFrame.getBounds().height) })
+      } catch (error) { return 'probe: ' + String(error instanceof Error ? error.message : error) }
+    })(),
   }
 }
 
@@ -769,9 +849,6 @@ function chromePatchScript(operations: readonly ChromePatchOperation[]): string 
     + ';try { window.__dshChromeApply?.(window.__dshChromePatch) } catch {}'
 }
 
-function pushChromeBootstrap(target: WebContentsView, selectedTaskKey = visibleTaskKey): void {
-  runChromeScript(target, chromeBootstrapScript(selectedTaskKey))
-}
 
 function resetChromeDelivery(): void {
   chromeEpoch += 1
@@ -783,11 +860,27 @@ function resetChromeDelivery(): void {
   }
 }
 
+/**
+ * Every view that renders a copy of the chrome.
+ *
+ * The chrome is drawn twice while the frame view is being brought up: once in the
+ * page (today's layout, and what the click tests drive) and once in the host's own
+ * 84px view. Both get the same bootstrap and the same patches in the same order,
+ * so the two copies can never disagree about which tab is active.
+ */
+function chromeSurfaces(): WebContentsView[] {
+  const surfaces: WebContentsView[] = []
+  const viewId = visibleTaskKey === undefined ? undefined : activeViewByTask.get(visibleTaskKey)
+  const page = viewId === undefined ? undefined : views.get(viewId)
+  if (page !== undefined) surfaces.push(page.webContentsView)
+  if (chromeFrame !== undefined && !chromeFrame.webContents.isDestroyed()) surfaces.push(chromeFrame)
+  return surfaces
+}
+
 function pushVisibleChromeState(): void {
   resetChromeDelivery()
-  const viewId = visibleTaskKey === undefined ? undefined : activeViewByTask.get(visibleTaskKey)
-  const target = viewId === undefined ? undefined : views.get(viewId)
-  if (target !== undefined) pushChromeBootstrap(target.webContentsView, visibleTaskKey)
+  const script = chromeBootstrapScript(visibleTaskKey)
+  for (const surfaceView of chromeSurfaces()) runChromeScript(surfaceView, script)
 }
 
 function flushChromePatches(): void {
@@ -795,10 +888,12 @@ function flushChromePatches(): void {
   const operations = pendingChromeOperations
   pendingChromeOperations = []
   if (operations.length === 0) return
-  const viewId = visibleTaskKey === undefined ? undefined : activeViewByTask.get(visibleTaskKey)
-  const target = viewId === undefined ? undefined : views.get(viewId)
-  if (target === undefined) return
-  runChromeScript(target.webContentsView, chromePatchScript(operations))
+  // One script for every surface: the revision counter is shared, so each copy has
+  // to see the same sequence or it will ask for a resync.
+  const script = chromePatchScript(operations)
+  const surfaces = chromeSurfaces()
+  if (surfaces.length === 0) return
+  for (const surfaceView of surfaces) runChromeScript(surfaceView, script)
 }
 
 function queueChromePatch(...operations: ChromePatchOperation[]): void {

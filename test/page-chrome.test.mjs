@@ -381,7 +381,11 @@ test('the address bar hides the scheme and shows a real security indicator', () 
   // Chrome drops the scheme while the omnibox is unfocused and restores the full
   // URL when it is focused.
   assert.match(script, /const prettifyAddress = href => href\.replace\(\/\^https\?:\[\/\]\[\/\]\/, ''\)/, 'the scheme is stripped')
-  assert.match(script, /address\.value = internal \? '' : prettifyAddress\(location\.href\)/, 'unfocused shows the pretty form')
+  // The frame surface cannot read its own location (that document belongs to the
+  // host), so it takes the address from the tab summary instead.
+  assert.ok(script.includes("const shownUrl = CHROME_SURFACE === 'frame' ? activeTabUrl() : location.href"), 'the address comes from the tab on the frame surface')
+  assert.ok(script.includes("address.value = internal ? '' : prettifyAddress(shownUrl)"), 'unfocused shows the pretty form')
+  assert.ok(script.includes("const insecure = !internal && !/^https:/i.test(secUrl)"), 'the lock follows the real scheme')
   assert.match(script, /address\.addEventListener\('focus', \(\) => \{ if \(!isInternalLocation\(\)\) address\.value = location\.href \}\)/, 'focus expands it')
   assert.match(script, /address\.addEventListener\('blur', refreshAddress\)/, 'blur collapses it again')
   // A padlock on an http page is a lie: the lock and the info glyph are both in
@@ -393,7 +397,7 @@ test('the address bar hides the scheme and shows a real security indicator', () 
   )
   assert.match(script, /#secIcon\.insecure \.lock \{ display:none; \}/)
   assert.match(script, /#secIcon\.insecure \.info \{ display:block; \}/)
-  assert.match(script, /const insecure = !internal && location\.protocol !== 'https:'/)
+  assert.ok(script.includes("const insecure = !internal && !/^https:/i.test(secUrl)"), 'a padlock on http is a lie')
   assert.match(script, /secIcon\.classList\.toggle\('insecure', insecure\)/)
   assert.match(script, /secIcon\.setAttribute\('aria-label', label\)/)
 })
