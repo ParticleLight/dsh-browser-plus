@@ -19,7 +19,9 @@ export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
  * mapping table is needed.
  */
 export interface ChromeHostEvent {
-    readonly type: 'new-tab' | 'close-tab' | 'activate-tab';
+    /** For a 'move-tab' event: the index the tab was dropped at, after removal. */
+    readonly toIndex?: number;
+    readonly type: 'new-tab' | 'close-tab' | 'activate-tab' | 'move-tab';
     /** Task key of the chrome that raised it. */
     readonly taskKey: string;
     /** Host view id of the tab; absent for `new-tab`. */

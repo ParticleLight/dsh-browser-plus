@@ -99,7 +99,9 @@ export const ELECTRON_BROWSER_PROVIDER_ID = 'electron'
  * mapping table is needed.
  */
 export interface ChromeHostEvent {
-  readonly type: 'new-tab' | 'close-tab' | 'activate-tab'
+  /** For a 'move-tab' event: the index the tab was dropped at, after removal. */
+  readonly toIndex?: number
+  readonly type: 'new-tab' | 'close-tab' | 'activate-tab' | 'move-tab'
   /** Task key of the chrome that raised it. */
   readonly taskKey: string
   /** Host view id of the tab; absent for `new-tab`. */
@@ -636,6 +638,21 @@ export class ElectronBrowserProvider implements BrowserProvider {
       if (tab === undefined) return
       if (event.type === 'close-tab') {
         void this.closeTab(sessionId, tab.id)
+        return
+      }
+      if (event.type === 'move-tab' && typeof event.toIndex === 'number') {
+        // The human dragged this tab: mirror the host's order so the session's tab
+        // list (what browser_list_tabs reports) matches the strip.
+        const from = s.tabs.indexOf(tab)
+        if (from >= 0) {
+          const active = s.tabs[s.activeIndex]
+          const [moved] = s.tabs.splice(from, 1)
+          const to = Math.max(0, Math.min(Math.trunc(event.toIndex), s.tabs.length))
+          s.tabs.splice(to, 0, moved)
+          // activeIndex is positional, so keep it pointing at the same tab.
+          const activeNow = s.tabs.indexOf(active)
+          if (activeNow >= 0) s.activeIndex = activeNow
+        }
         return
       }
       if (event.type === 'activate-tab') {

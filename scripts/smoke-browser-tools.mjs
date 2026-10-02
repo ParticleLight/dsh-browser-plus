@@ -155,6 +155,25 @@ await check('the chrome frame view drives the tab list', async () => {
   }
   throw new Error('the frame chrome never created a tab (tabs=' + String(before) + ')')
 })
+// Chrome's drag-to-reorder. The strip order lives in the host (a Set) and is mirrored
+// by the provider, so a drag has to move both — what browser_list_tabs reports is the
+// provider's order, which makes this an end-to-end assertion.
+await check('dragging a tab reorders the strip', async () => {
+  const before = (await provider.listTabs(session)).map(tab => tab.id)
+  if (before.length < 2) throw new Error('needs two tabs to drag, has ' + String(before.length))
+  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x: 130, y: CHROME_ROW_Y, button: 'left', clickCount: 1 })
+  for (const x of [200, 300, 420, 560, 700]) {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y: CHROME_ROW_Y, button: 'left' })
+    await new Promise(resolve => setTimeout(resolve, 60))
+  }
+  await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 700, y: CHROME_ROW_Y, button: 'left', clickCount: 1 })
+  await new Promise(resolve => setTimeout(resolve, 700))
+  const after = (await provider.listTabs(session)).map(tab => tab.id)
+  if (after.length !== before.length) throw new Error('the drag changed the tab count: ' + JSON.stringify({ before, after }))
+  if (after[0] === before[0]) throw new Error('the order did not change: ' + JSON.stringify({ before, after }))
+  if (JSON.stringify([...after].sort()) !== JSON.stringify([...before].sort())) throw new Error('the drag lost or duplicated a tab')
+  return { first: before[0].slice(0, 8) + ' -> ' + after[0].slice(0, 8) }
+})
 // The frame's chrome cannot touch the page itself — its address bar has to be
 // relayed through the host. This drives it the way a person would: click the
 // omnibox, type, Enter, and the PAGE navigates.

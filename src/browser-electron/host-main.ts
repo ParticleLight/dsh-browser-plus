@@ -495,7 +495,7 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
   const binding = (params ?? {}) as { name?: unknown; payload?: unknown }
   if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
     try {
-      const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown; visible?: unknown; tabs?: unknown; action?: unknown; id?: unknown; open?: unknown; left?: unknown; width?: unknown }
+      const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown; visible?: unknown; tabs?: unknown; action?: unknown; id?: unknown; open?: unknown; left?: unknown; width?: unknown; toIndex?: unknown }
       // Authenticate before acting: only our injected chrome knows this
       // view's token, so a forged payload never reaches the dispatcher.
       if (!authorizeChromeAction(action, chromeToken)) return
@@ -610,6 +610,25 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
         // The provider creates the view; this host never invents a tab
         // it does not own, or the strip and the session would diverge.
         emitChromeEvent({ type: 'new-tab', taskKey: action.taskKey })
+      } else if (action.type === 'move-tab'
+        && typeof action.taskKey === 'string'
+        && typeof action.tabId === 'string'
+        && typeof action.toIndex === 'number') {
+        // Dragging a tab. The host owns the strip order (taskViewIds is a Set whose
+        // insertion order is the strip), so it reorders its own copy immediately and
+        // tells the provider, which keeps the session's tab list — the order
+        // browser_list_tabs reports — in step.
+        const ids = taskViewIds.get(action.taskKey)
+        const from = ids === undefined ? -1 : [...ids].indexOf(action.tabId)
+        if (ids !== undefined && from >= 0 && action.taskKey === visibleTaskKey) {
+          const ordered = [...ids]
+          const [moved] = ordered.splice(from, 1)
+          const to = Math.max(0, Math.min(Math.trunc(action.toIndex), ordered.length))
+          ordered.splice(to, 0, moved)
+          taskViewIds.set(action.taskKey, new Set(ordered))
+          queueTabsSet()
+          emitChromeEvent({ type: 'move-tab', taskKey: action.taskKey, tabId: action.tabId, toIndex: to })
+        }
       } else if (action.type === 'close-tab'
         && typeof action.taskKey === 'string'
         && typeof action.tabId === 'string') {

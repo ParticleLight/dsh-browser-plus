@@ -285,6 +285,24 @@ test('the rest of Chrome keybindings, over capabilities we already have', () => 
   assert.ok(script.includes('const trailMenu = menus[1]'), 'Ctrl+H targets the trail menu')
 })
 
+test('tabs can be dragged to reorder, like Chrome', () => {
+  const script = buildPageChromeScript()
+  assert.ok(script.includes("type: 'move-tab'"), 'the drag reports through the binding')
+  assert.ok(script.includes('const emitTabMove = (taskKey, tabId, toIndex)'), 'and carries the drop index')
+  // The drop index is measured against the OTHER tabs\u2019 midpoints, and is the
+  // insertion index after the dragged tab is removed \u2014 the same convention the
+  // host and the provider splice with.
+  assert.ok(script.includes('const tabDropIndex = (clientX, draggedId)'), 'the drop point is computed')
+  assert.ok(script.includes('if (clientX > rect.left + rect.width / 2) index += 1'), 'midpoint rule')
+  assert.ok(script.includes('const shiftTabsForDrag = drag =>'), 'the other tabs make room')
+  assert.ok(script.includes("window.addEventListener('pointermove', onTabDragMove, true)"), 'drag is tracked on the window')
+  assert.ok(script.includes("window.addEventListener('pointerup', endTabDrag, true)"), 'and finished there too')
+  // Clicking the close button is not a drag: capturing the pointer ate the click.
+  assert.ok(script.includes("target.closest('.close') !== null") || script.includes("pressedOn.closest('.close') !== null"), 'the close button is excluded')
+  assert.ok(!script.includes('.setPointerCapture(event.pointerId)'), 'no pointer capture: it retargets clicks to the tab')
+  assert.ok(script.includes('#tabstrip .tab.dragging'), 'the dragged tab is lifted')
+})
+
 test('Chrome tab shortcuts and middle-click close', () => {
   const script = buildPageChromeScript()
   // All of these reach the provider's existing capabilities: new-tab, close-tab
