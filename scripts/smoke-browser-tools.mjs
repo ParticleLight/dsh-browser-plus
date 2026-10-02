@@ -629,6 +629,48 @@ await check('the toolbar address bar shows the real url, path and all', async ()
   if (!faded) throw new Error('the address text swapped without fading: ' + JSON.stringify(log))
   return { address, pageCopy: pageAddress, animation: 'dshAddressIn' }
 })
+// 面板里的**新增**行滑进来（整表重画不播）。
+await check('a new trail row slides in instead of blinking on', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  // Ctrl+H 开关操作轨迹面板（只有它开着，宿主推来的新记录才会走「增量插入」那条路）。
+  await provider.pressKey(session, { key: 'h', modifiers: ['ctrl'] })
+  let open = ''
+  for (let i = 0; i < 20 && open !== 'trail'; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 250))
+    open = await pageEval("String((window.__dshChromePanels ? window.__dshChromePanels() : []).filter(panel => panel.open).map(panel => panel.id).join(','))")
+  }
+  if (!open.includes('trail')) throw new Error('the trail panel never opened: ' + open)
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  // 任何一次工具调用都会往轨迹里加一条（宿主 trail.append → 面板增量插一行）。
+  await provider.content(session, { format: 'txt', maxChars: 40 })
+  let log = []
+  for (let i = 0; i < 20 && !log.some(entry => entry.id === 'trail-row'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  }
+  if (!log.some(entry => entry.id === 'trail-row' && entry.name === 'dshRowIn')) {
+    throw new Error('the new row appeared without sliding in: ' + JSON.stringify(log))
+  }
+  await provider.pressKey(session, { key: 'h', modifiers: ['ctrl'] })
+  return { row: 'dshRowIn' }
+})
+// 缩放百分比换值时弹一下（不动真缩放：只调页面那份的显示路径，随后复原）。
+await check('the zoom percentage pops when it changes', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const zoom = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeState ? window.__dshChromeState() : null)')).zoom
+  if (await zoom() !== '100%') throw new Error('expected 100% to start with, got ' + await zoom())
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  await pageEval('window.__dshChromeSetZoom(1.1)')
+  const after = await zoom()
+  if (after !== '110%') throw new Error('the label did not follow the zoom: ' + after)
+  const log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  await pageEval('window.__dshChromeSetZoom(1)')
+  if (await zoom() !== '100%') throw new Error('the label did not come back to 100%')
+  if (!Array.isArray(log) || !log.some(entry => entry.id === 'zoom' && entry.name === 'dshZoomIn')) {
+    throw new Error('the percentage swapped without popping: ' + JSON.stringify(log))
+  }
+  return { zoom: after, animation: 'dshZoomIn' }
+})
 await check('the toolbar star lights up and pops when the page is bookmarked', async () => {
   const frameEval = async script => String(await provider.chromeEval(script))
   await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })

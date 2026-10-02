@@ -332,6 +332,12 @@ test('the chrome moves instead of hard-cutting', () => {
   assert.ok(script.includes("const tab = CHROME_SURFACE === 'frame' ? activeChromeTab() : undefined"), 'the toolbar star asks for the visible tab, not the frame document')
   assert.ok(script.includes('? tab.starred === true'), 'and takes the host\'s verdict — the chrome only receives the redacted origin')
   assert.ok(script.includes('#secIcon, #bookmarks svg { transform-box:fill-box; transform-origin:center; }'), 'and SVG icons pivot on their own centre')
+  // 面板里**新增**的一行 / 换值的百分比：只对真的变化播，整表重画不播。
+  assert.ok(script.includes('const flashChange = (element, id, name, frames) =>'), 'in-place changes share one short feedback helper')
+  assert.ok(script.includes("flashChange(row, 'trail-row', 'dshRowIn',"), 'a new trail row slides in')
+  assert.ok(script.includes("flashChange(zoomLevel, 'zoom', 'dshZoomIn',"), 'and the zoom percentage pops')
+  // 行必须**先插进文档**再动画：游离节点上的 WAAPI 动画会停在 pending，永远不显示。
+  assert.ok(script.indexOf('trailList.append(row)') < script.indexOf("flashChange(row, 'trail-row'"), 'the row is in the document before it animates')
   // 书签栏滑下来 + 页面下移跟着过渡（下移量的过渡只在**第二次**应用之后才补上：
   // chrome 每次导航都会重新注入，第一次就带过渡的话每个页面加载内容都会自己滑一下）。
   assert.ok(script.includes('@keyframes dshBarIn') && script.includes('#bookmarkBar.open { display:block; white-space:nowrap; animation:dshBarIn'), 'the bookmark bar slides in')
