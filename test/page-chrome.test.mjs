@@ -510,6 +510,10 @@ test('bookmarks come from the host, not from per-origin localStorage', () => {
   assert.ok(script.includes('button:disabled { opacity:.42; cursor:default; }'), 'disabled buttons dim')
   assert.ok(script.includes('opacity .18s ease,color .18s ease'), 'and dim through a transition, not a snap')
   assert.ok(script.includes('canBack: !back.disabled'), 'the test seam reports it')
+  // 任务面板的状态变化也是硬切：圆点换色、当前任务那圈高亮凭空出现。
+  assert.ok(script.includes('#taskPanel .task-state { width:7px; height:7px; flex:none; border-radius:50%; background:#8792a1; transition:background .18s ease; }'), 'the status dot eases between states')
+  assert.ok(script.includes('#taskPanel .task-row { transition:background .18s ease,border-color .18s ease,box-shadow .18s ease; }'), 'and so does the active row')
+  assert.ok(script.includes('#taskPanel .task-state { transition:none; }'), 'both respect reduced motion')
   // 日志条目带上元素 id：只按 className 认元素，按钮（无 class）会全变成 BUTTON。
   assert.ok(script.includes("el: String(target.id || '')"), 'the motion log names the element it belongs to')
 })

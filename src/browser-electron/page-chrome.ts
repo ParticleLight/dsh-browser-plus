@@ -78,6 +78,8 @@ export function buildPageChromeScript(bindingToken = '', surface: ChromeSurface 
     '#taskPanel .task-close:hover, #trail .t-close:hover { background:rgba(255,255,255,.13); color:#fff; }',
     '#taskList { flex:1; overflow-y:auto; padding:8px; }',
     '#taskPanel .task-row { box-sizing:border-box; width:100%; min-height:80px; display:grid; grid-template-columns:94px minmax(0,1fr); grid-template-rows:auto auto auto auto; column-gap:10px; row-gap:3px; align-items:center; padding:8px; border:1px solid transparent; border-radius:14px; background:transparent; color:#e5edf9; text-align:left; font:13px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",system-ui,sans-serif; }',
+    // 状态圆点和「当前任务」那圈高亮原来都是硬切（圆点换色、边框与内阴影凭空出现）。
+    '#taskPanel .task-row { transition:background .18s ease,border-color .18s ease,box-shadow .18s ease; }',
     '#taskPanel .task-row:hover { background:rgba(255,255,255,.07); }',
     '#taskPanel .task-row:disabled { cursor:default; opacity:.48; }',
     '#taskPanel .task-row:disabled:hover { background:transparent; }',
@@ -86,7 +88,7 @@ export function buildPageChromeScript(bindingToken = '', surface: ChromeSurface 
     '#taskPanel .task-thumb canvas.task-thumb-canvas { display:block; width:100%; height:100%; }',
     '#taskPanel .task-thumb > * { grid-area:1 / 1; }',
     '#taskPanel .task-title { display:flex; align-items:center; gap:7px; min-width:0; color:#f3f7ff; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }',
-    '#taskPanel .task-state { width:7px; height:7px; flex:none; border-radius:50%; background:#8792a1; }',
+    '#taskPanel .task-state { width:7px; height:7px; flex:none; border-radius:50%; background:#8792a1; transition:background .18s ease; }',
     '#taskPanel .task-row.active .task-state { background:#77d59a; }',
     '#taskPanel .task-row.status-running .task-state { background:#71b8ff; animation:dshPulse 1.1s ease-in-out infinite; }',
     '#taskPanel .task-row.status-waiting-user .task-state { background:#f0bd69; }',
@@ -271,7 +273,7 @@ export function buildPageChromeScript(bindingToken = '', surface: ChromeSurface 
     '/* 系统开了「减少动态效果」就全部退化成瞬时（转圈除外，它表达的是状态）。 */',
     '@media (prefers-reduced-motion:reduce) {',
     '  #panel.open, .glass-panel.open, #mainMenu.open, #findBar.open, #toast.open, #tabstrip .tab.enter, #bookmarkBar.open, #toast.closing, #panel.closing, .glass-panel.closing, #mainMenu.closing, #findBar.closing { animation:none; }',
-    '  #addressWrap, #tabstrip .tab, button { transition:none; }',
+    '  #addressWrap, #tabstrip .tab, button, #taskPanel .task-state { transition:none; }',
     '}',
   ].join('\n')
   // Three surfaces share one stylesheet and one markup tree, separated by
