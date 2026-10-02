@@ -240,7 +240,7 @@ test('the bookmark bar is Chrome-like, and the page offset follows it', () => {
   const script = buildPageChromeScript()
   assert.ok(script.includes('bookmarkBar'), 'the bar ships')
   assert.match(script, /#bookmarkBar \{ position:fixed; top:84px;/)
-  assert.ok(script.includes('#bookmarkBar.open { display:block; white-space:nowrap; }'), 'hidden until turned on')
+  assert.ok(script.includes('#bookmarkBar.open { display:block; white-space:nowrap; animation:dshBarIn'), 'hidden until turned on, then slides in')
   // The chip is inline-block + width:max-content: shrink-to-fit collapsed it to one
   // character wide in the injected shadow root (measured: 30px instead of 132px).
   assert.ok(script.includes('width:max-content; max-width:180px'), 'chips size to their title')
@@ -313,7 +313,18 @@ test('the chrome moves instead of hard-cutting', () => {
   // Reduced motion: the entrance animations are switched off (the loading spinner stays —
   // it carries state, not decoration).
   assert.ok(script.includes('@media (prefers-reduced-motion:reduce)'), 'reduced motion is honoured')
-  assert.ok(script.includes('#toast.open, #tabstrip .tab.enter { animation:none; }'), 'and turns the entrance animations off')
+  assert.ok(script.includes('#bookmarkBar.open, #toast.closing { animation:none; }'), 'and turns the entrance animations off')
+  // 书签栏滑下来 + 页面下移跟着过渡（下移量的过渡只在**第二次**应用之后才补上：
+  // chrome 每次导航都会重新注入，第一次就带过渡的话每个页面加载内容都会自己滑一下）。
+  assert.ok(script.includes('@keyframes dshBarIn') && script.includes('#bookmarkBar.open { display:block; white-space:nowrap; animation:dshBarIn'), 'the bookmark bar slides in')
+  assert.ok(script.includes("document.documentElement.style.transition = 'padding-top .16s ease'"), 'the page inset eases')
+  assert.ok(script.includes('let insetApplied = false') && script.includes('if (insetApplied) return'), 'but only from the second application on')
+  // toast 现在淡出，而不是啪一下没了。
+  assert.ok(script.includes('@keyframes dshToastOut') && script.includes('#toast.closing { animation:dshToastOut'), 'the toast fades out')
+  // 收起不能只靠 animationend：减少动态效果时动画不跑，事件永远不来，toast 会挂住。
+  assert.ok(script.includes('window.setTimeout(finishToastTimer, 220)'), 'and hides on a timer, not on animationend alone')
+  // toast 靠 translateX(-50%) 居中，落下的关键帧必须带上它，否则动画期间会横着跳一下。
+  assert.ok(script.includes('@keyframes dshDropIn { from { opacity:0; transform:translateX(-50%) translateY(-10px) }'), 'the drop-in keeps the toast centred')
   // The recorder the smoke asserts against.
   assert.ok(script.includes('window.__dshChromeMotion'), 'the chrome records what animated')
   assert.ok(script.includes("motionLog.push({ id: 'tab', phase: 'start', name: 'dshTabIn' })"), 'including the tab entrance')
@@ -462,7 +473,7 @@ test('page zoom compensates the chrome instead of scaling it', () => {
   assert.match(script, /window\.__dshChromeSetZoom = applyZoomFactor/)
   assert.match(script, /host\.style\.zoom = next === 1 \? '' : String\(1 \/ next\)/)
   // The offset tracks both zoom and the bookmark bar (see chromeInset).
-  assert.ok(script.includes("setProperty('padding-top', (chromeInset() / next) + 'px', 'important')"))
+  assert.ok(script.includes('applyPageInset(chromeInset() / next)'))
   assert.match(script, /const syncZoomFromHost = \(\) => \{ applyZoomFactor\(window\.__dshZoom\) \}/)
   // The factor must come from the host. Deriving it from devicePixelRatio looked
   // equivalent and was not: a freshly navigated document's dpr is already scaled,

@@ -68,4 +68,11 @@ if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Ou
 $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
 $g.Dispose(); $bmp.Dispose()
 [void][CapFg]::SetWindowPos($h, [IntPtr](-2), 0, 0, 0, 0, 0x0003)
-Write-Output "saved $Out"
+# The foreground dance above can leave the window minimised (seen 2026-10-02: the
+# capture reported 276x45 = the iconic rect and the user's browser stayed in the
+# taskbar). Put it back the way we found it before we hand control back.
+if ([CapFg]::IsIconic($h)) {
+  [void][CapFg]::ShowWindow($h, 9)
+  Start-Sleep -Milliseconds 500
+}
+Write-Output ("saved " + $Out + " iconicAfter=" + [CapFg]::IsIconic($h))

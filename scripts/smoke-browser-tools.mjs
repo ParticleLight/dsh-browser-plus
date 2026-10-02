@@ -551,6 +551,70 @@ await check('the bookmark bar is host state and the page offset follows it', asy
   if (closed.bar !== false || closed.pad !== '0px') throw new Error('the bar did not go away: ' + JSON.stringify(closed))
   return { opened: opened.pad, closed: closed.pad }
 })
+// 下移量现在是**过渡**过去的，不是一步跳过去 —— 而且过渡只在第二次应用之后才补上
+// （chrome 每次导航都会重新注入，第一次就带过渡的话，每个页面加载内容都会自己滑一下）。
+await check('the page inset eases, and only after the first paint', async () => {
+  const read = async () => JSON.parse(String((await provider.execute(session, {
+    // 用计算样式而不是 inline 值：浏览器会把 ".16s ease" 规范成 "0.16s"（并丢掉默认的 ease）。
+    script: 'JSON.stringify({ pad: getComputedStyle(document.documentElement).paddingTop, property: getComputedStyle(document.documentElement).transitionProperty, duration: getComputedStyle(document.documentElement).transitionDuration, bar: window.__dshBookmarkBar === true })',
+  })).value))
+  const state = await read()
+  if (state.property !== 'padding-top' || state.duration !== '0.16s') {
+    throw new Error('the inset transition was never armed: ' + JSON.stringify(state))
+  }
+  let mid = null
+  for (let attempt = 0; attempt < 3 && mid === null; attempt += 1) {
+    await provider.execute(session, { script: '(() => { window.__dshChromeBookmarkBar(); return "toggle" })()' })
+    for (let i = 0; i < 8; i += 1) {
+      const value = Number.parseFloat((await read()).pad)
+      // 160ms 的窗口里 RPC 抖动可能一次都采不到；但**每次**都是 0/34 的整数端点，
+      // 就说明根本没有过渡。
+      if (Number.isFinite(value) && value > 0 && value < 34) { mid = String(value); break }
+    }
+    if (mid === null) await new Promise(resolve => setTimeout(resolve, 400))
+  }
+  if (mid === null) throw new Error('the inset jumped instead of easing: never sampled a value between 0 and 34px')
+  await new Promise(resolve => setTimeout(resolve, 400))
+  // 收拾干净：这条检查会开关若干次，别把书签栏留在开着的状态给后面的检查。
+  const end = await read()
+  if (end.bar === true) {
+    await provider.execute(session, { script: '(() => { window.__dshChromeBookmarkBar(); return "off" })()' })
+    await new Promise(resolve => setTimeout(resolve, 400))
+  }
+  return { mid, end: (await read()).pad }
+})
+// toast 过去是「啪」一下消失（display:none）。现在先淡出再收 —— 而且收起**不能只靠
+// animationend**：系统开了「减少动态效果」时动画不跑，那个事件永远不来，toast 就挂住了。
+await check('a notice fades out instead of vanishing', async () => {
+  const motion = async () => JSON.parse(String((await provider.execute(session, {
+    script: 'JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : null)',
+  })).value))
+  const toastState = async () => JSON.parse(String((await provider.execute(session, {
+    script: 'typeof window.__dshChromeToastState === "function" ? window.__dshChromeToastState() : "null"',
+  })).value))
+  await provider.execute(session, { script: '(() => { window.__dshChromeMotionClear?.(); return "cleared" })()' })
+  const shown = await provider.execute(session, { script: '(() => { if (typeof window.__dshChromeToast !== "function") return "missing"; window.__dshChromeToast("动效测试"); return "shown" })()' })
+  if (shown.value !== 'shown') throw new Error('the toast hook is ' + String(shown.value))
+  const opened = await toastState()
+  if (opened.open !== true) throw new Error('the toast never opened: ' + JSON.stringify(opened))
+  let dropped = false
+  for (let i = 0; i < 20 && !dropped; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 100))
+    dropped = (await motion()).some(entry => entry.id === 'toast' && entry.phase === 'end' && entry.name === 'dshDropIn')
+  }
+  if (!dropped) throw new Error('the toast appeared without its drop-in animation')
+  // 5 秒后自动收起，而且必须是淡出，不是直接消失。
+  let faded = false
+  for (let i = 0; i < 90 && !faded; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 100))
+    faded = (await motion()).some(entry => entry.id === 'toast' && entry.phase === 'start' && entry.name === 'dshToastOut')
+  }
+  if (!faded) throw new Error('the toast vanished without fading out')
+  await new Promise(resolve => setTimeout(resolve, 600))
+  const after = await toastState()
+  if (after.open !== false || after.closing !== false) throw new Error('the toast never finished hiding: ' + JSON.stringify(after))
+  return { drop: 'dshDropIn', hide: 'dshToastOut' }
+})
 await check('a settled tab is not stuck loading', async () => {
   await provider.navigate(session, { url: 'https://example.com/' })
   await new Promise(resolve => setTimeout(resolve, 600))
