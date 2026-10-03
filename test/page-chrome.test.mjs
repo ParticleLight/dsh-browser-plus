@@ -281,6 +281,9 @@ test('the frame chrome relays page actions instead of touching its own document'
   assert.ok(frame.includes("if (CHROME_SURFACE !== 'frame') {"), 'no zoom compensation on the frame')
   // Bookmarking from the frame must save the PAGE's url, not the frame's.
   assert.ok(frame.includes('onFrameSurface ? activeTabUrl() : location.href'), 'the star saves the page url')
+  // frame 只有 84px 高：书签栏留在那儿会把文档撑出滚动条（真机截图右边那条带箭头的）。
+  assert.ok(frame.includes('#findBar, #toast, #bookmarkBar { display:none !important }'), 'the frame leaves the bookmark bar to the page copy')
+  assert.ok(frame.includes("if (CHROME_SURFACE === 'frame') {\n      document.documentElement.style.overflow = 'hidden'"), 'and can never grow a scrollbar (the shadow sheet cannot style the outer html)')
 })
 
 test('hovering a toolbar button needs intent, not a pass-over', () => {

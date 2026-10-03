@@ -283,7 +283,9 @@ export function buildPageChromeScript(bindingToken = '', surface: ChromeSurface 
   // and 'page' is the copy that stays in the page (the popups). Popups cannot live
   // in the frame: it is 84px tall and a menu would be clipped.
   const chromeCssText = toolbarCss + '\n#toolbarRevealZone,#toolbarHide{display:none!important}'
-    + (surface === 'frame' ? '\n#panel, .glass-panel, #mainMenu, #findBar, #toast { display:none !important }' : '')
+    // #bookmarkBar 挂在 top:84px —— 在 84px 高的 frame 里它就是把文档撑高 34px，浏览器于是画一条
+    // 滚动条（真机截图里右边那条带箭头的）。书签栏由 page 那份画（它在那边被挪到 top:0）。
+    + (surface === 'frame' ? '\n#panel, .glass-panel, #mainMenu, #findBar, #toast, #bookmarkBar { display:none !important }' : '')
     + (surface === 'page'
       ? '\n#tabstrip, #bar, #toolbarRevealZone, #toolbarHide { display:none !important }'
         // The page's viewport now starts where the frame ends, so the bar sits at the
@@ -380,8 +382,13 @@ export function buildPageChromeScript(bindingToken = '', surface: ChromeSurface 
     '    if (document.getElementById(hostId) || !document.documentElement) return',
     "    const host = document.createElement('div')",
     '    host.id = hostId',
-    "    host.setAttribute(chromeAttribute, '')",
     "    host.style.cssText = 'all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none'",
+    "    // frame 只有 84px 高，而书签栏之类的表面挂在它下面 —— 只要文档能滚，浏览器就会在右边画一条",
+    "    // 滚动条（真机截图里那条带箭头的）。影子根里的 html { } 够不到外层文档，只能在 JS 里设。",
+    "    if (CHROME_SURFACE === 'frame') {",
+    "      document.documentElement.style.overflow = 'hidden'",
+    "      document.body.style.overflow = 'hidden'",
+    "    }",
     "    // 版本标记：宿主元素在 light DOM 里，即使 chrome 用 closed shadow root，",
     "    // 外部也能读到它——用来判断页面里跑的是哪一版 chrome。",
     "    host.dataset.dshChrome = '3'",

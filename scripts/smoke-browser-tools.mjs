@@ -906,6 +906,25 @@ await check('the task rows slide instead of jumping', async () => {
 // 切标签时页面从表面色淡进来；**导航绝不能播**（否则每次加载都闪一下）。
 // 关掉**最后一个**标签：provider 会补一个新标签，而新标签的宿主视图是异步建的 ——
 // 不等它就 showActive 会显示一个还不存在的视图（宿主报 unknown view，而且是条没人接的 rejection）。
+// frame 那份 chrome 只有 84px 高：书签栏（top:84px + 34px）会把它撑出滚动条（真机截图右边那条）。
+await check('the frame never grows a scrollbar', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const frameEval = async script => String(await provider.chromeEval(script))
+  const gutter = async () => Number(await frameEval('String(window.innerWidth - document.documentElement.clientWidth)'))
+  if (await pageEval('String(window.__dshBookmarkBar === true)') !== 'true') {
+    await pageEval('window.__dshChromeBookmarkBar()')
+    await new Promise(resolve => setTimeout(resolve, 700))
+  }
+  if (await pageEval('String(window.__dshBookmarkBar === true)') !== 'true') throw new Error('the bookmark bar would not turn on')
+  await new Promise(resolve => setTimeout(resolve, 400))
+  const width = await gutter()
+  if (!Number.isFinite(width)) throw new Error('could not read the frame viewport: ' + width)
+  if (width > 0) {
+    const detail = await frameEval("JSON.stringify({ html: document.documentElement.scrollHeight, body: document.body.scrollHeight, view: document.documentElement.clientHeight, widest: (() => { let best = ''; let size = 0; for (const el of document.body.children) { const box = el.getBoundingClientRect(); if (box.bottom > size) { size = box.bottom; best = el.id || el.tagName } } return best + '@' + Math.round(size) })() })")
+    throw new Error('the frame has a ' + width + 'px scrollbar gutter: ' + detail)
+  }
+  return { gutter: width }
+})
 await check('closing the last tab leaves a working one', async () => {
   const tabsNow = async () => provider.listTabs(session)
   for (let i = 0; i < 6; i += 1) {
