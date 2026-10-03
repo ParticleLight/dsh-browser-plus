@@ -283,7 +283,10 @@ test('the frame chrome relays page actions instead of touching its own document'
   assert.ok(frame.includes('onFrameSurface ? activeTabUrl() : location.href'), 'the star saves the page url')
   // frame 只有 84px 高：书签栏留在那儿会把文档撑出滚动条（真机截图右边那条带箭头的）。
   assert.ok(frame.includes('#findBar, #toast, #bookmarkBar { display:none !important }'), 'the frame leaves the bookmark bar to the page copy')
-  assert.ok(frame.includes("if (CHROME_SURFACE === 'frame') {\n      document.documentElement.style.overflow = 'hidden'"), 'and can never grow a scrollbar (the shadow sheet cannot style the outer html)')
+  // ⚠️ 这段必须写在 `const CHROME_SURFACE` **之后** —— 写在前面会 TDZ 抛死整个 mount
+  // （2026-10-03 真踩过：两个 chrome 表面一起消失，只有 data-dsh-chrome-error 说得清）。
+  assert.ok(frame.includes("if (CHROME_SURFACE === 'frame') {\n      document.documentElement.style.overflow = 'hidden'"), 'the frame can never grow a scrollbar (the shadow sheet cannot style the outer html)')
+  assert.ok(frame.indexOf("const CHROME_SURFACE = ") < frame.indexOf("document.documentElement.style.overflow = 'hidden'"), 'and that runs only after the surface const exists')
 })
 
 test('hovering a toolbar button needs intent, not a pass-over', () => {
