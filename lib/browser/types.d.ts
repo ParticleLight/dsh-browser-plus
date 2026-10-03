@@ -181,6 +181,29 @@ export interface BrowserPdfResult {
     readonly path: string;
     readonly bytes: number;
 }
+/** Draw or clear the DevTools-style highlight box over a selector's first match. */
+export interface BrowserHighlightRequest {
+    /** CSS selector whose first match to highlight. Ignored when clear is true. */
+    readonly selector?: string;
+    /** Remove any existing highlight instead of drawing one. */
+    readonly clear?: boolean;
+}
+/** What the highlight call found. */
+export interface BrowserHighlightResult {
+    /** A match was found and highlighted. */
+    readonly matched: boolean;
+    /** The highlight was cleared. */
+    readonly cleared: boolean;
+    /** CDP node id of the match, when there was one. */
+    readonly nodeId?: number;
+    /** Content box in CSS pixels, when the element has one. */
+    readonly box?: {
+        readonly x: number;
+        readonly y: number;
+        readonly width: number;
+        readonly height: number;
+    };
+}
 /** One field of a batch form fill. Match by selector, or by name/label/placeholder. */
 export interface BrowserFillField {
     /** CSS selector; when present, candidates are scoped to it. */
@@ -622,6 +645,8 @@ export interface BrowserProvider {
     waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult>;
     /** Print the active tab to a PDF file. */
     pdf(session: BrowserSessionId, request: BrowserPdfRequest, signal?: AbortSignal): Promise<BrowserPdfResult>;
+    /** Draw or clear the DevTools-style highlight box over a selector's first match. */
+    highlight(session: BrowserSessionId, request: BrowserHighlightRequest, signal?: AbortSignal): Promise<BrowserHighlightResult>;
     /** Fill a form's fields in one batch. Honor `signal` for cancellation. */
     fillForm(session: BrowserSessionId, request: BrowserFillRequest, signal?: AbortSignal): Promise<BrowserFillResult>;
     /** Capture the current page. Honor `signal` for cancellation. */

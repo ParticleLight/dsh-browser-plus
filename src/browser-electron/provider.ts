@@ -49,6 +49,8 @@ import type {
   BrowserUploadFileResult,
   BrowserPdfRequest,
   BrowserPdfResult,
+  BrowserHighlightRequest,
+  BrowserHighlightResult,
   BrowserWaitForRequest,
   BrowserWaitForResult,
   ExportedCookie,
@@ -381,6 +383,10 @@ export interface CdpEvaluateParams {
 export const CDP_PAGE_CAPTURE_SCREENSHOT = 'Page.captureScreenshot'
 /** CDP method that renders the current document to PDF. */
 export const CDP_PAGE_PRINT_TO_PDF = 'Page.printToPDF'
+/** CDP methods that draw the DevTools highlight box without touching the DOM. */
+export const CDP_OVERLAY_ENABLE = 'Overlay.enable'
+export const CDP_OVERLAY_HIGHLIGHT_NODE = 'Overlay.highlightNode'
+export const CDP_OVERLAY_HIDE_HIGHLIGHT = 'Overlay.hideHighlight'
 /** CDP method for runtime evaluation (the execute path). */
 export const CDP_RUNTIME_EVALUATE = 'Runtime.evaluate'
 
@@ -2110,6 +2116,60 @@ export class ElectronBrowserProvider implements BrowserProvider {
   }
 
   /** Capture the current page, optionally full-page. PNG only (CDP JPEG hangs on Electron 43). */
+  /**
+   * Draw the DevTools highlight box over the first match of a selector, or clear it.
+   * Uses CDP Overlay, so the page DOM is never touched.
+   */
+  async highlight(
+    session: BrowserSessionId,
+    request: BrowserHighlightRequest,
+    signal?: AbortSignal,
+  ): Promise<BrowserHighlightResult> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    if (request.clear === true) {
+      this.ignoreHostFailure(handle.sendCommand(CDP_OVERLAY_HIDE_HIGHLIGHT, {}))
+      return { matched: false, cleared: true }
+    }
+    const selector = request.selector ?? ''
+    if (selector === '') {
+      throw new BrowserError('browser: highlight needs a selector, or clear: true', 'BROWSER_HIGHLIGHT_INVALID')
+    }
+    const doc = await handle.sendCommand('DOM.getDocument', {})
+    const rootId = (doc as { root?: { nodeId?: number } }).root?.nodeId
+    if (typeof rootId !== 'number') {
+      throw new BrowserError('browser: could not read the document root', 'BROWSER_HIGHLIGHT_FAILED')
+    }
+    const found = await handle.sendCommand('DOM.querySelector', { nodeId: rootId, selector })
+    const nodeId = (found as { nodeId?: number }).nodeId ?? 0
+    if (nodeId === 0) return { matched: false, cleared: false }
+    let box: { x: number; y: number; width: number; height: number } | undefined
+    try {
+      const model = await handle.sendCommand('DOM.getBoxModel', { nodeId })
+      const quad = (model as { model?: { content?: number[] } }).model?.content
+      if (Array.isArray(quad) && quad.length >= 8) {
+        const xs = [quad[0], quad[2], quad[4], quad[6]]
+        const ys = [quad[1], quad[3], quad[5], quad[7]]
+        const x = Math.min(...xs)
+        const y = Math.min(...ys)
+        box = { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y }
+      }
+    } catch { /* a zero-size element has no box model; the box is still highlighted */ }
+    await handle.sendCommand(CDP_OVERLAY_ENABLE, {})
+    await handle.sendCommand(CDP_OVERLAY_HIGHLIGHT_NODE, {
+      nodeId,
+      highlightConfig: {
+        showInfo: true,
+        contentColor: { r: 77, g: 107, b: 254, a: 0.28 },
+        borderColor: { r: 77, g: 107, b: 254, a: 0.9 },
+      },
+    })
+    this.record(s, 'highlight', { selector }, true, { result: `node ${nodeId}` })
+    return { matched: true, cleared: false, nodeId, ...box !== undefined ? { box } : {} }
+  }
+
+
   /** Print the active tab to a PDF file (Chrome's "Save as PDF"). */
   async pdf(
     session: BrowserSessionId,

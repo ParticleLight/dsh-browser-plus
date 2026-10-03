@@ -49,6 +49,8 @@ import type {
   BrowserUploadFileResult,
   BrowserPdfRequest,
   BrowserPdfResult,
+  BrowserHighlightRequest,
+  BrowserHighlightResult,
   BrowserWaitForRequest,
   BrowserWaitForResult,
   BrowserChallenge,
@@ -336,6 +338,10 @@ export class BrowserRuntime extends Service {
   }
 
   /** Wait for an element through the selected provider (bounded polling). */
+  async highlight(session: BrowserSessionId, request: BrowserHighlightRequest, signal?: AbortSignal): Promise<BrowserHighlightResult> {
+    return this.resolveProvider().highlight(session, request, signal)
+  }
+
   async pdf(session: BrowserSessionId, request: BrowserPdfRequest, signal?: AbortSignal): Promise<BrowserPdfResult> {
     return this.resolveProvider().pdf(session, request, signal)
   }

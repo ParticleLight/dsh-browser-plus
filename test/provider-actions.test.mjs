@@ -360,6 +360,55 @@ test('pdf refuses a path outside the write roots before printing', async () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+test('highlight draws the CDP overlay over the first match, and can clear it', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const calls = []
+  host.views[0].sendCommand = async (method, params) => {
+    calls.push({ method, params })
+    if (method === 'DOM.getDocument') return { root: { nodeId: 1 } }
+    if (method === 'DOM.querySelector') return { nodeId: 42 }
+    if (method === 'DOM.getBoxModel') return { model: { content: [10, 20, 110, 20, 110, 70, 10, 70] } }
+    return {}
+  }
+  const result = await provider.highlight(session, { selector: '#go' })
+  assert.equal(result.matched, true)
+  assert.equal(result.nodeId, 42)
+  assert.deepEqual(result.box, { x: 10, y: 20, width: 100, height: 50 }, 'the content quad becomes a box')
+  assert.equal(calls.at(-1).method, 'Overlay.highlightNode')
+  assert.equal(calls.at(-1).params.nodeId, 42)
+  assert.equal(calls.at(-1).params.highlightConfig.showInfo, true)
+  // 清掉
+  const cleared = await provider.highlight(session, { clear: true })
+  assert.equal(cleared.cleared, true)
+  assert.equal(calls.at(-1).method, 'Overlay.hideHighlight')
+})
+
+test('highlight reports no match instead of drawing an empty box', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const calls = []
+  host.views[0].sendCommand = async (method) => {
+    calls.push(method)
+    if (method === 'DOM.getDocument') return { root: { nodeId: 1 } }
+    return { nodeId: 0 }
+  }
+  const result = await provider.highlight(session, { selector: '#missing' })
+  assert.equal(result.matched, false)
+  assert.equal(calls.includes('Overlay.highlightNode'), false, 'nothing to highlight, so no overlay call')
+})
+
+test('highlight needs a selector unless it is clearing', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  await assert.rejects(
+    () => provider.highlight(session, {}),
+    (error) => error.code === 'BROWSER_HIGHLIGHT_INVALID',
+  )
+})
 test('setSpace labels the window and records it', async () => {
   const host = new FakeHost()
   const provider = new ElectronBrowserProvider(host)

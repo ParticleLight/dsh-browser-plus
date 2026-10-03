@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser-plus/browser-electron
  */
-import type { BrowserChallenge, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserContentRequest, BrowserContentResult, BrowserDragRequest, BrowserDragResult, BrowserPointerResult, BrowserPointerTarget, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserPdfRequest, BrowserPdfResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserContentRequest, BrowserContentResult, BrowserDragRequest, BrowserDragResult, BrowserPointerResult, BrowserPointerTarget, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserPdfRequest, BrowserPdfResult, BrowserHighlightRequest, BrowserHighlightResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -254,6 +254,10 @@ export interface CdpEvaluateParams {
 export declare const CDP_PAGE_CAPTURE_SCREENSHOT = "Page.captureScreenshot";
 /** CDP method that renders the current document to PDF. */
 export declare const CDP_PAGE_PRINT_TO_PDF = "Page.printToPDF";
+/** CDP methods that draw the DevTools highlight box without touching the DOM. */
+export declare const CDP_OVERLAY_ENABLE = "Overlay.enable";
+export declare const CDP_OVERLAY_HIGHLIGHT_NODE = "Overlay.highlightNode";
+export declare const CDP_OVERLAY_HIDE_HIGHLIGHT = "Overlay.hideHighlight";
 /** CDP method for runtime evaluation (the execute path). */
 export declare const CDP_RUNTIME_EVALUATE = "Runtime.evaluate";
 /**
@@ -538,6 +542,11 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     /** Drop a batch's private tabs (and their views) once the batch is over. */
     private destroyScrapeTabs;
     /** Capture the current page, optionally full-page. PNG only (CDP JPEG hangs on Electron 43). */
+    /**
+     * Draw the DevTools highlight box over the first match of a selector, or clear it.
+     * Uses CDP Overlay, so the page DOM is never touched.
+     */
+    highlight(session: BrowserSessionId, request: BrowserHighlightRequest, signal?: AbortSignal): Promise<BrowserHighlightResult>;
     /** Print the active tab to a PDF file (Chrome's "Save as PDF"). */
     pdf(session: BrowserSessionId, request: BrowserPdfRequest, signal?: AbortSignal): Promise<BrowserPdfResult>;
     screenshot(session: BrowserSessionId, request?: {
