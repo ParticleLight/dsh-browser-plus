@@ -776,7 +776,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const removed = s.tabs[index]
     if (removed !== undefined) {
       s.tabs.splice(index, 1)
-      this.host.destroyView(removed.handle)
+      this.ignoreHostFailure(this.host.destroyView(removed.handle))
     }
     if (s.tabs.length === 0) {
       // Session keeps one blank tab so it stays usable. **必须等**：newTab 建宿主视图是异步的，
@@ -798,7 +798,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
   /** Close every tab and reset to one blank tab. */
   reset(session: BrowserSessionId): Promise<void> {
     const s = this.session(session)
-    for (const tab of s.tabs) this.host.destroyView(tab.handle)
+    for (const tab of s.tabs) this.ignoreHostFailure(this.host.destroyView(tab.handle))
     s.tabs.length = 0
     this.newTab(s)
     s.activeIndex = 0
@@ -1972,7 +1972,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
       const index = s.tabs.findIndex(candidate => candidate.id === tab.id)
       if (index < 0) continue
       s.tabs.splice(index, 1)
-      this.host.destroyView(tab.handle)
+      this.ignoreHostFailure(this.host.destroyView(tab.handle))
       // Same index bookkeeping as closeTab: a batch tab is normally not active,
       // but a tool call could have activated one mid-batch.
       if (s.tabs.length === 0) {
@@ -2259,7 +2259,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const existing = this.sessions.get(session)
     if (existing !== undefined) {
       this.sessions.delete(session)
-      for (const tab of existing.tabs) this.host.destroyView(tab.handle)
+      for (const tab of existing.tabs) this.ignoreHostFailure(this.host.destroyView(tab.handle))
       const replacement = [...this.sessions.values()].find(candidate => candidate.taskKey === existing.taskKey)
       if (this.sessionsByTask.get(existing.taskKey) === session) {
         if (replacement === undefined) this.sessionsByTask.delete(existing.taskKey)
@@ -2457,6 +2457,16 @@ export class ElectronBrowserProvider implements BrowserProvider {
   }
 
   /** Notify the host of the active tab; it preserves the human-selected task view. */
+  /**
+   * Fire-and-forget host call: these run while the provider keeps going, so a rejection
+   * must never escape. Electron's host answers `unknown view` for a handle it no longer
+   * knows (a host restart leaves the provider holding stale ones), and an unhandled
+   * rejection surfaces as *some other* tool call failing - Ctrl+W did exactly that.
+   * The desired end state (view gone) holds either way, so swallowing is right here.
+   */
+  private ignoreHostFailure(promise: unknown): void {
+    void Promise.resolve(promise).catch(() => undefined)
+  }
   private showActive(s: Session): void {
     // 让陈旧的一次显示安静地失败：紧接着的操作/切换会把它纠正回来，而一条没人接的
     // rejection 会以「别的工具调用失败了」的形式冒出来（实测 Ctrl+W 关最后一个标签就是这样）。

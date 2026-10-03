@@ -534,6 +534,14 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     /** Append a fresh tab and make it active. */
     private newTab;
     /** Notify the host of the active tab; it preserves the human-selected task view. */
+    /**
+     * Fire-and-forget host call: these run while the provider keeps going, so a rejection
+     * must never escape. Electron's host answers `unknown view` for a handle it no longer
+     * knows (a host restart leaves the provider holding stale ones), and an unhandled
+     * rejection surfaces as *some other* tool call failing - Ctrl+W did exactly that.
+     * The desired end state (view gone) holds either way, so swallowing is right here.
+     */
+    private ignoreHostFailure;
     private showActive;
     /** Read the current URL of a view through CDP. */
     private currentUrl;
