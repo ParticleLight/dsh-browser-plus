@@ -801,7 +801,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         dialog: unknown
         policy: { behavior: 'accept' | 'dismiss'; promptText?: string }
       } = args.action === 'inspect'
-        ? await withTaskRead(browser, key, 'dialog', async session => browser.dialogState(session))
+        ? await withTaskRead(browser, key, 'dialog', async session => browser.inspectDialog(session))
         : await withTaskAction(browser, key, 'dialog ' + args.action, exec, session => browser.setDialogPolicy(session, {
             behavior: args.action === 'dismiss' ? 'dismiss' : 'accept',
             ...args.promptText === undefined ? {} : { promptText: args.promptText },

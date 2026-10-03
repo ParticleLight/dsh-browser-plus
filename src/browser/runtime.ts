@@ -279,6 +279,11 @@ export class BrowserRuntime extends Service {
     return this.resolveProvider().setDialogPolicy(session, policy)
   }
 
+  /** Drain any pending dialog, then report the last one and the current policy. */
+  async inspectDialog(session: BrowserSessionId): Promise<{ dialog: unknown; policy: { behavior: 'accept' | 'dismiss'; promptText?: string } }> {
+    return this.resolveProvider().inspectDialog(session)
+  }
+
   /** The last JS dialog the host reported, plus the current policy. */
   dialogState(session: BrowserSessionId): { dialog: unknown; policy: { behavior: 'accept' | 'dismiss'; promptText?: string } } {
     return this.resolveProvider().dialogState(session)

@@ -921,6 +921,13 @@ test('dialog policy is pushed to the host and inspect reports the last dialog', 
   await provider.execute(session, { script: '1' })
   assert.deepEqual(provider.dialogState(session).dialog, { type: 'confirm', message: 'delete?' })
 
+  // inspect 必须**自己排空** —— 宿主只在有人排空时才交出对话框，不排空就会漏掉
+  // 调用者刚刚触发的那个（真机上就是这么漏的）。
+  pings = 0
+  const inspected = await provider.inspectDialog(session)
+  assert.deepEqual(inspected.dialog, { type: 'confirm', message: 'delete?' }, 'inspect drains the pending dialog')
+  assert.equal(pings, 1, 'it asked the host exactly once')
+
   const state = await provider.setDialogPolicy(session, { behavior: 'dismiss' })
   assert.deepEqual(pushed, [{ behavior: 'dismiss' }], 'the policy reaches the host')
   assert.deepEqual(state.policy, { behavior: 'dismiss' })

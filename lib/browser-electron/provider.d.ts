@@ -592,6 +592,18 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     emulate(session: BrowserSessionId, options?: EmulateOptions): Promise<{
         applied: string[];
     }>;
+    /**
+     * Drain any dialog that opened since the last input call, then report the last
+     * one and the current policy.
+     *
+     * `dialogState` alone is not enough for the tool: the host only hands a dialog
+     * over when something drains it, so an inspect that does not drain misses exactly
+     * the dialog the caller just triggered. (Found on the real machine.)
+     */
+    inspectDialog(session: BrowserSessionId): Promise<{
+        dialog: unknown;
+        policy: DialogPolicy;
+    }>;
     /** The last JS dialog the host reported, plus the current policy. */
     dialogState(session: BrowserSessionId): {
         dialog: unknown;

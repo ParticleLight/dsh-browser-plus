@@ -538,6 +538,8 @@ export interface BrowserProvider {
   networkRequests(session: BrowserSessionId, options?: { limit?: number; failedOnly?: boolean; urlContains?: string; clear?: boolean }): Promise<{ requests: Array<{ method: string; url: string; status?: number; mime?: string; kind?: string; failed?: string; ms?: number; at: string }> }>
   /** Set how the host answers the next JS dialog (alert/confirm/prompt). */
   setDialogPolicy(session: BrowserSessionId, policy: { behavior: 'accept' | 'dismiss'; promptText?: string }): Promise<{ dialog: unknown; policy: { behavior: 'accept' | 'dismiss'; promptText?: string } }>
+  /** Drain any pending dialog, then report the last one and the current policy. */
+  inspectDialog(session: BrowserSessionId): Promise<{ dialog: unknown; policy: { behavior: 'accept' | 'dismiss'; promptText?: string } }>
   /** The last JS dialog the host reported, plus the current policy. */
   dialogState(session: BrowserSessionId): { dialog: unknown; policy: { behavior: 'accept' | 'dismiss'; promptText?: string } }
   /** Click one element referenced by an exact snapshot. */

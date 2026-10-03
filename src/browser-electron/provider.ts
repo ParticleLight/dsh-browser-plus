@@ -2269,6 +2269,21 @@ export class ElectronBrowserProvider implements BrowserProvider {
     return { applied }
   }
 
+  /**
+   * Drain any dialog that opened since the last input call, then report the last
+   * one and the current policy.
+   *
+   * `dialogState` alone is not enough for the tool: the host only hands a dialog
+   * over when something drains it, so an inspect that does not drain misses exactly
+   * the dialog the caller just triggered. (Found on the real machine.)
+   */
+  async inspectDialog(session: BrowserSessionId): Promise<{ dialog: unknown; policy: DialogPolicy }> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    await this.drainDialog(s, handle)
+    return { dialog: s.lastDialog ?? null, policy: s.dialogPolicy ?? { behavior: 'accept' } }
+  }
+
   /** The last JS dialog the host reported, plus the current policy. */
   dialogState(session: BrowserSessionId): { dialog: unknown; policy: DialogPolicy } {
     const s = this.session(session)

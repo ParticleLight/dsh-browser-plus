@@ -134,6 +134,14 @@ export declare class BrowserRuntime extends Service {
             promptText?: string;
         };
     }>;
+    /** Drain any pending dialog, then report the last one and the current policy. */
+    inspectDialog(session: BrowserSessionId): Promise<{
+        dialog: unknown;
+        policy: {
+            behavior: 'accept' | 'dismiss';
+            promptText?: string;
+        };
+    }>;
     /** The last JS dialog the host reported, plus the current policy. */
     dialogState(session: BrowserSessionId): {
         dialog: unknown;
