@@ -914,6 +914,48 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   }))
   ctx.tools.register(defineTool({
+    name: 'browser_emulate',
+    description: 'Emulate a device on the active tab: viewport size (with optional mobile mode and device pixel ratio), a custom user agent, or prefers-color-scheme. Use it to check a responsive layout, to take a screenshot at a fixed size, or to see the dark theme. Pass clear: true to undo all three and go back to the real window. Note the emulated viewport is a rendering override - the window itself does not resize.',
+    parameters: {
+      width: { type: 'number', description: 'Viewport width in CSS px (give with height).' },
+      height: { type: 'number', description: 'Viewport height in CSS px (give with width).' },
+      deviceScaleFactor: { type: 'number', description: 'Device pixel ratio, e.g. 2 for a retina phone. Default keeps the real one.' },
+      mobile: { type: 'boolean', description: 'Emulate a mobile device (touch + mobile viewport behaviour).' },
+      userAgent: { type: 'string', description: 'User agent string to send instead of the real one.' },
+      colorScheme: { type: 'string', enum: ['light', 'dark', 'no-preference'], description: 'Value for prefers-color-scheme.' },
+      clear: { type: 'boolean', description: 'Undo viewport, user agent and color-scheme emulation on this tab.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          applied: { type: 'array', required: true, items: { type: 'string' } },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: value.applied.length === 0
+        ? 'Nothing to emulate: give width+height, userAgent, colorScheme, or clear.'
+        : 'Applied: ' + value.applied.join(', ') }],
+    },
+    timeoutMs,
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      assertAllowed('browser_emulate', exec)
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const key = taskKey(exec)
+      return withTaskAction(browser, key, 'emulate', exec, session => browser.emulate(session, {
+        ...args.width === undefined ? {} : { width: args.width },
+        ...args.height === undefined ? {} : { height: args.height },
+        ...args.deviceScaleFactor === undefined ? {} : { deviceScaleFactor: args.deviceScaleFactor },
+        ...args.mobile === true ? { mobile: true } : {},
+        ...args.userAgent === undefined ? {} : { userAgent: args.userAgent },
+        ...args.colorScheme === undefined ? {} : { colorScheme: args.colorScheme },
+        ...args.clear === true ? { clear: true } : {},
+      }))
+    },
+  }))
+  ctx.tools.register(defineTool({
     name: 'browser_execute',
     description: 'Execute JavaScript in the shared-browser page context. This is the primary way to interact with page elements: focus, fill inputs (use the native value setter for framework-controlled inputs, then dispatch an input event), click buttons (element.click() or a constructed MouseEvent). The script may be a single expression (its value is returned) or statements with an explicit `return` - `const el = document.querySelector("#x"); return el.textContent` works. Promises are awaited. Returns the evaluation result by value, or the exception text.',
     parameters: {

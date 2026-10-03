@@ -81,6 +81,18 @@ export declare class BrowserRuntime extends Service {
         query?: string;
         limit?: number;
     }, signal?: AbortSignal): Promise<BrowserSnapshotResult>;
+    /** Apply device/viewport/media emulation to the session's active tab. */
+    emulate(session: BrowserSessionId, options?: {
+        width?: number;
+        height?: number;
+        deviceScaleFactor?: number;
+        mobile?: boolean;
+        userAgent?: string;
+        colorScheme?: 'light' | 'dark' | 'no-preference';
+        clear?: boolean;
+    }): Promise<{
+        applied: string[];
+    }>;
     /** Console messages the host captured for the session's active tab. */
     consoleMessages(session: BrowserSessionId, options?: {
         limit?: number;

@@ -185,6 +185,17 @@ export interface BrowserNetworkRequest {
     ms?: number;
     at: string;
 }
+/** Device/viewport/media emulation for one tab (browser_emulate). */
+export interface EmulateOptions {
+    readonly width?: number;
+    readonly height?: number;
+    readonly deviceScaleFactor?: number;
+    readonly mobile?: boolean;
+    readonly userAgent?: string;
+    readonly colorScheme?: 'light' | 'dark' | 'no-preference';
+    /** Undo everything this tool set on the tab. */
+    readonly clear?: boolean;
+}
 export interface DialogPolicy {
     readonly behavior: 'accept' | 'dismiss';
     readonly promptText?: string;
@@ -571,6 +582,15 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
         clear?: boolean;
     }): Promise<{
         requests: BrowserNetworkRequest[];
+    }>;
+    /**
+     * Apply device/viewport/media emulation to the active tab.
+     *
+     * Plain CDP through the existing command path, so no host change was needed.
+     * `clear` undoes all three: metrics, user agent, and emulated media.
+     */
+    emulate(session: BrowserSessionId, options?: EmulateOptions): Promise<{
+        applied: string[];
     }>;
     /** The last JS dialog the host reported, plus the current policy. */
     dialogState(session: BrowserSessionId): {

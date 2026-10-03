@@ -259,6 +259,11 @@ export class BrowserRuntime extends Service {
     return this.resolveProvider().snapshot(session, options, signal)
   }
 
+  /** Apply device/viewport/media emulation to the session's active tab. */
+  async emulate(session: BrowserSessionId, options: { width?: number; height?: number; deviceScaleFactor?: number; mobile?: boolean; userAgent?: string; colorScheme?: 'light' | 'dark' | 'no-preference'; clear?: boolean } = {}): Promise<{ applied: string[] }> {
+    return this.resolveProvider().emulate(session, options)
+  }
+
   /** Console messages the host captured for the session's active tab. */
   async consoleMessages(session: BrowserSessionId, options: { limit?: number; level?: string; clear?: boolean } = {}): Promise<{ messages: Array<{ level: string; text: string; at: string }> }> {
     return this.resolveProvider().consoleMessages(session, options)

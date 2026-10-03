@@ -966,3 +966,30 @@ test('console and network reads forward, filter, and only clear when asked', asy
   await provider.networkRequests(session, { clear: true })
   assert.deepEqual(calls.at(-1), ['network', true], 'clear is explicit')
 })
+
+// browser_emulate：走现成的 command 通道发 CDP，所以断言的是**真发了哪些命令**（确定性强过冒烟）。
+test('emulate sends the CDP overrides and clear undoes all three', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const methods = () => host.log.filter(entry => entry.method.startsWith('Emulation.')).map(entry => entry.method)
+
+  const applied = await provider.emulate(session, { width: 390, height: 844, mobile: true, deviceScaleFactor: 3, userAgent: 'UA/1', colorScheme: 'dark' })
+  assert.deepEqual(methods(), [
+    'Emulation.setDeviceMetricsOverride',
+    'Emulation.setUserAgentOverride',
+    'Emulation.setEmulatedMedia',
+  ])
+  assert.deepEqual(applied.applied, ['viewport 390x844 mobile', 'user-agent', 'color-scheme dark'])
+  const metrics = host.log.find(entry => entry.method === 'Emulation.setDeviceMetricsOverride')
+  assert.deepEqual(metrics.params, { width: 390, height: 844, deviceScaleFactor: 3, mobile: true })
+  const media = host.log.find(entry => entry.method === 'Emulation.setEmulatedMedia')
+  assert.deepEqual(media.params.features, [{ name: 'prefers-color-scheme', value: 'dark' }])
+
+  assert.deepEqual((await provider.emulate(session, { clear: true })).applied, ['cleared'])
+  assert.deepEqual(methods().slice(-3), [
+    'Emulation.clearDeviceMetricsOverride',
+    'Emulation.setUserAgentOverride',
+    'Emulation.setEmulatedMedia',
+  ])
+})

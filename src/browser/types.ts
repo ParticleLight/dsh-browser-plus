@@ -530,6 +530,8 @@ export interface BrowserProvider {
   execute(session: BrowserSessionId, request: BrowserExecuteRequest, signal?: AbortSignal): Promise<BrowserExecuteResult>
   /** Produce an AI-friendly snapshot of the active tab. */
   snapshot(session: BrowserSessionId, options?: { query?: string; limit?: number }, signal?: AbortSignal): Promise<BrowserSnapshotResult>
+  /** Apply device/viewport/media emulation to the session's active tab. */
+  emulate(session: BrowserSessionId, options?: { width?: number; height?: number; deviceScaleFactor?: number; mobile?: boolean; userAgent?: string; colorScheme?: 'light' | 'dark' | 'no-preference'; clear?: boolean }): Promise<{ applied: string[] }>
   /** Console messages the host captured for the session's active tab. */
   consoleMessages(session: BrowserSessionId, options?: { limit?: number; level?: string; clear?: boolean }): Promise<{ messages: Array<{ level: string; text: string; at: string }> }>
   /** Network requests the host captured for the session's active tab. */

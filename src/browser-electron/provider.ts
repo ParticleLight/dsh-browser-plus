@@ -303,6 +303,18 @@ export interface BrowserNetworkRequest {
   at: string
 }
 
+/** Device/viewport/media emulation for one tab (browser_emulate). */
+export interface EmulateOptions {
+  readonly width?: number
+  readonly height?: number
+  readonly deviceScaleFactor?: number
+  readonly mobile?: boolean
+  readonly userAgent?: string
+  readonly colorScheme?: 'light' | 'dark' | 'no-preference'
+  /** Undo everything this tool set on the tab. */
+  readonly clear?: boolean
+}
+
 export interface DialogPolicy {
   readonly behavior: 'accept' | 'dismiss'
   readonly promptText?: string
@@ -2212,6 +2224,49 @@ export class ElectronBrowserProvider implements BrowserProvider {
       && (needle === '' || entry.url.toLowerCase().includes(needle)))
     const limit = Math.max(1, Math.min(200, Math.trunc(options.limit ?? 50)))
     return { requests: filtered.slice(-limit) }
+  }
+
+  /**
+   * Apply device/viewport/media emulation to the active tab.
+   *
+   * Plain CDP through the existing command path, so no host change was needed.
+   * `clear` undoes all three: metrics, user agent, and emulated media.
+   */
+  async emulate(session: BrowserSessionId, options: EmulateOptions = {}): Promise<{ applied: string[] }> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    const applied: string[] = []
+    if (options.clear === true) {
+      await handle.sendCommand('Emulation.clearDeviceMetricsOverride', {})
+      await handle.sendCommand('Emulation.setUserAgentOverride', { userAgent: '' })
+      await handle.sendCommand('Emulation.setEmulatedMedia', { media: '', features: [] })
+      this.record(s, 'emulate', { clear: true }, true)
+      return { applied: ['cleared'] }
+    }
+    if (options.width !== undefined && options.height !== undefined) {
+      const width = Math.max(1, Math.trunc(options.width))
+      const height = Math.max(1, Math.trunc(options.height))
+      await handle.sendCommand('Emulation.setDeviceMetricsOverride', {
+        width,
+        height,
+        deviceScaleFactor: options.deviceScaleFactor ?? 0,
+        mobile: options.mobile === true,
+      })
+      applied.push('viewport ' + String(width) + 'x' + String(height) + (options.mobile === true ? ' mobile' : ''))
+    }
+    if (options.userAgent !== undefined) {
+      await handle.sendCommand('Emulation.setUserAgentOverride', { userAgent: options.userAgent })
+      applied.push('user-agent')
+    }
+    if (options.colorScheme !== undefined) {
+      await handle.sendCommand('Emulation.setEmulatedMedia', {
+        media: '',
+        features: [{ name: 'prefers-color-scheme', value: options.colorScheme }],
+      })
+      applied.push('color-scheme ' + options.colorScheme)
+    }
+    this.record(s, 'emulate', { ...applied.length === 0 ? { noop: true } : {} }, true)
+    return { applied }
   }
 
   /** The last JS dialog the host reported, plus the current policy. */
