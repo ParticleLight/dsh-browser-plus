@@ -508,6 +508,16 @@ class RemoteView implements ElectronViewHandle {
     return this.client.call<unknown>('drainDialog', { viewId: this.id }, RPC_QUERY_TIMEOUT_MS)
   }
 
+  /** Read the child's bounded console capture for this view. */
+  async readConsole(clear?: boolean): Promise<unknown> {
+    return this.client.call<unknown>('readConsole', { viewId: this.id, ...clear === true ? { clear: true } : {} }, RPC_QUERY_TIMEOUT_MS)
+  }
+
+  /** Read the child's bounded network capture for this view. */
+  async readNetwork(clear?: boolean): Promise<unknown> {
+    return this.client.call<unknown>('readNetwork', { viewId: this.id, ...clear === true ? { clear: true } : {} }, RPC_QUERY_TIMEOUT_MS)
+  }
+
   /** Tell the child how to answer the next JS dialog on this view. */
   async setDialogPolicy(policy: { behavior: 'accept' | 'dismiss'; promptText?: string }): Promise<unknown> {
     return this.client.call<unknown>('setDialogPolicy', {
@@ -950,6 +960,14 @@ export class DeferredRemoteView implements ElectronViewHandle {
 
   async setDialogPolicy(policy: { behavior: 'accept' | 'dismiss'; promptText?: string }): Promise<unknown> {
     return this.withView(view => view.setDialogPolicy(policy))
+  }
+
+  async readConsole(clear?: boolean): Promise<unknown> {
+    return this.withView(view => view.readConsole(clear))
+  }
+
+  async readNetwork(clear?: boolean): Promise<unknown> {
+    return this.withView(view => view.readNetwork(clear))
   }
 
   async reinstallChrome(): Promise<void> {

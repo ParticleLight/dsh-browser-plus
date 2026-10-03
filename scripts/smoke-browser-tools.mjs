@@ -1801,6 +1801,52 @@ await check('a confirm dialog can be dismissed, not only accepted', async () => 
     await new Promise(resolve => setTimeout(resolve, 800))
   }
 })
+// 真机：页面自己的 console 输出和网络请求必须能被读到（这是「为什么没成功」的唯一线索）。
+await check('console and network capture what the page did', async () => {
+  const size = await laidOut()
+  if (size === null) return { skipped: 'the view is not laid out in this run' }
+  const { createServer } = await import('node:http')
+  const server = createServer((request, response) => {
+    if (request.url === '/api') {
+      response.writeHead(404, { 'content-type': 'application/json' })
+      response.end('{}')
+      return
+    }
+    response.writeHead(200, { 'content-type': 'text/html' })
+    response.end('<!doctype html><title>diag</title><script>'
+      + 'console.log("hello", 42); console.error("boom");'
+      + 'fetch("/api").then(function () {})'
+      + '</script>')
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const port = server.address().port
+  try {
+    await provider.consoleMessages(session, { clear: true })
+    await provider.networkRequests(session, { clear: true })
+    await provider.navigate(session, { url: 'http://127.0.0.1:' + String(port) + '/' })
+    let messages = []
+    for (let i = 0; i < 20 && messages.length < 2; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      messages = (await provider.consoleMessages(session)).messages
+    }
+    const texts = messages.map(entry => entry.level + ':' + entry.text)
+    if (!texts.some(text => text === 'log:hello 42')) throw new Error('console.log was not captured: ' + JSON.stringify(texts))
+    if (!texts.some(text => text === 'error:boom')) throw new Error('console.error was not captured: ' + JSON.stringify(texts))
+    let request = null
+    for (let i = 0; i < 20 && request === null; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      request = (await provider.networkRequests(session, { urlContains: '/api' })).requests.at(-1) ?? null
+    }
+    if (request === null || request.status !== 404) throw new Error('the /api request was not captured: ' + JSON.stringify(request))
+    return { messages: texts.join(' | '), api: request.method + ' ' + String(request.status) }
+  } finally {
+    server.close()
+    await provider.consoleMessages(session, { clear: true })
+    await provider.networkRequests(session, { clear: true })
+    await provider.navigate(session, { url: 'https://example.com/' })
+    await new Promise(resolve => setTimeout(resolve, 800))
+  }
+})
 await check('a tab switch fades the incoming page in, a navigation does not', async () => {
   const pageEval = async script => String((await provider.execute(session, { script })).value)
   const readLog = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))

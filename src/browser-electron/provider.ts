@@ -214,6 +214,10 @@ export interface ElectronViewHandle {
   clearDialog?(): Promise<unknown>
   /** Optional: hosts without JS-dialog supervision omit it. */
   setDialogPolicy?(policy: DialogPolicy): Promise<unknown>
+  /** Optional: bounded console capture. */
+  readConsole?(clear?: boolean): Promise<unknown>
+  /** Optional: bounded network capture. */
+  readNetwork?(clear?: boolean): Promise<unknown>
   /**
    * Remove cookies matching a domain/name filter. Optional: hosts without a
    * deletable cookie store omit it.
@@ -285,6 +289,20 @@ interface Session {
  * confirmation is part of what is being driven (delete prompts and the like),
  * and `promptText` supplies the value for a prompt.
  */
+/** One captured console message. */
+export interface BrowserConsoleMessage { level: string; text: string; at: string }
+/** One captured network request. */
+export interface BrowserNetworkRequest {
+  method: string
+  url: string
+  status?: number
+  mime?: string
+  kind?: string
+  failed?: string
+  ms?: number
+  at: string
+}
+
 export interface DialogPolicy {
   readonly behavior: 'accept' | 'dismiss'
   readonly promptText?: string
@@ -2160,6 +2178,40 @@ export class ElectronBrowserProvider implements BrowserProvider {
     s.dialogPolicy = normalized
     this.record(s, 'dialog-policy', { ...normalized }, true)
     return { dialog: s.lastDialog ?? null, policy: normalized }
+  }
+
+  /**
+   * Console messages the host captured for the active tab.
+   *
+   * Reading does NOT clear by default: debugging is usually a look-again loop, so
+   * `clear: true` is explicit. The host keeps a bounded ring, so old entries fall
+   * off on their own.
+   */
+  async consoleMessages(session: BrowserSessionId, options: { limit?: number; level?: string; clear?: boolean } = {}): Promise<{ messages: BrowserConsoleMessage[] }> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    const reader = handle as { readConsole?(clear?: boolean): Promise<unknown> }
+    if (typeof reader.readConsole !== 'function') return { messages: [] }
+    const raw = await reader.readConsole(options.clear === true) as { messages?: unknown } | null | undefined
+    const list = Array.isArray(raw?.messages) ? raw.messages as BrowserConsoleMessage[] : []
+    const filtered = options.level === undefined ? list : list.filter(entry => entry.level === options.level)
+    const limit = Math.max(1, Math.min(200, Math.trunc(options.limit ?? 50)))
+    return { messages: filtered.slice(-limit) }
+  }
+
+  /** Network requests the host captured for the active tab (bounded ring). */
+  async networkRequests(session: BrowserSessionId, options: { limit?: number; failedOnly?: boolean; urlContains?: string; clear?: boolean } = {}): Promise<{ requests: BrowserNetworkRequest[] }> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    const reader = handle as { readNetwork?(clear?: boolean): Promise<unknown> }
+    if (typeof reader.readNetwork !== 'function') return { requests: [] }
+    const raw = await reader.readNetwork(options.clear === true) as { requests?: unknown } | null | undefined
+    const list = Array.isArray(raw?.requests) ? raw.requests as BrowserNetworkRequest[] : []
+    const needle = (options.urlContains ?? '').toLowerCase()
+    const filtered = list.filter(entry => (options.failedOnly !== true || entry.failed !== undefined)
+      && (needle === '' || entry.url.toLowerCase().includes(needle)))
+    const limit = Math.max(1, Math.min(200, Math.trunc(options.limit ?? 50)))
+    return { requests: filtered.slice(-limit) }
   }
 
   /** The last JS dialog the host reported, plus the current policy. */

@@ -259,6 +259,16 @@ export class BrowserRuntime extends Service {
     return this.resolveProvider().snapshot(session, options, signal)
   }
 
+  /** Console messages the host captured for the session's active tab. */
+  async consoleMessages(session: BrowserSessionId, options: { limit?: number; level?: string; clear?: boolean } = {}): Promise<{ messages: Array<{ level: string; text: string; at: string }> }> {
+    return this.resolveProvider().consoleMessages(session, options)
+  }
+
+  /** Network requests the host captured for the session's active tab. */
+  async networkRequests(session: BrowserSessionId, options: { limit?: number; failedOnly?: boolean; urlContains?: string; clear?: boolean } = {}): Promise<{ requests: Array<{ method: string; url: string; status?: number; mime?: string; kind?: string; failed?: string; ms?: number; at: string }> }> {
+    return this.resolveProvider().networkRequests(session, options)
+  }
+
   /** Set how the host answers the next JS dialog, and report the state. */
   async setDialogPolicy(session: BrowserSessionId, policy: { behavior: 'accept' | 'dismiss'; promptText?: string }): Promise<{ dialog: unknown; policy: { behavior: 'accept' | 'dismiss'; promptText?: string } }> {
     return this.resolveProvider().setDialogPolicy(session, policy)

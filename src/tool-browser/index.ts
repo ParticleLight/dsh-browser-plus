@@ -814,6 +814,106 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   }))
   ctx.tools.register(defineTool({
+    name: 'browser_console',
+    description: 'Read the console messages and uncaught exceptions the browser captured for the active tab (a bounded ring, newest last). Use it to find out WHY a page misbehaved: a failed script, a rejected promise, a 404 the page logged. Reading does not clear - pass clear: true when you want a fresh window (e.g. before triggering the action you are debugging).',
+    parameters: {
+      level: { type: 'string', description: 'Only this level: log, info, warning, error, debug.' },
+      limit: { type: 'number', description: 'Maximum messages to return (1-200; default 50, newest last).' },
+      clear: { type: 'boolean', description: 'Drop what has been captured so far (default false).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          messages: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                level: { type: 'string', required: true },
+                text: { type: 'string', required: true },
+                at: { type: 'string', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: value.messages.length === 0
+        ? 'No console messages captured for this tab.'
+        : value.messages.length + ' message(s), newest last:\n' + value.messages.map(m => '[' + m.level + '] ' + String(m.text).slice(0, 300)).join('\n') }],
+    },
+    timeoutMs,
+    isConcurrencySafe: () => true,
+    async execute(args, exec) {
+      assertAllowed('browser_console', exec)
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const key = taskKey(exec)
+      return withTaskRead(browser, key, 'console', async session => browser.consoleMessages(session, {
+        ...args.level === undefined ? {} : { level: args.level },
+        ...args.limit === undefined ? {} : { limit: args.limit },
+        ...args.clear === true ? { clear: true } : {},
+      }))
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'browser_network',
+    description: 'Read the network requests the browser captured for the active tab (a bounded ring, newest last): method, url, status, mime type, duration, and the failure text when one did not complete. Use it to check whether an API call actually happened and what it returned. Reading does not clear - pass clear: true for a fresh window.',
+    parameters: {
+      urlContains: { type: 'string', description: 'Only requests whose url contains this text (case-insensitive).' },
+      failedOnly: { type: 'boolean', description: 'Only requests that failed to complete.' },
+      limit: { type: 'number', description: 'Maximum requests to return (1-200; default 50, newest last).' },
+      clear: { type: 'boolean', description: 'Drop what has been captured so far (default false).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          requests: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                method: { type: 'string', required: true },
+                url: { type: 'string', required: true },
+                status: { type: 'number' },
+                mime: { type: 'string' },
+                kind: { type: 'string' },
+                failed: { type: 'string' },
+                ms: { type: 'number' },
+                at: { type: 'string', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: value.requests.length === 0
+        ? 'No network requests captured for this tab.'
+        : value.requests.length + ' request(s), newest last:\n' + value.requests.map(r => [r.method, r.status ?? (r.failed !== undefined ? 'FAILED' : '?'), String(r.url).slice(0, 160)].join(' ')).join('\n') }],
+    },
+    timeoutMs,
+    isConcurrencySafe: () => true,
+    async execute(args, exec) {
+      assertAllowed('browser_network', exec)
+      const browser = ctx.get('browser')
+      if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
+      const key = taskKey(exec)
+      return withTaskRead(browser, key, 'network', async session => browser.networkRequests(session, {
+        ...args.urlContains === undefined ? {} : { urlContains: args.urlContains },
+        ...args.failedOnly === true ? { failedOnly: true } : {},
+        ...args.limit === undefined ? {} : { limit: args.limit },
+        ...args.clear === true ? { clear: true } : {},
+      }))
+    },
+  }))
+  ctx.tools.register(defineTool({
     name: 'browser_execute',
     description: 'Execute JavaScript in the shared-browser page context. This is the primary way to interact with page elements: focus, fill inputs (use the native value setter for framework-controlled inputs, then dispatch an input event), click buttons (element.click() or a constructed MouseEvent). The script may be a single expression (its value is returned) or statements with an explicit `return` - `const el = document.querySelector("#x"); return el.textContent` works. Promises are awaited. Returns the evaluation result by value, or the exception text.',
     parameters: {

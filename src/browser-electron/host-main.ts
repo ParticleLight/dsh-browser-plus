@@ -481,6 +481,25 @@ const dialogLogs = new Map<string, unknown>()
  */
 const dialogPolicies = new Map<string, { behavior: 'accept' | 'dismiss'; promptText?: string }>()
 
+/**
+ * Bounded per-view console and network capture, read by browser_console /
+ * browser_network. A ring (not a stream) on purpose: the agent asks after the fact,
+ * and an unbounded log would grow for the life of the tab.
+ */
+interface ConsoleEntry { level: string; text: string; at: string }
+interface NetworkEntry { method: string; url: string; status?: number; mime?: string; kind?: string; failed?: string; ms?: number; at: string }
+const CONSOLE_CAP = 200
+const NETWORK_CAP = 200
+const consoleLogs = new Map<string, ConsoleEntry[]>()
+const networkLogs = new Map<string, NetworkEntry[]>()
+const networkPending = new Map<string, Map<string, { at: number; entry: NetworkEntry }>>()
+function pushBounded<T>(map: Map<string, T[]>, key: string, entry: T, cap: number): void {
+  const list = map.get(key) ?? []
+  list.push(entry)
+  if (list.length > cap) list.splice(0, list.length - cap)
+  map.set(key, list)
+}
+
 /** Display label and current tab for each isolated browser task. */
 const taskLabels = new Map<string, string>()
 const activeViewByTask = new Map<string, string>()
@@ -1623,7 +1642,7 @@ function authorizeChromeAction(action: unknown, token: string): boolean {
 }
 
 /** Handle one command. */
-async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean; behavior?: string; promptText?: string }): Promise<void> {
+async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean; behavior?: string; promptText?: string; clear?: boolean }): Promise<void> {
   try {
     switch (op) {
       case 'ping':
@@ -1652,6 +1671,27 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           if (operations.length > 0) queueChromePatch(...operations)
         }
         reply(msg.id, { ok: true })
+        return
+      }
+      case 'readConsole': {
+        const viewId = msg.viewId
+        if (viewId === undefined) throw new Error('readConsole missing viewId')
+        if (!views.has(viewId)) throw new Error(`readConsole: unknown view ${viewId}`)
+        const messages = consoleLogs.get(viewId) ?? []
+        if (msg.clear === true) consoleLogs.delete(viewId)
+        reply(msg.id, { ok: true, result: { messages } })
+        return
+      }
+      case 'readNetwork': {
+        const viewId = msg.viewId
+        if (viewId === undefined) throw new Error('readNetwork missing viewId')
+        if (!views.has(viewId)) throw new Error(`readNetwork: unknown view ${viewId}`)
+        const requests = networkLogs.get(viewId) ?? []
+        if (msg.clear === true) {
+          networkLogs.delete(viewId)
+          networkPending.delete(viewId)
+        }
+        reply(msg.id, { ok: true, result: { requests } })
         return
       }
       case 'setDialogPolicy': {
@@ -1700,6 +1740,53 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             handleChromeAction(view, viewId, chromeToken, params)
             return
           }
+          if (method === 'Runtime.consoleAPICalled' || method === 'Runtime.exceptionThrown') {
+            const p = (params ?? {}) as { type?: unknown; args?: unknown[]; exceptionDetails?: { text?: unknown; exception?: { description?: unknown } } }
+            const text = method === 'Runtime.exceptionThrown'
+              ? String(p.exceptionDetails?.exception?.description ?? p.exceptionDetails?.text ?? 'uncaught exception')
+              : (Array.isArray(p.args) ? p.args : []).map((raw) => {
+                  const arg = (raw ?? {}) as { value?: unknown; description?: unknown; type?: unknown }
+                  if (arg.value !== undefined) return typeof arg.value === 'string' ? arg.value : JSON.stringify(arg.value)
+                  if (typeof arg.description === 'string') return arg.description
+                  return String(arg.type ?? '')
+                }).join(' ')
+            pushBounded(consoleLogs, viewId, {
+              level: method === 'Runtime.exceptionThrown' ? 'error' : String(p.type ?? 'log'),
+              text: text.slice(0, 2000),
+              at: new Date().toISOString(),
+            }, CONSOLE_CAP)
+            return
+          }
+          if (method === 'Network.requestWillBeSent') {
+            const p = (params ?? {}) as { requestId?: unknown; request?: { method?: unknown; url?: unknown }; timestamp?: unknown }
+            const requestId = String(p.requestId ?? '')
+            if (requestId === '') return
+            const entry: NetworkEntry = {
+              method: String(p.request?.method ?? 'GET'),
+              url: String(p.request?.url ?? ''),
+              at: new Date().toISOString(),
+            }
+            const pending = networkPending.get(viewId) ?? new Map()
+            pending.set(requestId, { at: Date.now(), entry })
+            networkPending.set(viewId, pending)
+            pushBounded(networkLogs, viewId, entry, NETWORK_CAP)
+            return
+          }
+          if (method === 'Network.responseReceived' || method === 'Network.loadingFinished' || method === 'Network.loadingFailed') {
+            const p = (params ?? {}) as { requestId?: unknown; response?: { status?: unknown; mimeType?: unknown; type?: unknown }; errorText?: unknown }
+            const pending = networkPending.get(viewId)?.get(String(p.requestId ?? ''))
+            if (pending === undefined) return
+            if (method === 'Network.responseReceived') {
+              if (typeof p.response?.status === 'number') pending.entry.status = p.response.status
+              if (typeof p.response?.mimeType === 'string') pending.entry.mime = p.response.mimeType
+              if (typeof p.response?.type === 'string') pending.entry.kind = p.response.type
+              return
+            }
+            pending.entry.ms = Date.now() - pending.at
+            if (method === 'Network.loadingFailed') pending.entry.failed = String(p.errorText ?? 'failed')
+            networkPending.get(viewId)?.delete(String(p.requestId ?? ''))
+            return
+          }
           if (method !== 'Page.javascriptDialogOpening') return
           const p = (params ?? {}) as { type?: unknown; message?: unknown; defaultPrompt?: unknown }
           const info = {
@@ -1727,6 +1814,10 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         // page callback and emits bindingCalled through Electron's debugger.
         try { void view.webContents.debugger.sendCommand('Page.enable').catch(() => undefined) } catch { /* closed */ }
         try { void view.webContents.debugger.sendCommand('DOM.enable').catch(() => undefined) } catch { /* closed */ }
+        // Runtime gives console messages and uncaught exceptions; Network gives the
+        // request list. Both feed the diagnostics tools and both are bounded.
+        try { void view.webContents.debugger.sendCommand('Runtime.enable').catch(() => undefined) } catch { /* closed */ }
+        try { void view.webContents.debugger.sendCommand('Network.enable').catch(() => undefined) } catch { /* closed */ }
         // Isolated mode registers the binding against its own world instead.
         if (CHROME_WORLD === 'main') {
           try { void view.webContents.debugger.sendCommand('Runtime.addBinding', { name: '__dshBrowserTaskAction' }).catch(() => undefined) } catch { /* closed */ }
@@ -1804,6 +1895,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           if (viewIds !== undefined && viewIds.size === 0) taskViewIds.delete(entry.taskKey)
           dialogLogs.delete(viewId)
           dialogPolicies.delete(viewId)
+          consoleLogs.delete(viewId)
+          networkLogs.delete(viewId)
+          networkPending.delete(viewId)
           traces.delete(viewId)
           viewFavicons.delete(viewId)
           loadingViews.delete(viewId)

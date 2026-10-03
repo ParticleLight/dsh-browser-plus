@@ -929,3 +929,40 @@ test('dialog policy is pushed to the host and inspect reports the last dialog', 
   await provider.setDialogPolicy(session, { behavior: 'accept', promptText: 'yes' })
   assert.deepEqual(pushed[1], { behavior: 'accept', promptText: 'yes' })
 })
+
+// browser_console / browser_network：读取**不清空**（调试是反复看的循环，清空要显式），
+// 过滤与条数上限在 provider 侧，宿主只给环形缓冲。
+test('console and network reads forward, filter, and only clear when asked', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const view = host.views[0]
+  const calls = []
+  view.readConsole = async clear => {
+    calls.push(['console', clear])
+    return { messages: [
+      { level: 'log', text: 'a', at: 't1' },
+      { level: 'error', text: 'b', at: 't2' },
+      { level: 'error', text: 'c', at: 't3' },
+    ] }
+  }
+  view.readNetwork = async clear => {
+    calls.push(['network', clear])
+    return { requests: [
+      { method: 'GET', url: 'https://x/api/a', status: 200, at: 't1' },
+      { method: 'POST', url: 'https://x/api/b', failed: 'net::ERR', at: 't2' },
+    ] }
+  }
+
+  const all = await provider.consoleMessages(session)
+  assert.deepEqual(all.messages.map(m => m.text), ['a', 'b', 'c'])
+  assert.deepEqual(calls[0], ['console', false], 'reading does not clear')
+  const errors = await provider.consoleMessages(session, { level: 'error', limit: 1 })
+  assert.deepEqual(errors.messages.map(m => m.text), ['c'], 'level filter keeps the newest when limited')
+
+  const net = await provider.networkRequests(session, { urlContains: 'api/', limit: 1 })
+  assert.deepEqual(net.requests.map(r => r.url), ['https://x/api/b'])
+  assert.equal((await provider.networkRequests(session, { failedOnly: true })).requests.length, 1)
+  await provider.networkRequests(session, { clear: true })
+  assert.deepEqual(calls.at(-1), ['network', true], 'clear is explicit')
+})

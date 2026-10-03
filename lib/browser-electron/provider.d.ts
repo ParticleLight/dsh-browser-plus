@@ -135,6 +135,10 @@ export interface ElectronViewHandle {
     clearDialog?(): Promise<unknown>;
     /** Optional: hosts without JS-dialog supervision omit it. */
     setDialogPolicy?(policy: DialogPolicy): Promise<unknown>;
+    /** Optional: bounded console capture. */
+    readConsole?(clear?: boolean): Promise<unknown>;
+    /** Optional: bounded network capture. */
+    readNetwork?(clear?: boolean): Promise<unknown>;
     /**
      * Remove cookies matching a domain/name filter. Optional: hosts without a
      * deletable cookie store omit it.
@@ -164,6 +168,23 @@ export interface ElectronViewHandle {
  * confirmation is part of what is being driven (delete prompts and the like),
  * and `promptText` supplies the value for a prompt.
  */
+/** One captured console message. */
+export interface BrowserConsoleMessage {
+    level: string;
+    text: string;
+    at: string;
+}
+/** One captured network request. */
+export interface BrowserNetworkRequest {
+    method: string;
+    url: string;
+    status?: number;
+    mime?: string;
+    kind?: string;
+    failed?: string;
+    ms?: number;
+    at: string;
+}
 export interface DialogPolicy {
     readonly behavior: 'accept' | 'dismiss';
     readonly promptText?: string;
@@ -527,6 +548,29 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     setDialogPolicy(session: BrowserSessionId, policy: DialogPolicy): Promise<{
         dialog: unknown;
         policy: DialogPolicy;
+    }>;
+    /**
+     * Console messages the host captured for the active tab.
+     *
+     * Reading does NOT clear by default: debugging is usually a look-again loop, so
+     * `clear: true` is explicit. The host keeps a bounded ring, so old entries fall
+     * off on their own.
+     */
+    consoleMessages(session: BrowserSessionId, options?: {
+        limit?: number;
+        level?: string;
+        clear?: boolean;
+    }): Promise<{
+        messages: BrowserConsoleMessage[];
+    }>;
+    /** Network requests the host captured for the active tab (bounded ring). */
+    networkRequests(session: BrowserSessionId, options?: {
+        limit?: number;
+        failedOnly?: boolean;
+        urlContains?: string;
+        clear?: boolean;
+    }): Promise<{
+        requests: BrowserNetworkRequest[];
     }>;
     /** The last JS dialog the host reported, plus the current policy. */
     dialogState(session: BrowserSessionId): {

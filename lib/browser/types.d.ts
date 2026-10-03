@@ -490,6 +490,36 @@ export interface BrowserProvider {
         query?: string;
         limit?: number;
     }, signal?: AbortSignal): Promise<BrowserSnapshotResult>;
+    /** Console messages the host captured for the session's active tab. */
+    consoleMessages(session: BrowserSessionId, options?: {
+        limit?: number;
+        level?: string;
+        clear?: boolean;
+    }): Promise<{
+        messages: Array<{
+            level: string;
+            text: string;
+            at: string;
+        }>;
+    }>;
+    /** Network requests the host captured for the session's active tab. */
+    networkRequests(session: BrowserSessionId, options?: {
+        limit?: number;
+        failedOnly?: boolean;
+        urlContains?: string;
+        clear?: boolean;
+    }): Promise<{
+        requests: Array<{
+            method: string;
+            url: string;
+            status?: number;
+            mime?: string;
+            kind?: string;
+            failed?: string;
+            ms?: number;
+            at: string;
+        }>;
+    }>;
     /** Set how the host answers the next JS dialog (alert/confirm/prompt). */
     setDialogPolicy(session: BrowserSessionId, policy: {
         behavior: 'accept' | 'dismiss';
