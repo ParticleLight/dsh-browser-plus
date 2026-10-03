@@ -35,12 +35,29 @@ declare module 'electron' {
     httpOnly?: boolean
     expirationDate?: number
   }
+  export interface WebRequestHeadersDetails {
+    requestHeaders: Record<string, string>
+  }
   export interface Session {
     once(event: 'will-download', listener: (event: Event, item: DownloadItem) => void): void
+    setUserAgent(userAgent: string, acceptLanguages?: string): void
+    fetch(url: string, options?: { signal?: AbortSignal }): Promise<{
+      readonly ok: boolean
+      readonly headers: { get(name: string): string | null }
+      arrayBuffer(): Promise<ArrayBuffer>
+    }>
+    readonly webRequest: {
+      onBeforeSendHeaders(listener: (details: WebRequestHeadersDetails, callback: (response: { requestHeaders: Record<string, string> }) => void) => void): void
+    }
     readonly cookies: {
       get(filter: Record<string, unknown>): Promise<Cookie[]>
       set(details: CookieSetter): Promise<void>
+      remove(url: string, name: string): Promise<void>
     }
+  }
+  export const session: {
+    readonly defaultSession: Session
+    fromPartition(partition: string, options?: Record<string, unknown>): Session
   }
   export interface NativeImage {
     resize(options: { width: number }): NativeImage
@@ -85,13 +102,16 @@ declare module 'electron' {
     setTitle(title: string): void
     isDestroyed(): boolean
     on(event: 'closed', listener: () => void): this
-    on(event: 'resize', listener: () => void): this
+    on(event: 'resize' | 'restore' | 'show' | 'maximize' | 'unmaximize', listener: () => void): this
     off(event: 'closed', listener: () => void): this
     off(event: 'resize', listener: () => void): this
   }
   export const app: {
     whenReady(): Promise<void>
     exit(code?: number): void
+    /** Electron derives each view UA from this; assigning it is how the host masks. */
+    userAgentFallback: string
+    getLocale(): string
     getPath(name: string): string
     setPath(name: string, path: string): void
     dock?: { setIcon(path: string): void }
