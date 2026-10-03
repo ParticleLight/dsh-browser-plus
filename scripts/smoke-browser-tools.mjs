@@ -1160,13 +1160,27 @@ await check('the new-tab page eases its hover states', async () => {
   await read(`(() => { document.querySelector('.tile').style.background = 'rgb(1, 2, 3)'; return 'set' })()`)
   const running = JSON.parse(await read(`JSON.stringify(document.querySelector('.tile').getAnimations().map(animation => ({ type: animation.constructor.name, property: String(animation.transitionProperty || ''), duration: animation.effect.getTiming().duration })))`))
   await read(`(() => { document.querySelector('.tile').style.background = ''; return 'restored' })()`)
+  // 搜索框也一样：它是每次开新标签都要摸的东西，悬停/聚焦不能硬切。
+  const box = JSON.parse(await read(`JSON.stringify((() => {
+    const el = document.querySelector('.search')
+    if (el === null) return { found: false }
+    const style = getComputedStyle(el)
+    return { found: true, property: style.transitionProperty, duration: style.transitionDuration }
+  })())`))
+  if (!box.found) throw new Error('the new-tab page has no search box')
+  if (!String(box.property).includes('background')) throw new Error('the search box does not transition its background: ' + JSON.stringify(box))
+  await read(`(() => { document.querySelector('.search').style.background = 'rgb(1, 2, 3)'; return 'set' })()`)
+  const boxRunning = JSON.parse(await read(`JSON.stringify(document.querySelector('.search').getAnimations().map(animation => ({ type: animation.constructor.name, property: animation.transitionProperty ?? '' })))`))
+  await read(`(() => { document.querySelector('.search').style.background = ''; return 'restored' })()`)
+  if (boxRunning.length === 0) throw new Error('the search box background changed without a running transition')
   // 必须离开起始页再交棒：后面的检查会「点 body 的正中间」，而起始页正中间就是磁贴
   // （一个 <a>）—— 点下去会导航走，那个检查的探针就跟着文档一起没了（第 41 轮真踩了：
   // 'left-click reaches the page' 报 the page saw undefined）。
   await provider.navigate(session, { url: 'https://example.com/' })
   await new Promise(resolve => setTimeout(resolve, 500))
   if (running.length === 0) throw new Error('the tile background changed without a running transition')
-  return { tiles: armed.tiles, transition: armed.duration, running: running[0].property !== '' ? running[0].property : running[0].type }
+
+  return { tiles: armed.tiles, transition: armed.duration, search: box.duration, running: running[0].property !== '' ? running[0].property : running[0].type }
 })
 // Page zoom lives on the webContents, so the chrome has to be told the factor
 // rather than derive it (a freshly navigated document's devicePixelRatio is

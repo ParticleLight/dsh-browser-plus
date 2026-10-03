@@ -298,7 +298,7 @@ main{display:flex;flex-direction:column;align-items:center;width:min(584px,calc(
 @keyframes dshIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 @keyframes dshTileIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
 .brand{display:block;margin-bottom:28px}
-.search{display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:0 16px;border-radius:23px;background:#303134;border:1px solid transparent;transition:background .12s ease,box-shadow .12s ease,border-color .12s ease}
+.search{display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:0 16px;border-radius:23px;background:#303134;transition:background .12s ease,border-color .12s ease,box-shadow .12s ease;border:1px solid transparent;transition:background .12s ease,box-shadow .12s ease,border-color .12s ease}
 .search:hover{background:#3c4043;box-shadow:0 1px 6px rgba(0,0,0,.28)}
 .search:focus-within{background:#303134;border-color:#5f6368;box-shadow:0 1px 6px rgba(0,0,0,.35)}
 .search svg{flex:none;width:19px;height:19px;color:#9aa0a6}
@@ -312,7 +312,7 @@ main{display:flex;flex-direction:column;align-items:center;width:min(584px,calc(
 .tile:hover .ico{background:#3c4043}
 .tile:active .ico{transform:scale(.94)}
 .tile .cap{max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#9aa0a6}
-@media (prefers-reduced-motion:reduce){main{animation:none}.tile{animation:none}.tile,.tile .ico{transition:background .12s ease}}
+@media (prefers-reduced-motion:reduce){main{animation:none}.tile{animation:none}.tile,.tile .ico{transition:background .12s ease}.search{transition:none}}
 @media (max-height:460px){.tiles{display:none}}
 @media (max-width:560px){.tile{width:88px}}
 </style>
