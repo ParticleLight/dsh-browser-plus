@@ -276,6 +276,46 @@ test('waitForElement times out with BROWSER_WAIT_TIMEOUT', async () => {
   )
 })
 
+test('waitForElement can wait for text, or for something to go away', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+
+  // 等一个东西消失：state=detached，脚本必须走 !attached 那条分支
+  host.evalReplies.push({ result: { value: { found: true, state: 'detached', selector: '#spinner', tag: '', text: '' } } })
+  const gone = await provider.waitForElement(session, { selector: '#spinner', state: 'detached', timeoutMs: 3000 })
+  assert.equal(gone.found, true)
+  assert.equal(gone.state, 'detached')
+  const goneScript = String(host.log.filter(e => e.method === 'Runtime.evaluate').at(-1).params.expression)
+  assert.match(goneScript, /state === 'detached' \? !attached/)
+  assert.match(goneScript, /!attached/)
+  assert.match(goneScript, /visibleNow/)
+
+  // 只等文字：没有选择器时脚本应查 document.body
+  host.evalReplies.push({ result: { value: { found: true, state: 'visible', selector: '', tag: '', text: '已完成' } } })
+  const text = await provider.waitForElement(session, { text: '已完成', timeoutMs: 3000 })
+  assert.equal(text.state, 'visible')
+  const textScript = String(host.log.filter(e => e.method === 'Runtime.evaluate').at(-1).params.expression)
+  assert.match(textScript, /textOf\(document\.body\)/)
+  assert.match(textScript, /includes\(wanted\)/)
+})
+
+test('waitForElement rejects a wait with nothing to watch', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  // 没有选择器也没有文字：没法等
+  await assert.rejects(
+    () => provider.waitForElement(session, { timeoutMs: 500 }),
+    (error) => error.code === 'BROWSER_WAIT_INVALID',
+  )
+  // hidden/detached 必须有选择器才知道要等谁消失
+  await assert.rejects(
+    () => provider.waitForElement(session, { text: 'x', state: 'detached', timeoutMs: 500 }),
+    (error) => error.code === 'BROWSER_WAIT_INVALID',
+  )
+})
+
 test('setSpace labels the window and records it', async () => {
   const host = new FakeHost()
   const provider = new ElectronBrowserProvider(host)

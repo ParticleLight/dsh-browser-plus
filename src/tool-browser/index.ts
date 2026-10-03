@@ -1224,9 +1224,11 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'browser_wait_for',
-    description: 'Wait until an element matching a CSS selector appears (and is visible), polling every 250ms. Use before interacting with dynamically-loaded content (SPA views, toasts, menus).',
+    description: 'Wait until a selector, some text, or both reaches a state, polling every 250ms. `state` is visible (default), attached, hidden or detached — hidden/detached are how you wait for something to go away. Use before clicking or reading, instead of sleeping.',
     parameters: {
-      selector: { type: 'string', required: true, description: 'CSS selector to wait for.' },
+      selector: { type: 'string', description: 'CSS selector to wait for. Omit to watch the document text (give `text`).' },
+      text: { type: 'string', description: 'Text that must be present: inside the matched element when a selector is given, otherwise anywhere in the document.' },
+      state: { type: 'string', enum: ['visible', 'attached', 'hidden', 'detached'], description: 'Which state to wait for. visible (default) needs a 4x4 px element that is not display:none / visibility:hidden; attached only needs it to exist; hidden and detached wait for it to go away.' },
       timeoutMs: { type: 'number', description: `Total budget in ms (default 15000), capped below this tool's ${String(timeoutMs)}ms budget.` },
       visible: { type: 'boolean', description: 'Require visibility (>4x4 px, not display:none). Default true.' },
     },
@@ -1236,6 +1238,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         additionalProperties: false,
         properties: {
           found: { type: 'boolean', required: true },
+          state: { type: 'string', required: true },
           selector: { type: 'string', required: true },
           tag: { type: 'string', required: true },
           text: { type: 'string' },
@@ -1250,11 +1253,13 @@ export function apply(ctx: Context, config: Config = {}): void {
       const browser = ctx.get('browser')
       if (browser === undefined) throw new Error('tool-browser: browser service unavailable')
       const result = await withTaskAction(browser, taskKey(exec), 'wait for element', exec, session => browser.waitForElement(session, {
-        selector: args.selector,
+        ...args.selector !== undefined ? { selector: args.selector } : {},
+        ...args.text !== undefined ? { text: args.text } : {},
+        ...args.state !== undefined ? { state: args.state as 'visible' | 'attached' | 'hidden' | 'detached' } : {},
         timeoutMs: withinToolBudget(args.timeoutMs, 15_000),
         ...args.visible !== undefined ? { visible: args.visible } : {},
       }, exec.signal))
-      return { found: true, selector: result.selector, tag: result.tag, text: result.text }
+      return { found: true, state: result.state, selector: result.selector, tag: result.tag, text: result.text }
     },
   }))
 

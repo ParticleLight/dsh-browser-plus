@@ -147,23 +147,38 @@ export interface BrowserUploadFileResult {
   readonly path: string
 }
 
-/** Wait for an element matching a CSS selector to appear (optionally visible). */
+/** Which state a wait is watching for. */
+export type BrowserWaitForState = 'visible' | 'attached' | 'hidden' | 'detached'
+
+/** Wait for a selector, some text, or both to reach a state. */
 export interface BrowserWaitForRequest {
-  /** CSS selector to wait for. */
-  readonly selector: string
+  /** CSS selector to wait for. Omit to watch the document's own text (give `text`). */
+  readonly selector?: string
+  /** Text that must be present: inside the matched element when a selector is given, otherwise anywhere in the document. */
+  readonly text?: string
+  /**
+   * The state to wait for. `visible` (the default) needs a matching element at least 4x4 px and not
+   * visibility:hidden / display:none; `attached` only needs it to exist; `hidden` and `detached`
+   * wait for the opposite, so they are how you wait for something to go away.
+   */
+  readonly state?: BrowserWaitForState
   /** Total budget in ms. Default 15000. */
   readonly timeoutMs?: number
-  /** Wait for the element to be visible (at least 4x4 px and not visibility:hidden or display:none). Default true. */
+  /** Back-compat for `state: 'attached'` (`visible: false`). Prefer `state`. */
   readonly visible?: boolean
 }
 
 /** Outcome of a successful wait. */
 export interface BrowserWaitForResult {
+  /** The awaited condition is now true. */
   readonly found: true
+  /** Which state was awaited. */
+  readonly state: BrowserWaitForState
+  /** The selector waited on, or `''` for a text-only wait. */
   readonly selector: string
-  /** Matching element's tag name. */
+  /** Matched element's tag name, or `''` when nothing matched (a `detached` wait). */
   readonly tag: string
-  /** Matching element's visible text (first 200 chars). */
+  /** Matched element's visible text (first 200 chars), or the document text that satisfied a text wait. */
   readonly text: string
 }
 

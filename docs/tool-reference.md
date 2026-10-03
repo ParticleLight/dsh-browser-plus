@@ -13,7 +13,7 @@
 | `browser_reload` | – | `{ reloaded }` | ✅ | 刷新当前页 |
 | `browser_stop` | – | `{ stopped }` | ✅ | 停止当前页加载 |
 | `browser_scroll` | `deltaX?`, `deltaY?` | `{ x,y,maxX,maxY }` | ✅ | 按 CSS 像素滚动;无参数时向下一个视口 |
-| `browser_wait_for` | `selector`(必填), `timeoutMs?`, `visible?` | `{ found, selector, tag, text? }` | ✅ | 等待 CSS 选择器匹配的元素出现且可见(250ms 轮询,默认 15s 超时);SPA 动态内容交互前使用 |
+| `browser_wait_for` | `selector`(必填), `timeoutMs?`, `visible?` 新增 `text`（等文字）与 `state`（`visible` / `attached` / `hidden` / `detached`，后两者用来等东西消失）。 |
 | `browser_content` | `format`(html/markdown/txt/json,必填), `selector?`, `maxChars?`, `timeoutMs?` | `{ content, truncated }` | – | 抓取页面内容;`selector` 限定区域 |
 | `browser_challenge` | – | `{ blocked, kind?, reason?, hint? }` | – | 检测人机验证(CAPTCHA/Cloudflare/reCAPTCHA/hCaptcha/Turnstile);阻塞时请用户处理 |
 

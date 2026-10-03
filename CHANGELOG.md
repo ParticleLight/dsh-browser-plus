@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.0 (开发中)
+- **`browser_wait_for` 能等文字、也能等东西消失** —— 新增 `text`（有选择器就在元素里找 ✓、没有就查整篇文档 ✓）与 `state`（`visible` 默认 ✓、`attached` 只要存在 ✓、`hidden` / `detached` 等它消失 ✓）；`visible: false` 仍映射到 `attached` ✓。
+- **两种等法直接拒绝，不空等到超时** —— 既没选择器也没文字 ✓、`hidden`/`detached` 却没给选择器（不知道等谁消失 ✓）→ `BROWSER_WAIT_INVALID` ✓。
+
 ## v0.5.0 (2026-10-03)
 **新增四个工具（37 → 41）**
 - **`browser_dialog`** —— 查看/引导 `alert`/`confirm`/`prompt`。

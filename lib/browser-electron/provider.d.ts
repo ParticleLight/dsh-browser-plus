@@ -438,7 +438,7 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
      * Bounds the total wait; a timeout surfaces as BROWSER_WAIT_TIMEOUT.
      */
     waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult>;
-    /** Poll one tab until the selector matches. */
+    /** Poll one tab until the selector and/or text reaches the requested state. */
     private waitForElementTab;
     /** Type into the focused element. */
     type(session: BrowserSessionId, request: {
