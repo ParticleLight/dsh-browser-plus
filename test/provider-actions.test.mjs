@@ -901,3 +901,31 @@ test('snapshot passes query and limit into the page script, filtering before the
   assert.match(expression, /const query = "sign in"/, 'the query is lower-cased into the script')
   assert.ok(expression.indexOf('query !== ') < expression.indexOf('out.length >= cap'), 'filtering happens before the cap')
 })
+
+// browser_dialog：策略要**推给宿主**（对话框在宿主侧就被应答，等一次往返已经太晚），
+// 而 inspect 报告的是宿主最后报上来的那个对话框。
+test('dialog policy is pushed to the host and inspect reports the last dialog', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const view = host.views[0]
+  const pushed = []
+  view.setDialogPolicy = async policy => { pushed.push(policy); return policy }
+  let pings = 0
+  view.clearDialog = async () => { pings += 1; return pings === 1 ? { type: 'confirm', message: 'delete?' } : null }
+
+  // 默认 accept：对话框会冻住渲染器，自动化绝不能被它卡住。
+  assert.deepEqual(provider.dialogState(session).policy, { behavior: 'accept' })
+
+  host.evalReplies.push({ result: { value: 1 } })
+  await provider.execute(session, { script: '1' })
+  assert.deepEqual(provider.dialogState(session).dialog, { type: 'confirm', message: 'delete?' })
+
+  const state = await provider.setDialogPolicy(session, { behavior: 'dismiss' })
+  assert.deepEqual(pushed, [{ behavior: 'dismiss' }], 'the policy reaches the host')
+  assert.deepEqual(state.policy, { behavior: 'dismiss' })
+  assert.deepEqual(state.dialog, { type: 'confirm', message: 'delete?' })
+
+  await provider.setDialogPolicy(session, { behavior: 'accept', promptText: 'yes' })
+  assert.deepEqual(pushed[1], { behavior: 'accept', promptText: 'yes' })
+})

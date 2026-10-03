@@ -259,6 +259,16 @@ export class BrowserRuntime extends Service {
     return this.resolveProvider().snapshot(session, options, signal)
   }
 
+  /** Set how the host answers the next JS dialog, and report the state. */
+  async setDialogPolicy(session: BrowserSessionId, policy: { behavior: 'accept' | 'dismiss'; promptText?: string }): Promise<{ dialog: unknown; policy: { behavior: 'accept' | 'dismiss'; promptText?: string } }> {
+    return this.resolveProvider().setDialogPolicy(session, policy)
+  }
+
+  /** The last JS dialog the host reported, plus the current policy. */
+  dialogState(session: BrowserSessionId): { dialog: unknown; policy: { behavior: 'accept' | 'dismiss'; promptText?: string } } {
+    return this.resolveProvider().dialogState(session)
+  }
+
   /** Click one element referenced by an exact snapshot. */
   async clickRef(session: BrowserSessionId, request: BrowserRefRequest, signal?: AbortSignal): Promise<void> {
     return this.resolveProvider().clickRef(session, request, signal)

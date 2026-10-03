@@ -81,6 +81,25 @@ export declare class BrowserRuntime extends Service {
         query?: string;
         limit?: number;
     }, signal?: AbortSignal): Promise<BrowserSnapshotResult>;
+    /** Set how the host answers the next JS dialog, and report the state. */
+    setDialogPolicy(session: BrowserSessionId, policy: {
+        behavior: 'accept' | 'dismiss';
+        promptText?: string;
+    }): Promise<{
+        dialog: unknown;
+        policy: {
+            behavior: 'accept' | 'dismiss';
+            promptText?: string;
+        };
+    }>;
+    /** The last JS dialog the host reported, plus the current policy. */
+    dialogState(session: BrowserSessionId): {
+        dialog: unknown;
+        policy: {
+            behavior: 'accept' | 'dismiss';
+            promptText?: string;
+        };
+    };
     /** Click one element referenced by an exact snapshot. */
     clickRef(session: BrowserSessionId, request: BrowserRefRequest, signal?: AbortSignal): Promise<void>;
     /** Scroll one element referenced by an exact snapshot into view. */

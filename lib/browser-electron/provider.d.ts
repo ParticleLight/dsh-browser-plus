@@ -133,6 +133,8 @@ export interface ElectronViewHandle {
      * @returns the dialog detail ({ type, message, prompt? }) or null.
      */
     clearDialog?(): Promise<unknown>;
+    /** Optional: hosts without JS-dialog supervision omit it. */
+    setDialogPolicy?(policy: DialogPolicy): Promise<unknown>;
     /**
      * Remove cookies matching a domain/name filter. Optional: hosts without a
      * deletable cookie store omit it.
@@ -153,6 +155,18 @@ export interface ElectronViewHandle {
      * tokenless copy as a fallback.
      */
     reinstallChrome?(): Promise<void>;
+}
+/**
+ * How the host answers a JS dialog (alert/confirm/prompt).
+ *
+ * A dialog freezes the renderer until it is answered, so the default stays
+ * `accept` - automation must never hang on one. `dismiss` is for pages whose
+ * confirmation is part of what is being driven (delete prompts and the like),
+ * and `promptText` supplies the value for a prompt.
+ */
+export interface DialogPolicy {
+    readonly behavior: 'accept' | 'dismiss';
+    readonly promptText?: string;
 }
 /** Provider config: navigation admission defaults and snapshot caps. */
 export interface ElectronBrowserProviderConfig {
@@ -504,6 +518,21 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
      * operation trail shows the human/agent what the page asked. Best-effort.
      */
     private drainDialog;
+    /**
+     * Set how the host answers the next JS dialog, and report the resulting state.
+     *
+     * The policy lives in the host (it answers the CDP event there, where a
+     * round-trip would already be too late), so this is a push, not a pull.
+     */
+    setDialogPolicy(session: BrowserSessionId, policy: DialogPolicy): Promise<{
+        dialog: unknown;
+        policy: DialogPolicy;
+    }>;
+    /** The last JS dialog the host reported, plus the current policy. */
+    dialogState(session: BrowserSessionId): {
+        dialog: unknown;
+        policy: DialogPolicy;
+    };
     /** Name this browser task (space). */
     setSpace(session: BrowserSessionId, label: string): Promise<void>;
     /** List every browser task (space) with its label. */

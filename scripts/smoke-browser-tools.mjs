@@ -1760,6 +1760,47 @@ await check('an off-screen coordinate click is refused instead of silently dropp
   if (inside.target === undefined) throw new Error('an in-viewport click reported no target: ' + JSON.stringify(inside))
   return { refused: 'yes', viewport: size.w + 'x' + size.h, hit: String(inside.target).slice(0, 20) }
 })
+// 真机：页面上的 confirm() 必须能**被拒绝** —— 以前宿主只会一律接受。
+await check('a confirm dialog can be dismissed, not only accepted', async () => {
+  const size = await laidOut()
+  if (size === null) return { skipped: 'the view is not laid out in this run' }
+  const { createServer } = await import('node:http')
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html' })
+    response.end('<!doctype html><title>before</title><button id="go">go</button>'
+      + '<script>document.getElementById("go").addEventListener("click", function () {'
+      + ' document.title = confirm("delete?") ? "accepted" : "dismissed" })</script>')
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const port = server.address().port
+  const title = async () => String((await provider.execute(session, { script: 'document.title' })).value)
+  const waitTitle = async (want, from) => {
+    let now = from
+    for (let i = 0; i < 20 && now === from; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      now = await title()
+    }
+    if (now !== want) throw new Error('title is ' + JSON.stringify(now) + ', expected ' + JSON.stringify(want))
+    return now
+  }
+  try {
+    await provider.navigate(session, { url: 'http://127.0.0.1:' + String(port) + '/' })
+    await new Promise(resolve => setTimeout(resolve, 900))
+    await provider.setDialogPolicy(session, { behavior: 'dismiss' })
+    await provider.click(session, { selector: '#go' })
+    const dismissed = await waitTitle('dismissed', 'before')
+    const seen = provider.dialogState(session)
+    await provider.setDialogPolicy(session, { behavior: 'accept' })
+    await provider.click(session, { selector: '#go' })
+    const accepted = await waitTitle('accepted', dismissed)
+    return { dismissed, accepted, recorded: seen.dialog === null ? 'none' : String(seen.dialog.type) }
+  } finally {
+    server.close()
+    await provider.setDialogPolicy(session, { behavior: 'accept' })
+    await provider.navigate(session, { url: 'https://example.com/' })
+    await new Promise(resolve => setTimeout(resolve, 800))
+  }
+})
 await check('a tab switch fades the incoming page in, a navigation does not', async () => {
   const pageEval = async script => String((await provider.execute(session, { script })).value)
   const readLog = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))

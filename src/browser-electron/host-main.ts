@@ -473,6 +473,13 @@ function installRequestFingerprint(): void {
 
 /** Latest unread JS dialog per view (auto-accepted; read by drainDialog). */
 const dialogLogs = new Map<string, unknown>()
+/**
+ * How to answer the next JS dialog on a view. Default accept: a dialog freezes the
+ * renderer until it is answered, so automation must never leave one hanging. The
+ * provider can switch a view to `dismiss` (optionally with prompt text) when the
+ * page's confirmation is part of what it is testing.
+ */
+const dialogPolicies = new Map<string, { behavior: 'accept' | 'dismiss'; promptText?: string }>()
 
 /** Display label and current tab for each isolated browser task. */
 const taskLabels = new Map<string, string>()
@@ -1616,7 +1623,7 @@ function authorizeChromeAction(action: unknown, token: string): boolean {
 }
 
 /** Handle one command. */
-async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean }): Promise<void> {
+async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean; behavior?: string; promptText?: string }): Promise<void> {
   try {
     switch (op) {
       case 'ping':
@@ -1645,6 +1652,16 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           if (operations.length > 0) queueChromePatch(...operations)
         }
         reply(msg.id, { ok: true })
+        return
+      }
+      case 'setDialogPolicy': {
+        const viewId = msg.viewId
+        if (viewId === undefined) throw new Error('setDialogPolicy missing viewId')
+        if (!views.has(viewId)) throw new Error(`setDialogPolicy: unknown view ${viewId}`)
+        const behavior = msg.behavior === 'dismiss' ? 'dismiss' : 'accept'
+        const promptText = typeof msg.promptText === 'string' ? msg.promptText : undefined
+        dialogPolicies.set(viewId, promptText === undefined ? { behavior } : { behavior, promptText })
+        reply(msg.id, { ok: true, result: { behavior, ...promptText === undefined ? {} : { promptText } } })
         return
       }
       case 'drainDialog': {
@@ -1690,9 +1707,18 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             message: String(p.message ?? ''),
             ...typeof p.defaultPrompt === 'string' ? { prompt: p.defaultPrompt } : {},
           }
-          dialogLogs.set(viewId, info)
+          const policy = dialogPolicies.get(viewId) ?? { behavior: 'accept' as const }
+          const accept = policy.behavior !== 'dismiss'
+          dialogLogs.set(viewId, {
+            ...info,
+            answered: accept ? 'accept' : 'dismiss',
+            ...accept && policy.promptText !== undefined ? { promptText: policy.promptText } : {},
+          })
           try {
-            void view.webContents.debugger.sendCommand('Page.handleJavaScriptDialog', { accept: true }).catch(() => undefined)
+            void view.webContents.debugger.sendCommand('Page.handleJavaScriptDialog', {
+              accept,
+              ...accept && policy.promptText !== undefined ? { promptText: policy.promptText } : {},
+            }).catch(() => undefined)
           } catch { /* closing */ }
         })
         // Keep protocol-domain setup non-blocking. Electron 42 can leave a
@@ -1777,6 +1803,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
           viewIds?.delete(viewId)
           if (viewIds !== undefined && viewIds.size === 0) taskViewIds.delete(entry.taskKey)
           dialogLogs.delete(viewId)
+          dialogPolicies.delete(viewId)
           traces.delete(viewId)
           viewFavicons.delete(viewId)
           loadingViews.delete(viewId)

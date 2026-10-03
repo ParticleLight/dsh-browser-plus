@@ -508,6 +508,15 @@ class RemoteView implements ElectronViewHandle {
     return this.client.call<unknown>('drainDialog', { viewId: this.id }, RPC_QUERY_TIMEOUT_MS)
   }
 
+  /** Tell the child how to answer the next JS dialog on this view. */
+  async setDialogPolicy(policy: { behavior: 'accept' | 'dismiss'; promptText?: string }): Promise<unknown> {
+    return this.client.call<unknown>('setDialogPolicy', {
+      viewId: this.id,
+      behavior: policy.behavior,
+      ...policy.promptText === undefined ? {} : { promptText: policy.promptText },
+    }, RPC_QUERY_TIMEOUT_MS)
+  }
+
   /** Ask the child to re-apply its token-aware chrome to the current document. */
   async reinstallChrome(): Promise<void> {
     await this.client.call('reinstallChrome', { viewId: this.id }, RPC_COMMAND_TIMEOUT_MS)
@@ -937,6 +946,10 @@ export class DeferredRemoteView implements ElectronViewHandle {
 
   async clearDialog(): Promise<unknown> {
     return this.withView(view => view.clearDialog())
+  }
+
+  async setDialogPolicy(policy: { behavior: 'accept' | 'dismiss'; promptText?: string }): Promise<unknown> {
+    return this.withView(view => view.setDialogPolicy(policy))
   }
 
   async reinstallChrome(): Promise<void> {
