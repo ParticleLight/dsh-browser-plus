@@ -312,6 +312,10 @@ test('the chrome moves instead of hard-cutting', () => {
   assert.ok(script.includes('#panel.open, .glass-panel.open, #mainMenu.open, #findBar.open { animation:dshPopIn'), 'every popup uses it')
   assert.ok(script.includes('@keyframes dshDropIn') && script.includes('#toast.open { animation:dshDropIn'), 'the toast drops in')
   assert.ok(script.includes('@keyframes dshTabIn') && script.includes('#tabstrip .tab.enter { animation:dshTabIn'), 'a new tab floats in')
+  // 真机反馈：三个标签里分不出哪个是当前页 —— 因为非活动的也是 #35363a。Chrome 里非活动标签没有底色。
+  assert.ok(script.includes('#tabstrip .tab { transition:transform .12s ease; flex:0 1 240px; min-width:60px; height:34px; padding:0 10px; border:0; border-radius:8px 8px 0 0; background:transparent; color:#9aa0a6'), 'an inactive tab has no background of its own')
+  assert.ok(script.includes('#tabstrip .tab.active { background:#35363a; color:#e8eaed; }'), 'and only the active one is lifted')
+  assert.ok(script.includes('#tabstrip .tab.active:hover { background:#3c4043; }'), 'hovering the active tab still lifts it')
   // The omnibox used to switch background/border/ring on one frame.
   assert.ok(script.includes('#addressWrap { transition:background .15s ease,border-color .15s ease,box-shadow .15s ease; }'), 'the omnibox eases')
   // Only tabs that appear AFTER the first render of this document animate: the chrome
