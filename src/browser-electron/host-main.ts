@@ -20,7 +20,7 @@ import { app, BrowserWindow, session, WebContentsView, type Session } from 'elec
 import { createInterface } from 'node:readline'
 import { createConnection } from 'node:net'
 import { randomBytes } from 'node:crypto'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { acceptLanguagesFor, chromeMajor, clientHintPlatform, secChUa, stripElectronToken } from './fingerprint.js'
 import { buildPageChromeScript } from './page-chrome.js'
@@ -89,8 +89,49 @@ interface HostView {
   readonly taskKey: string
 }
 
+/** One line per host boot, so a stale-handle report can be tied to a process. */
+function markHostBoot(): void {
+  try {
+    const path = diagLogPath()
+    const stat = statSync(path, { throwIfNoEntry: false })
+    if (stat !== undefined && stat.size > 262144) writeFileSync(path, '')
+    appendFileSync(path, `=== boot pid=${process.pid} at ${new Date().toISOString()} ===\n`)
+  } catch { /* diagnostics only */ }
+}
+
 /** Views by the id the parent assigned at createView time. */
 const views = new Map<string, HostView>()
+
+/**
+ * Ring of recent view lifecycle events, dumped next to an `unknown view` failure.
+ * The parent can hold a handle this host no longer has (a tab that was just
+ * closed, a host that restarted), and the error on its own says nothing about
+ * how it got there - so the story is written down beside it.
+ */
+const viewTrace: string[] = []
+function traceView(line: string): void {
+  const stamped = `${new Date().toISOString().slice(11, 23)} ${line}`
+  viewTrace.push(stamped)
+  if (viewTrace.length > 64) viewTrace.splice(0, viewTrace.length - 64)
+  // Lifecycle events are rare and they are the whole point of the log: write them
+  // even when nothing fails, so 'did the parent re-create this view?' is answerable.
+  try { appendFileSync(diagLogPath(), stamped + '\n') } catch { /* diagnostics only */ }
+}
+function diagLogPath(): string { return join(app.getPath('userData'), 'host-diag.log') }
+function dumpViewDiagnostics(op: string, message: string, msg: { viewId?: string; method?: string; params?: Record<string, unknown> }): void {
+  try {
+    const known = [...views.entries()].map(([id, entry]) => `${id}(${entry.taskKey})`).join(' ')
+    const params = JSON.stringify(msg.params ?? {}) ?? ''
+    const lines = [
+      `--- ${new Date().toISOString()} ${op} failed: ${message}`,
+      `viewId=${msg.viewId ?? '-'} method=${msg.method ?? '-'} params=${params.slice(0, 200)}`,
+      `known views: ${known === '' ? '(none)' : known}`,
+      ...viewTrace.map(line => `  ${line}`),
+      '',
+    ]
+    appendFileSync(diagLogPath(), lines.join('\n'))
+  } catch { /* diagnostics must never take the host down */ }
+}
 
 /**
  * Per-view secret authenticating page-emitted chrome control messages.
@@ -1678,6 +1719,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         view.setVisible(false)
         win.contentView.addChildView(view)
         views.set(viewId, { webContentsView: view, taskKey })
+        traceView(`create ${viewId} task=${taskKey}`)
         const viewIds = taskViewIds.get(taskKey) ?? new Set<string>()
         viewIds.add(viewId)
         taskViewIds.set(taskKey, viewIds)
@@ -1730,6 +1772,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (entry !== undefined) {
           const wasActive = activeViewByTask.get(entry.taskKey) === viewId
           views.delete(viewId)
+          traceView(`destroy ${viewId} task=${entry.taskKey}`)
           const viewIds = taskViewIds.get(entry.taskKey)
           viewIds?.delete(viewId)
           if (viewIds !== undefined && viewIds.size === 0) taskViewIds.delete(entry.taskKey)
@@ -2108,7 +2151,9 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         throw new Error(`unknown op ${op}`)
     }
   } catch (error) {
-    reply(msg.id, { ok: false, err: String(error) })
+    const message = String(error)
+    if (message.includes('unknown view')) dumpViewDiagnostics(op, message, msg)
+    reply(msg.id, { ok: false, err: message })
   }
 }
 
@@ -2119,6 +2164,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
  * the app entry so `app` is available immediately.
  */
 void app.whenReady().then(() => {
+  markHostBoot()
   installRequestFingerprint()
   loadBookmarksFromDisk()
   loadPrefsFromDisk()

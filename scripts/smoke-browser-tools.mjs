@@ -567,6 +567,32 @@ await check('Ctrl+T opens a tab through the provider', async () => {
   }
   return { before, opened }
 })
+await check('Ctrl+W does not fail on the tab it just closed', async () => {
+  const tabsNow = async () => provider.listTabs(session)
+  const before = (await tabsNow()).length
+  // 和上面那条 Ctrl+T 检查一样要重试：页面刚重新注入时第一次按键会落空。
+  let opened = before
+  for (let attempt = 0; attempt < 4 && opened === before; attempt += 1) {
+    await provider.pressKey(session, { key: 't', modifiers: ['ctrl'] })
+    for (let i = 0; i < 12 && opened === before; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      opened = (await tabsNow()).length
+    }
+  }
+  if (opened !== before + 1) throw new Error('Ctrl+T did not open a tab: ' + before + ' -> ' + opened)
+  // 有牙的那半：修复前这一行会以 target closed / unknown view 抛出来。
+  await provider.pressKey(session, { key: 'w', modifiers: ['ctrl'] })
+  let closed = opened
+  for (let i = 0; i < 12 && closed === opened; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 150))
+    closed = (await tabsNow()).length
+  }
+  if (closed !== before) throw new Error('Ctrl+W did not close the tab: ' + opened + ' -> ' + closed)
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 800))
+  return { tabs: before + ' -> ' + opened + ' -> ' + closed }
+})
+
 // Chrome's bookmark bar: off by default, and turning it on moves the page down by
 // its height. The toggle goes chrome -> binding -> host -> patch -> chrome, so this
 // also proves the preference round-trips through the host (localStorage is per origin).
@@ -1671,6 +1697,8 @@ await check('closing the last tab leaves a working one', async () => {
   if (!url.includes('example.com')) throw new Error('the replacement tab could not navigate: ' + url.slice(0, 40))
   return { tabs: after.length, url: url.slice(0, 18) }
 })
+// 真机实测：Ctrl+W 关标签时，provider 自己那次按键还在往**刚被这次按键关掉的**视图上发事件
+// （宿主日志：create view:X … destroy view:X，然后报 unknown view / target closed）。
 await check('a tab switch fades the incoming page in, a navigation does not', async () => {
   const pageEval = async script => String((await provider.execute(session, { script })).value)
   const readLog = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
