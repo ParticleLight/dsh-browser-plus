@@ -135,6 +135,50 @@ test('reset invalidates retained snapshot references', async () => {
   )
 })
 
+test('the snapshot walks same-origin frames and names the cross-origin ones', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  host.evalReplies.push({ result: { value: rawSnapshot() } })
+  await provider.snapshot(session)
+
+  const script = host.log
+    .filter(entry => entry.method === 'Runtime.evaluate')
+    .map(entry => String(entry.params.expression))
+    .find(text => text.includes('frames.push'))
+  assert.ok(script !== undefined, 'the snapshot script was sent')
+  assert.match(script, /collect\(inner, i, fr\.left, fr\.top\)/, "same-origin frames are walked with the frame offset")
+  assert.match(script, /readable: false/, "cross-origin frames are reported as unreadable")
+  assert.match(script, /pathOf\(el, doc\)/, "paths resolve against the frame document")
+})
+
+test('a frame element carries its index, and clicking it enters that frame', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  const value = rawSnapshot()
+  value.elements = [
+    { ...value.elements[0], ref: 1 },
+    { ...value.elements[0], ref: 2, label: 'Inside', selector: '#inner', loc: '#inner', path: '#inner', frame: 0 },
+  ]
+  value.frames = [{ index: 0, url: 'http://127.0.0.1:12972/inner.html', readable: true }]
+  host.evalReplies.push({ result: { value } })
+  const snapshot = await provider.snapshot(session)
+  assert.equal(snapshot.frames[0].readable, true)
+  assert.equal(snapshot.elements[1].frame, 0)
+  assert.equal(snapshot.elements[0].frame, undefined)
+
+  host.evalReplies.push({ result: { value: { x: 120, y: 240, scrollX: 0, scrollY: 0, maxX: 0, maxY: 600 } } })
+  await provider.clickRef(session, { snapshotId: snapshot.snapshotId, ref: 2 })
+  const resolver = host.log
+    .filter(entry => entry.method === 'Runtime.evaluate')
+    .map(entry => String(entry.params.expression))
+    .find(text => text.includes('frame is cross-origin'))
+  assert.ok(resolver !== undefined, 'the resolver script was sent')
+  assert.match(resolver, /frameIndex = 0/, "the stored frame index reached the resolver")
+  assert.match(resolver, /frame is cross-origin/, "a cross-origin frame is refused rather than silently clicked")
+  assert.match(resolver, /\+ dx/, "the click point is offset by the frame")
+})
 test('back reports false without a previous history entry', async () => {
   const host = new FakeHost()
   const provider = new ElectronBrowserProvider(host)

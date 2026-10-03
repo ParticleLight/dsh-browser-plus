@@ -1801,6 +1801,59 @@ await check('a confirm dialog can be dismissed, not only accepted', async () => 
     await new Promise(resolve => setTimeout(resolve, 800))
   }
 })
+// 真机：同源子框架里的控件要能看到（元素带 frame 序号、坐标加上框架的矩形）；
+// 跨源框架的 contentDocument 读不到，必须明确记成 readable:false —— 不假装能读。
+await check('the snapshot sees into same-origin frames and names the cross-origin ones', async () => {
+  const size = await laidOut()
+  if (size === null) return { skipped: 'the view is not laid out in this run' }
+  const { createServer } = await import('node:http')
+  const page = (port) => '<!doctype html><title>frames</title>'
+    + '<button id="outer">Outer Button</button>'
+    + '<iframe id="same" src="/inner" style="width:220px;height:60px"></iframe>'
+    + '<iframe id="cross" src="http://127.0.0.1:' + String(port) + '/inner" style="width:220px;height:60px"></iframe>'
+  const innerPage = '<!doctype html><title>inner</title><button id="inside">Inner Button</button>'
+  const inner = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html' })
+    response.end(innerPage)
+  })
+  await new Promise(resolve => inner.listen(0, '127.0.0.1', resolve))
+  // 路径要路由：主页面里的 src="/inner" 必须拿到内部页面，
+  // 否则框架里装的就是主页面自己（第一版就是这样，量出来才发现）。
+  const outerServer = createServer((request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html' })
+    if (request.url === '/inner') {
+      response.end(innerPage)
+      return
+    }
+    response.end(page(inner.address().port))
+  })
+  await new Promise(resolve => outerServer.listen(0, '127.0.0.1', resolve))
+  try {
+    await provider.navigate(session, { url: 'http://127.0.0.1:' + String(outerServer.address().port) + '/' })
+    let snapshot = null
+    for (let i = 0; i < 25; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      snapshot = await provider.snapshot(session, { limit: 50 })
+      if ((snapshot.frames ?? []).length >= 2) break
+    }
+    const frames = snapshot.frames ?? []
+    if (frames.length < 2) throw new Error('both iframes should be reported: ' + JSON.stringify(frames))
+    const inside = snapshot.elements.find(element => element.label === 'Inner Button')
+    if (inside === undefined) throw new Error('the same-origin frame content was not read: ' + JSON.stringify(snapshot.elements.map(e => e.label)))
+    if (inside.frame !== 0) throw new Error('the frame element did not carry its index: ' + String(inside.frame))
+    const outside = snapshot.elements.find(element => element.label === 'Outer Button')
+    if (outside === undefined || outside.frame !== undefined) throw new Error('a top-level element must not claim a frame')
+    const cross = frames.find(frame => frame.readable === false)
+    if (cross === undefined) throw new Error('the cross-origin frame must be reported unreadable: ' + JSON.stringify(frames))
+    const same = frames.find(frame => frame.readable === true)
+    if (same === undefined) throw new Error('the same-origin frame should be readable: ' + JSON.stringify(frames))
+    return { frames: frames.length, inside: inside.frame, cross: String(cross.url).slice(0, 34) }
+  } finally {
+    outerServer.close()
+    inner.close()
+  }
+})
+
 // 真机：页面自己的 console 输出和网络请求必须能被读到（这是「为什么没成功」的唯一线索）。
 await check('console and network capture what the page did', async () => {
   const size = await laidOut()

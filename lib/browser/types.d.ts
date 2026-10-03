@@ -381,6 +381,17 @@ export interface BrowserSnapshotElement {
     /** Viewport-relative center, for coordinate fallbacks. */
     readonly x: number;
     readonly y: number;
+    /** Index into `frames` when the element lives inside an iframe; absent at the top level. */
+    readonly frame?: number;
+}
+/** One iframe found on the page. */
+export interface BrowserSnapshotFrame {
+    /** Index into the page's iframe list; matches `BrowserSnapshotElement.frame`. */
+    readonly index: number;
+    /** The frame's src, or its document URL when it has one. */
+    readonly url: string;
+    /** False when the frame is cross-origin, so its contents cannot be read. */
+    readonly readable: boolean;
 }
 /**
  * AI-friendly page snapshot: a compact, numbered inventory of interactive
@@ -397,6 +408,8 @@ export interface BrowserSnapshotResult {
     readonly elements: readonly BrowserSnapshotElement[];
     /** True when the snapshot was truncated (element cap reached). */
     readonly truncated: boolean;
+    /** Every iframe on the page, including the cross-origin ones that could not be read. */
+    readonly frames?: readonly BrowserSnapshotFrame[];
     /** Human-verification challenge blocking the page, when one is detected. */
     readonly challenge?: BrowserChallenge;
     /** True when a human interacted with the page within the last minute. */

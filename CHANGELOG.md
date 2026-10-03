@@ -1,6 +1,7 @@
 # Changelog
 
 ## v0.5.1 (开发中)
+- **`browser_snapshot` 现在能看进 iframe** —— 同源子框架会递归走一遍 ✓，里面的元素带 `frame` 序号 ✓、坐标已加上框架自身的偏移 ✓（所以 ref 照样能点 ✓ —— 解析器会先进入对应框架 ✓）；**跨源**框架读不到内容 ✓，就明确记一条 `readable: false` ✓，不假装能读 ✓。
 - **新增 `browser_highlight`** —— 把匹配选择器的第一个元素用 **DevTools 那套高亮框**画出来 ✓（人在看窗口时能看清 Agent 要动哪里 ✓）：走 CDP 的 `Overlay.highlightNode` ✓，**完全不碰页面 DOM** ✓；返回是否命中 ✓、节点 id ✓ 和元素在 CSS 像素里的盒子 ✓；`clear: true` 清掉 ✓。
 - **新增 `browser_pdf`** —— 把当前标签页打印成 PDF（相当于 Chrome 的「另存为 PDF」）✓：`savePath` 必须落在浏览器写根内 ✓（和截图、下载同一套校验 ✓）；可选 `landscape` ✓、`printBackground`（默认开 ✓ —— 否则深色页面会打成白纸 ✓）、`paperWidth` / `paperHeight`（英寸 ✓）。**不用改宿主** ✓ —— provider 直接发 `Page.printToPDF` ✓，写盘复用 `resolveWritePath` ✓。
 - **`browser_wait_for` 能等文字、也能等东西消失** —— 新增 `text`（有选择器就在元素里找 ✓、没有就查整篇文档 ✓）与 `state`（`visible` 默认 ✓、`attached` 只要存在 ✓、`hidden` / `detached` 等它消失 ✓）；`visible: false` 仍映射到 `attached` ✓。

@@ -319,6 +319,19 @@ export function apply(ctx: Context, config: Config = {}): void {
           url: { type: 'string', required: true },
           title: { type: 'string' },
           truncated: { type: 'boolean' },
+          frames: {
+            type: 'array',
+            description: 'Every iframe on the page; readable:false marks the cross-origin ones whose contents cannot be read.',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                index: { type: 'number', required: true },
+                url: { type: 'string', required: true },
+                readable: { type: 'boolean', required: true },
+              },
+            },
+          },
           elements: {
             type: 'array',
             required: true,
@@ -332,6 +345,7 @@ export function apply(ctx: Context, config: Config = {}): void {
                 x: { type: 'number', required: true },
                 y: { type: 'number', required: true },
                 loc: { type: 'string', required: true },
+                frame: { type: 'number', description: 'Index into frames when this element lives inside an iframe.' },
               },
             },
           },
