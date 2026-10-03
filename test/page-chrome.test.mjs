@@ -846,3 +846,15 @@ test('the patch handshake resyncs instead of applying a dropped or reordered pat
   assert.equal(decide('patch', 1, 1, 1, 1), 'resync', 'a replayed patch is not applied twice')
   assert.equal(decide('trail', 1, 1, 1, 0), 'ignore', 'an unknown kind is ignored')
 })
+
+// 弹层锚点要按缩放换算：host 被套了 zoom = 1/页面缩放（见 applyZoomFactor），
+// 所以 host 内部 1px 只有 1/缩放 个页面 px。把页面 px 直接写进 style，缩放 ≠ 100%
+// 时弹层就跑偏 —— 实测 160% 下 left 是 311 而不是 502（偏 330px）。
+test('popup anchoring converts page px into the zoomed chrome space', () => {
+  const script = buildPageChromeScript()
+  assert.match(script, /const chromeScale = \(\) => \(CHROME_SURFACE === 'frame' \? 1 : zoomFactor\)/)
+  assert.match(script, /const z = chromeScale\(\)/)
+  assert.match(script, /return \{ left: left \* z, top: top \* z, usable: usable \* z, viewportHeight: viewportHeight \* z \}/)
+  assert.match(script, /popup\.style\.left = clamped \* z \+ 'px'/)
+  assert.match(script, /popup\.style\.width = usable \* z \+ 'px'/)
+})

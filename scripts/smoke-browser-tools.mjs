@@ -1847,6 +1847,56 @@ await check('console and network capture what the page did', async () => {
     await new Promise(resolve => setTimeout(resolve, 800))
   }
 })
+// 缩放 ≠ 100% 时，贴按钮的弹层必须还在按钮下面：host 被套了 zoom = 1/页面缩放，
+// 所以「页面 px」和「host px」差一个倍数 —— 实测 160% 下弹层曾偏出 330px。
+await check('a popup stays under its toolbar button when the page is zoomed', async () => {
+  const size = await laidOut()
+  if (size === null) return { skipped: 'the view is not laid out in this run' }
+  const readPanels = async () => JSON.parse(String((await provider.execute(session, {
+    script: 'JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])',
+  })).value))
+  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
+  const closeAnyMenu = async () => {
+    await provider.click(session, { x: 4, y: 4 })
+    await new Promise(resolve => setTimeout(resolve, 320))
+  }
+  // 停在工具栏最右那个按钮上，等页面把菜单画出来，读它的**可视**矩形。
+  const mainPanel = async () => {
+    await closeAnyMenu()
+    await moveTo(1362, CHROME_TOOLBAR_Y)
+    for (let i = 0; i < 24; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      const panel = (await readPanels()).find(entry => entry.id === 'main' && entry.open === true)
+      if (panel !== undefined) return panel
+    }
+    return null
+  }
+  const resetZoom = async () => {
+    await provider.pressKey(session, { key: '0', modifiers: ['ctrl'] })
+    await new Promise(resolve => setTimeout(resolve, 450))
+  }
+  await resetZoom()
+  const at100 = await mainPanel()
+  if (at100 === null) throw new Error('resting on the menu button opened no menu at 100%')
+  for (let i = 0; i < 6; i += 1) {
+    await provider.pressKey(session, { key: '=', modifiers: ['ctrl'] })
+    await new Promise(resolve => setTimeout(resolve, 220))
+  }
+  const zoom = Number(String((await provider.execute(session, { script: 'window.__dshZoom' })).value)) || 1
+  if (zoom < 1.5) throw new Error('could not raise the zoom past 150%: ' + String(zoom))
+  const atZoom = await mainPanel()
+  if (atZoom === null) throw new Error('resting on the menu button opened no menu at ' + String(zoom) + 'x')
+  // frame 是另一个视图、不缩放，它的 innerWidth 就是窗口的屏幕 px。
+  const frameWidth = Number(String(await provider.chromeEval('window.innerWidth'))) || 0
+  if (frameWidth === 0) return { skipped: 'the frame reported no width' }
+  const expected = frameWidth - 8
+  const right100 = Math.round(at100.left + at100.width)
+  const rightZoom = Math.round(atZoom.left + atZoom.width)
+  if (Math.abs(right100 - expected) > 14) throw new Error('at 100% the popup right edge was ' + right100 + ', expected ~' + expected)
+  if (Math.abs(rightZoom - expected) > 14) throw new Error('at ' + zoom + 'x the popup right edge was ' + rightZoom + ', expected ~' + expected + ' - the anchor did not follow the zoom')
+  await resetZoom()
+  return { at100: right100, atZoom: rightZoom, expected, zoom }
+})
 await check('a tab switch fades the incoming page in, a navigation does not', async () => {
   const pageEval = async script => String((await provider.execute(session, { script })).value)
   const readLog = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
