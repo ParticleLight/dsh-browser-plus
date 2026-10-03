@@ -2,18 +2,25 @@
 
 ## v0.5.0 (2026-10-03)
 
-- **新增四个工具（工具数 37 → 41）**，都是「真机用起来才发现缺」的东西：
-  - **`browser_dialog`（inspect / accept / dismiss）** —— 以前宿主对 `alert`/`confirm`/`prompt` **一律自动接受**（理由正当：对话框会冻住渲染器，自动化不能被它卡死），代价是「确认删除」这类页面**永远被同意**，取消那条路根本没法测。现在策略**推给宿主**（对话框在宿主侧就被应答，等一次往返已经太晚），`accept`/`dismiss` 设定**下一个**怎么答、可配 `promptText` 填 `prompt()`，`inspect` 报告上一个。默认仍是 `accept`。
-  - **`browser_console` + `browser_network`** —— 以前**读不到**控制台报错和网络请求，「为什么没成功」只能靠 `browser_execute` 手搓探针。宿主每视图维护**有界环形缓冲**（各 200 条），收 `Runtime.consoleAPICalled`/`Runtime.exceptionThrown` 与 `Network.*`；过滤和条数在 provider 侧做（`level`/`urlContains`/`failedOnly`/`limit`，取最新 N 条），**读取默认不清空**（调试是反复看的循环，清空要显式）。
-  - **`browser_emulate`** —— 视口（可带 `mobile` 与 `deviceScaleFactor`）、自定义 UA、`prefers-color-scheme`，`clear: true` 一次撤销。**没加宿主代码**：provider 直接用现成的 `command` 通道发 CDP。
-  - **验证**：四个工具都在**重启后的真实会话**里逐条验过 —— `dismiss` 后 `confirm()` 返回 `false`、`accept` 后返回 `true`；`console.log("probe",42)`+`console.error("boom")` 读到 `["log:probe 42","error:boom"]`、一次 404 的 `fetch` 读到 `GET 404`；`emulate` 390×844 后 `{w:390,h:844,dpr:3.0}`、`clear` 后回到 `{w:1274,h:712,dpr:1.925}`。
-- **`browser_execute` 现在也收语句**。以前只认「表达式」，于是 `const x = 1; return x` 会被包成 `return (const x = 1; return x)` → 语法错。现在**在 Node 里先试解析**：先试表达式（保住对象字面量 `{a:1}` 的老行为），失败再当脚本体，两种都不是才报可读的解析错误。
-- **`browser_snapshot` 新增 `query` 与 `limit`**。`query` 对 kind+label 做大小写不敏感过滤，`limit` 1-1000（默认 60）。⚠️ **过滤必须写在页面脚本里、且排在计上限之前** —— 先截断的话，默认上限 60 之外的元素永远搜不到；单测钉了这个顺序。
-- **坐标点击落在视口外时明确拒绝**（`BROWSER_TARGET_OFFSCREEN`），并报出那个点上实际是什么元素。**顺带更正一条错判**：以前笔记里写「缩放 ≠ 100% 会破坏坐标映射」—— **是错的**，实测 100% 与 110% 下页面收到的坐标与 `getBoundingClientRect()` 完全一致（`Input.dispatchMouseEvent` 用的就是页面 CSS px）。真正的坑是**坐标点击不会自动滚动**：元素掉到折叠线以下时点击被静默丢掉，看起来像「点了没反应」。
-- 🔴 **修复：页面缩放 ≠ 100% 时，二级菜单弹层不贴按钮**（实测 160% 下偏 330px）。宿主给 chrome 元素套了 `zoom = 1/页面缩放`（用来抵消页面缩放），所以 **chrome 内部 1px 只有 `1/缩放` 个页面 px**；而锚点计算拿到的都是**页面 px**（触发按钮的 rect、frame 中继来的坐标），直接写进 `style.left/top/width/max-height` 就被当成 chrome px。现在数学仍按页面 px 算，**写进 style 前**统一乘 `chromeScale()`（frame 表面返回 1 —— 它是独立视图、不缩放）。
-  - **真机 A/B（同一页面、同一 160%）**：修复前 `left 311 / width 226 / 右边界 537` ✗；修复后 `left 502 / width 353 / 右边界 855` ✓（窗口 1400，应 ≈ 867）。
-- 🔴 **修复：`browser_dialog` 的 `inspect` 看不到刚触发的对话框**。宿主只在**有人排空**时才交出对话框，而排空挂在输入/执行类调用上；`inspect` 是只读的，于是 `browser_execute("confirm(...)")` 之后**立刻** inspect 会什么都看不到（要再随便调一次输入类工具才看得到）。现在 `inspectDialog()` **先排空再报**，单测钉了「它确实问了宿主一次」。**这条是真机抓出来的** —— 单测当时用的是「先 execute 再读」，顺序刚好把它掩盖了。
-- 文档：`docs/tool-reference.md` 补齐四个新工具与改动过的参数（含一节「页面没反应时怎么查」的组合示例）。
+**新增四个工具（37 → 41）**
+
+- **`browser_dialog`** —— 查看/引导 `alert`/`confirm`/`prompt`。以前一律自动接受，「确认删除」这类页面**永远被同意**；现在可以先设 `accept`/`dismiss`（`prompt()` 配 `promptText`）再触发它，`inspect` 报告上一次与当前策略。
+- **`browser_console` / `browser_network`** —— 读控制台报错、未捕获异常与网络请求（每个视图各 200 条环形缓冲）。**读取默认不清空**，`clear: true` 才清；支持 `level` / `urlContains` / `failedOnly` / `limit`。
+- **`browser_emulate`** —— 视口（可带移动端行为与 DPR）、自定义 UA、`prefers-color-scheme`；`clear: true` 一次撤销三样。
+
+**改进**
+
+- **`browser_execute` 现在也收语句体**（自动判别：先试表达式，再试脚本体，语句体用 `return` 返回值）。
+- **`browser_snapshot` 新增 `query` 与 `limit`** —— 按 kind+label 过滤，且**过滤发生在计上限之前**（否则默认上限 60 之外的元素永远搜不到）。
+- **坐标点击落在视口外时明确报错**，并报出那个点上实际是什么元素（坐标点击**不会自动滚动**，以前是静默丢弃）。
+
+**修复**
+
+- **页面缩放 ≠ 100% 时，二级菜单弹层不贴按钮** —— 实测 160% 下偏 330px（`left` 311 → 502）。根因是 chrome 内部 px 与页面 px 差一个缩放倍数。
+- **`browser_dialog` 的 `inspect` 看不到刚触发的对话框** —— 它没有自己排空宿主里的对话框。
+
+> 每条改动的背景、真机证据与踩过的坑，见对应提交信息。
+
 ## v0.4.3 (2026-09-30)
 
 - **取消抽屉设计 + 页面不再被顶栏遮挡**（用户要求「取消抽屉的设计，同时为了不遮挡，像谷歌浏览器那样处理」）。

@@ -4,7 +4,14 @@
 
 dsh-browser-plus is developed on top of the MIT-licensed `dsh-browser` codebase and independently maintained by ParticleLight.
 
-[![GitHub stars](https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?style=flat&label=stars)](https://github.com/ParticleLight/dsh-browser-plus)
+[![awesome · DSH plugin](https://img.shields.io/badge/awesome-DSH_plugin_%E2%9C%94-red?style=flat)](#)
+[![npm](https://img.shields.io/npm/v/dsh-browser-plus?style=flat&label=npm&color=blue)](https://www.npmjs.com/package/dsh-browser-plus)
+[![downloads](https://img.shields.io/npm/dm/dsh-browser-plus?style=flat&label=downloads&color=blue)](https://www.npmjs.com/package/dsh-browser-plus)
+[![GitHub Stars](https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?style=flat&label=Stars&logo=github)](https://github.com/ParticleLight/dsh-browser-plus)
+[![license](https://img.shields.io/github/license/ParticleLight/dsh-browser-plus?style=flat&label=license&color=green)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/ParticleLight/dsh-browser-plus/ci.yml?branch=main&style=flat&label=CI&logo=github)](https://github.com/ParticleLight/dsh-browser-plus/actions)
+[![DSH](https://img.shields.io/badge/DSH-0.1.0--rc.1%20%7C%7C%200.2.0--rc.1-blue?style=flat)](#)
+[![status](https://img.shields.io/badge/status-stable-green?style=flat)](#)
 
 ## Why it exists
 
@@ -13,9 +20,9 @@ Browser automation should not disappear into a process the user cannot inspect. 
 - **Visible by default**: a real Electron `WebContentsView`, not a headless relay.
 - **Task isolation**: all DSH sessions share one visible window while keeping isolated task views, tabs, and history; the page task manager switches the visible view, and `browser_space` names browser tasks.
 - **Human handoff**: page chrome, bookmarks, the task workspace, operation trail, and user activity detection live on the real page; a user can take control of the active task and explicitly return it to the agent.
-- **Glass workspace**: task and operation trail are independent translucent glass panels that can stay open together. Each task exposes running, waiting-user, human-control, failed, or idle state. Thumbnails refresh on demand only while the task panel is open; background tasks retain their last image.
+- **Task workspace**: task and operation trail are independent opaque panels (Chrome menu surface, `#292a2d`) that can stay open together. Each task exposes running, waiting-user, human-control, failed, or idle state. Thumbnails refresh on demand only while the task panel is open; background tasks retain their last image.
 
-![dsh-browser-plus task workspace](assets/readme-glass-workspace.png)
+![dsh-browser-plus task workspace](assets/readme-workspace.png)
 
 - **Physical input**: keyboard, mouse, hover, double-click, and file selection use CDP instead of synthetic `element.click()` events.
 - **Recovery-aware**: a recycled child re-materializes the same session view; the first recovered capture waits for compositor readiness.
@@ -43,6 +50,14 @@ If another browser bundle is already installed, read the [migration guide](docs/
 | Dialogs | `browser_dialog` |
 | Diagnostics | `browser_console`, `browser_network` |
 | Device emulation | `browser_emulate` |
+| Dragging | `browser_drag` |
+| Page scripts | `browser_execute` |
+| Bulk scraping | `browser_scrape` |
+| Downloads | `browser_download` |
+| Replay | `browser_replay` |
+| Bot checks | `browser_challenge` |
+| Action allow-list | `browser_restrict` |
+| Session | `browser_session`, `browser_reset` |
 
 Snapshots expose a short-lived `snapshotId` plus element references. Prefer reference tools and take a fresh snapshot after the page changes; page-level scripts automatically ignore the browser's own chrome.
 
@@ -78,7 +93,7 @@ npm test
 npm run smoke:electron-host # requires a local DSH Web instance; validates real Electron Host navigation and page handoff
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution rules and [docs](docs/README.md) for the full documentation set.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution rules, [docs](docs/README.md) for the full documentation set, and [CHANGELOG](CHANGELOG.md) for version history.
 
 ## License
 

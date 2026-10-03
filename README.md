@@ -4,7 +4,14 @@
 
 基于 MIT 许可的 `dsh-browser` 代码基础持续开发，并由 ParticleLight 独立维护。
 
-[![GitHub stars](https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?style=flat&label=stars)](https://github.com/ParticleLight/dsh-browser-plus)
+[![awesome · DSH plugin](https://img.shields.io/badge/awesome-DSH_plugin_%E2%9C%94-red?style=flat)](#)
+[![npm](https://img.shields.io/npm/v/dsh-browser-plus?style=flat&label=npm&color=blue)](https://www.npmjs.com/package/dsh-browser-plus)
+[![downloads](https://img.shields.io/npm/dm/dsh-browser-plus?style=flat&label=downloads&color=blue)](https://www.npmjs.com/package/dsh-browser-plus)
+[![GitHub Stars](https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?style=flat&label=Stars&logo=github)](https://github.com/ParticleLight/dsh-browser-plus)
+[![license](https://img.shields.io/github/license/ParticleLight/dsh-browser-plus?style=flat&label=license&color=green)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/ParticleLight/dsh-browser-plus/ci.yml?branch=main&style=flat&label=CI&logo=github)](https://github.com/ParticleLight/dsh-browser-plus/actions)
+[![DSH](https://img.shields.io/badge/DSH-0.1.0--rc.1%20%7C%7C%200.2.0--rc.1-blue?style=flat)](#)
+[![status](https://img.shields.io/badge/status-stable-green?style=flat)](#)
 
 ## 为何使用它
 
@@ -12,10 +19,10 @@
 
 - **真实可见**：Electron `WebContentsView`，不是 headless relay。
 - **任务隔离**：所有 DSH session 共享一个可见窗口，但各自保留隔离的任务视图、标签与历史；页面任务管理器切换可见视图，`browser_space` 命名浏览器任务。
-- **人机协作**：工具栏默认隐入页面上方，顶部中间悬停后可展开；书签、任务工作区与操作轨迹都在真实页面上运行，用户可在工具栏最右侧接管或显式交还给 Agent。
-- **玻璃工作区**：任务与操作轨迹是彼此独立的半透明玻璃面板，可同时打开；每项任务显示执行中、等待用户、用户接管、失败或空闲状态。缩略图仅在任务面板打开时为当前可见任务按需刷新，后台任务保留最后图像。
+- **人机协作**：工具栏是**常驻顶栏**（画在独立视图里，不随页面缩放）；书签、任务工作区与操作轨迹都在真实页面上运行，用户可在工具栏最右侧接管或显式交还给 Agent。
+- **任务工作区**：任务与操作轨迹是彼此独立的不透明面板（Chrome 菜单表面 `#292a2d`），可同时打开；每项任务显示执行中、等待用户、用户接管、失败或空闲状态。缩略图仅在任务面板打开时为当前可见任务按需刷新，后台任务保留最后图像。
 
-![dsh-browser-plus 任务工作区](assets/readme-glass-workspace.png)
+![dsh-browser-plus 任务工作区](assets/readme-workspace.png)
 
 - **真实输入**：键盘、鼠标、hover、双击和文件选择都走 CDP，而不是 `element.click()` 伪事件。
 - **恢复能力**：child 回收后会重新物化相同会话的视图；恢复后的首张截图等待 compositor 稳定。
@@ -43,6 +50,14 @@ dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 | 对话框 | `browser_dialog` |
 | 诊断 | `browser_console`、`browser_network` |
 | 设备模拟 | `browser_emulate` |
+| 拖拽 | `browser_drag` |
+| 页面脚本 | `browser_execute` |
+| 批量抓取 | `browser_scrape` |
+| 下载 | `browser_download` |
+| 回放 | `browser_replay` |
+| 人机验证 | `browser_challenge` |
+| 动作白名单 | `browser_restrict` |
+| 会话 | `browser_session`、`browser_reset` |
 
 快照返回短生命周期的 `snapshotId` 与元素引用；优先用 `browser_click_ref` 或 `browser_scroll_into_view` 操作，页面变化后重新快照。页面级脚本会自动过滤浏览器自身 chrome。
 
@@ -78,7 +93,7 @@ npm test
 npm run smoke:electron-host # 需要本地 DSH Web 已启动；验证真实 Electron Host 导航与页面交接
 ```
 
-贡献方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。更完整的使用说明在 [docs](docs/README.md)。
+贡献方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。更完整的使用说明在 [docs](docs/README.md)，版本变更见 [CHANGELOG](CHANGELOG.md)。
 
 ## License
 
