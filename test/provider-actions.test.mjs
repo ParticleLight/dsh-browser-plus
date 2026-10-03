@@ -316,6 +316,50 @@ test('waitForElement rejects a wait with nothing to watch', async () => {
   )
 })
 
+test('pdf prints the active tab to a file inside the write roots', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-pdf-'))
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { writeRoots: [dir] })
+    const session = await provider.open()
+    const body = Buffer.from('%PDF-1.4\nfake\n')
+    let sent
+    host.views[0].sendCommand = async (method, params) => {
+      sent = { method, params }
+      return { data: body.toString('base64') }
+    }
+    const out = join(dir, 'page.pdf')
+    const result = await provider.pdf(session, { savePath: out, landscape: true })
+    assert.equal(result.path, out)
+    assert.equal(result.bytes, body.length)
+    assert.equal(readFileSync(out, 'utf8'), body.toString('utf8'), 'the file holds the decoded PDF, not base64')
+    assert.equal(sent.method, 'Page.printToPDF')
+    assert.equal(sent.params.landscape, true)
+    assert.equal(sent.params.printBackground, true, 'backgrounds are on by default')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('pdf refuses a path outside the write roots before printing', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-pdf-out-'))
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { writeRoots: [dir] })
+    const session = await provider.open()
+    let asked = false
+    host.views[0].sendCommand = async () => {
+      asked = true
+      return { data: '' }
+    }
+    await assert.rejects(
+      () => provider.pdf(session, { savePath: join(dir, '..', 'outside.pdf') }),
+    )
+    assert.equal(asked, false, 'a bad path must fail before we spend time printing')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 test('setSpace labels the window and records it', async () => {
   const host = new FakeHost()
   const provider = new ElectronBrowserProvider(host)

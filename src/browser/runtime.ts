@@ -47,6 +47,8 @@ import type {
   BrowserTypeRequest,
   BrowserUploadFileRequest,
   BrowserUploadFileResult,
+  BrowserPdfRequest,
+  BrowserPdfResult,
   BrowserWaitForRequest,
   BrowserWaitForResult,
   BrowserChallenge,
@@ -334,6 +336,10 @@ export class BrowserRuntime extends Service {
   }
 
   /** Wait for an element through the selected provider (bounded polling). */
+  async pdf(session: BrowserSessionId, request: BrowserPdfRequest, signal?: AbortSignal): Promise<BrowserPdfResult> {
+    return this.resolveProvider().pdf(session, request, signal)
+  }
+
   async waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult> {
     return this.resolveProvider().waitForElement(session, request, signal)
   }

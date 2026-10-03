@@ -182,6 +182,26 @@ export interface BrowserWaitForResult {
   readonly text: string
 }
 
+/** Print the active tab to a PDF file. */
+export interface BrowserPdfRequest {
+  /** Absolute path of the .pdf to write. Must be inside the write roots. */
+  readonly savePath: string
+  /** Landscape orientation. Default portrait. */
+  readonly landscape?: boolean
+  /** Include background colours and images. Default true. */
+  readonly printBackground?: boolean
+  /** Paper width in inches. CDP default is 8.5. */
+  readonly paperWidth?: number
+  /** Paper height in inches. CDP default is 11. */
+  readonly paperHeight?: number
+}
+
+/** Where the PDF landed. */
+export interface BrowserPdfResult {
+  readonly path: string
+  readonly bytes: number
+}
+
 /** One field of a batch form fill. Match by selector, or by name/label/placeholder. */
 export interface BrowserFillField {
   /** CSS selector; when present, candidates are scoped to it. */
@@ -586,6 +606,8 @@ export interface BrowserProvider {
   uploadFile(session: BrowserSessionId, request: BrowserUploadFileRequest, signal?: AbortSignal): Promise<BrowserUploadFileResult>
   /** Wait until an element matching the selector exists (and optionally is visible). Honor `signal` for cancellation. */
   waitForElement(session: BrowserSessionId, request: BrowserWaitForRequest, signal?: AbortSignal): Promise<BrowserWaitForResult>
+  /** Print the active tab to a PDF file. */
+  pdf(session: BrowserSessionId, request: BrowserPdfRequest, signal?: AbortSignal): Promise<BrowserPdfResult>
   /** Fill a form's fields in one batch. Honor `signal` for cancellation. */
   fillForm(session: BrowserSessionId, request: BrowserFillRequest, signal?: AbortSignal): Promise<BrowserFillResult>
   /** Capture the current page. Honor `signal` for cancellation. */

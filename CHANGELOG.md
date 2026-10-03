@@ -1,6 +1,7 @@
 # Changelog
 
 ## v0.5.1 (开发中)
+- **新增 `browser_pdf`** —— 把当前标签页打印成 PDF（相当于 Chrome 的「另存为 PDF」）✓：`savePath` 必须落在浏览器写根内 ✓（和截图、下载同一套校验 ✓）；可选 `landscape` ✓、`printBackground`（默认开 ✓ —— 否则深色页面会打成白纸 ✓）、`paperWidth` / `paperHeight`（英寸 ✓）。**不用改宿主** ✓ —— provider 直接发 `Page.printToPDF` ✓，写盘复用 `resolveWritePath` ✓。
 - **`browser_wait_for` 能等文字、也能等东西消失** —— 新增 `text`（有选择器就在元素里找 ✓、没有就查整篇文档 ✓）与 `state`（`visible` 默认 ✓、`attached` 只要存在 ✓、`hidden` / `detached` 等它消失 ✓）；`visible: false` 仍映射到 `attached` ✓。
 - **两种等法直接拒绝，不空等到超时** —— 既没选择器也没文字 ✓、`hidden`/`detached` 却没给选择器（不知道等谁消失 ✓）→ `BROWSER_WAIT_INVALID` ✓。
 

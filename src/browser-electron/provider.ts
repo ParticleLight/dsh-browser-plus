@@ -47,6 +47,8 @@ import type {
   BrowserTaskUpdate,
   BrowserUploadFileRequest,
   BrowserUploadFileResult,
+  BrowserPdfRequest,
+  BrowserPdfResult,
   BrowserWaitForRequest,
   BrowserWaitForResult,
   ExportedCookie,
@@ -377,6 +379,8 @@ export interface CdpEvaluateParams {
 
 /** CDP method for a full-page screenshot capture. */
 export const CDP_PAGE_CAPTURE_SCREENSHOT = 'Page.captureScreenshot'
+/** CDP method that renders the current document to PDF. */
+export const CDP_PAGE_PRINT_TO_PDF = 'Page.printToPDF'
 /** CDP method for runtime evaluation (the execute path). */
 export const CDP_RUNTIME_EVALUATE = 'Runtime.evaluate'
 
@@ -2106,6 +2110,42 @@ export class ElectronBrowserProvider implements BrowserProvider {
   }
 
   /** Capture the current page, optionally full-page. PNG only (CDP JPEG hangs on Electron 43). */
+  /** Print the active tab to a PDF file (Chrome's "Save as PDF"). */
+  async pdf(
+    session: BrowserSessionId,
+    request: BrowserPdfRequest,
+    signal?: AbortSignal,
+  ): Promise<BrowserPdfResult> {
+    const s = this.session(session)
+    const { handle } = this.activeTab(s)
+    signal?.throwIfAborted()
+    // Resolve first: a bad path must fail before we spend time printing.
+    const target = resolveWritePath(request.savePath, this.writeRoots)
+    const params: Record<string, unknown> = {
+      // Backgrounds off by default would print dark pages as white paper.
+      printBackground: request.printBackground !== false,
+      landscape: request.landscape === true,
+    }
+    if (request.paperWidth !== undefined) params.paperWidth = request.paperWidth
+    if (request.paperHeight !== undefined) params.paperHeight = request.paperHeight
+    const timeoutMs = 60_000
+    const result = await withTimeout(
+      handle.sendCommand(CDP_PAGE_PRINT_TO_PDF, params),
+      timeoutMs,
+      signal,
+      `browser: pdf timed out after ${timeoutMs}ms`,
+    )
+    const data = result.data
+    if (typeof data !== 'string' || data === '') {
+      throw new BrowserError('browser: printToPDF returned no data', 'BROWSER_PDF_FAILED')
+    }
+    const bytes = Buffer.from(data, 'base64')
+    writeFileSync(target, bytes)
+    this.record(s, 'pdf', { savePath: request.savePath, landscape: params.landscape }, true, { result: `${bytes.length} bytes` })
+    return { path: request.savePath, bytes: bytes.length }
+  }
+
+
   async screenshot(
     session: BrowserSessionId,
     request?: { readonly fullPage?: boolean; readonly savePath?: string },
