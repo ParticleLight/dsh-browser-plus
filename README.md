@@ -30,6 +30,14 @@
 
 ## 安装
 
+从 npm 安装（推荐）：
+
+```sh
+dsh plugin --profile web add dsh-browser-plus
+```
+
+或直接从仓库安装：
+
 ```sh
 dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 ```

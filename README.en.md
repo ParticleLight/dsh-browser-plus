@@ -30,6 +30,14 @@ Browser automation should not disappear into a process the user cannot inspect. 
 
 ## Install
 
+From npm (recommended):
+
+```sh
+dsh plugin --profile web add dsh-browser-plus
+```
+
+Or straight from the repository:
+
 ```sh
 dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 ```
