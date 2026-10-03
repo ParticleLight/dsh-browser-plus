@@ -26,6 +26,8 @@ export interface ChromeHostEvent {
     readonly taskKey: string;
     /** Host view id of the tab; absent for `new-tab`. */
     readonly tabId?: string;
+    /** For `new-tab`: open this http(s) url in the new tab (a bookmark click). */
+    readonly url?: string;
 }
 /**
  * The minimal Electron surface this provider needs. Implemented by the

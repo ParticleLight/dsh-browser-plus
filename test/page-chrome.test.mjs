@@ -530,6 +530,10 @@ test('bookmarks come from the host, not from per-origin localStorage', () => {
   assert.ok(script.includes('#reveal { position:fixed; inset:0; background:#202124; opacity:0; pointer-events:none; }'), 'a surface-coloured overlay covers the viewport')
   assert.ok(script.includes("operation.op === 'reveal'"), 'the chrome reacts to the host\'s reveal patch')
   assert.ok(script.includes("motionLog.push({ id: 'reveal', phase: 'start', name: 'dshReveal' })"), 'and records it for the smoke')
+  // 用户实测反馈：点收藏**不该覆盖**当前正在看的页面 —— 交给宿主开新标签，binding 不在时才退回原地导航。
+  assert.ok(script.includes("const emitOpenTab = url =>"), 'a bookmark click asks the host for a new tab')
+  assert.ok(script.includes('if (!emitOpenTab(url)) location.href = url'), 'the bookmark bar chip falls back to navigating in place')
+  assert.ok(script.includes('if (!emitOpenTab(url)) location.assign(url)'), 'and so does a row in the bookmarks panel')
   assert.ok(script.includes('const swapText = (element, next, id) => {'), 'one helper swaps a label with a short fade')
   assert.ok(script.includes("if (element.textContent === value) return"), 'and only when the value really changed')
   assert.ok(script.includes("swapText(taskControl, human ? '交还 Agent' : '接管', 'task-control')"), 'the task control uses it')

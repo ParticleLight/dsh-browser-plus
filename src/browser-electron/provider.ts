@@ -106,6 +106,8 @@ export interface ChromeHostEvent {
   readonly taskKey: string
   /** Host view id of the tab; absent for `new-tab`. */
   readonly tabId?: string
+  /** For `new-tab`: open this http(s) url in the new tab (a bookmark click). */
+  readonly url?: string
 }
 
 /**
@@ -640,6 +642,10 @@ export class ElectronBrowserProvider implements BrowserProvider {
     try {
       if (event.type === 'new-tab') {
         this.newTab(s)
+        // 点收藏栏来的新标签会带 url —— 建完再导航（新标签已经是 active）。
+        if (typeof event.url === 'string' && event.url !== '') {
+          void this.navigate(sessionId, { url: event.url }).catch(() => undefined)
+        }
         return
       }
       if (typeof event.tabId !== 'string') return

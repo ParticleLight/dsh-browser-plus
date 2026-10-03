@@ -763,245 +763,6 @@ await check('removing a bookmark slides the ones after it', async () => {
   if (slide === undefined) throw new Error('the remaining rows jumped instead of sliding: ' + JSON.stringify(log))
   return { list: slide.id, moved: slide.name }
 })
-// 缩略图每隔几秒就来一帧：新的一帧要**淡入盖住旧的**，硬换会闪。
-await check('a new task thumbnail fades in over the previous one', async () => {
-  const pageEval = async script => String((await provider.execute(session, { script })).value)
-  const readPanels = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])'))
-  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
-  const clickAt = async (x, y) => {
-    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
-    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
-  }
-  const waitForPanel = async id => {
-    for (let i = 0; i < 24; i += 1) {
-      await new Promise(resolve => setTimeout(resolve, 150))
-      const found = (await readPanels()).find(entry => entry.id === id && entry.open === true)
-      if (found) return found
-    }
-    return null
-  }
-  let menu = null
-  for (let attempt = 0; attempt < 4 && menu === null; attempt += 1) {
-    // 先把指针挪开：**已经在按钮上**时不会再产生 pointerenter，悬停意图也就不会启动。
-    await moveTo(5, 200)
-    await new Promise(resolve => setTimeout(resolve, 150))
-    await moveTo(1362, 62)
-    await new Promise(resolve => setTimeout(resolve, 400))
-    if (attempt > 0) await clickAt(1362, 62)
-    menu = await waitForPanel('main')
-  }
-  if (menu === null) throw new Error('the ⋮ menu never opened')
-  const tasksItem = menu.items.find(item => item.id === 'mmTasks')
-  if (tasksItem === undefined) throw new Error('no tasks item: ' + JSON.stringify(menu.items.map(item => item.id)))
-  await provider.click(session, { x: tasksItem.left + 12, y: tasksItem.top + Math.round(tasksItem.height / 2) })
-  const panel = await waitForPanel('tasks')
-  if (panel === null) throw new Error('the tasks panel never opened')
-  // 用 Chromium 自己生成的 JPEG：一定是能解码的真帧。
-  const jpeg = await pageEval("(() => { const c = document.createElement('canvas'); c.width = 16; c.height = 16; const x = c.getContext('2d'); x.fillStyle = '#336699'; x.fillRect(0, 0, 16, 16); return c.toDataURL('image/jpeg') })()")
-  if (!jpeg.startsWith('data:image/jpeg;base64,')) throw new Error('could not build a jpeg frame: ' + jpeg.slice(0, 40))
-  const first = Number(await pageEval('String(window.__dshChromeTaskThumb ? window.__dshChromeTaskThumb(' + JSON.stringify(jpeg) + ', 0) : 0)'))
-  if (first !== 1) throw new Error('the tasks panel exposed no thumbnail to paint into')
-  await new Promise(resolve => setTimeout(resolve, 600))
-  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
-  // 第二帧：这时已经有一张旧 canvas，走的是「淡入盖住旧的」那条路。
-  await pageEval('String(window.__dshChromeTaskThumb(' + JSON.stringify(jpeg) + ', 0))')
-  let log = []
-  for (let i = 0; i < 20 && !log.some(entry => entry.id === 'task-thumb'); i += 1) {
-    await new Promise(resolve => setTimeout(resolve, 150))
-    log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
-  }
-  await provider.pressKey(session, { key: 'Escape' })
-  const hit = log.find(entry => entry.id === 'task-thumb' && entry.name === 'dshThumbIn')
-  if (hit === undefined) throw new Error('the new thumbnail swapped in without a fade: ' + JSON.stringify(log))
-  return { animation: hit.name }
-})
-// 书签栏的入场只在**人真的去开**时播：开关是宿主级的，而 chrome 每次导航都会重新注入 ——
-// 不挡的话，偏好开着的人每加载一个页面书签栏都会再滑一次。
-await check('the bookmark bar does not replay its entrance on every page load', async () => {
-  const pageEval = async script => String((await provider.execute(session, { script })).value)
-  const readLog = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
-  // 从已知状态开始：先确保它是关着的。
-  if (await pageEval('String(window.__dshBookmarkBar === true)') === 'true') {
-    await pageEval('window.__dshChromeBookmarkBar()')
-    await new Promise(resolve => setTimeout(resolve, 400))
-  }
-  // 人开一次：必须播入场。
-  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
-  await pageEval('window.__dshChromeBookmarkBar()')
-  let opened = []
-  for (let i = 0; i < 15 && !opened.some(entry => entry.name === 'anim:dshBarIn'); i += 1) {
-    await new Promise(resolve => setTimeout(resolve, 120))
-    opened = await readLog()
-  }
-  if (!opened.some(entry => entry.name === 'anim:dshBarIn')) throw new Error('turning the bookmark bar on ran no entrance animation: ' + JSON.stringify(opened))
-  // 再导航一次：宿主会把「开着」重推一遍，**不许再播**。
-  await provider.navigate(session, { url: 'https://example.com/' })
-  await new Promise(resolve => setTimeout(resolve, 1800))
-  const after = await readLog()
-  if (after.some(entry => entry.name === 'anim:dshBarIn')) throw new Error('the bookmark bar replayed its entrance after a navigation: ' + JSON.stringify(after))
-  if (await pageEval('String(window.__dshBookmarkBar === true)') !== 'true') throw new Error('the bar did not stay open across the navigation')
-  // 复原：后面的检查假定它是关着的；页面也回到上一条检查留下的那一页。
-  await pageEval('window.__dshChromeBookmarkBar()')
-  await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
-  await new Promise(resolve => setTimeout(resolve, 1500))
-  return { onToggle: 'anim:dshBarIn', onLoad: 'none' }
-})
-// 前进/后退能不能点由宿主算（tab.canGoBack/canGoForward）—— 变灰要**淡**进去，不是啪一下。
-// 前进/后退能不能点由宿主算（tab.canGoBack/canGoForward）—— 变灰要**淡**进去，不是啪一下。
-// toast 的正文是整段换掉的：第二句话来的时候要淡一下，不是啪地跳。
-// 任务行也是复用节点：换个顺序要滑过去，不是瞬移（书签第 46 轮修过同一个病）。
-await check('the task rows slide instead of jumping', async () => {
-  const pageEval = async script => String((await provider.execute(session, { script })).value)
-  const readPanels = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])'))
-  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
-  const clickAt = async (x, y) => {
-    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
-    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
-  }
-  const waitForPanel = async id => {
-    for (let i = 0; i < 24; i += 1) {
-      await new Promise(resolve => setTimeout(resolve, 150))
-      const found = (await readPanels()).find(entry => entry.id === id && entry.open === true)
-      if (found) return found
-    }
-    return null
-  }
-  let menu = null
-  for (let attempt = 0; attempt < 4 && menu === null; attempt += 1) {
-    // 先把指针挪开：已经在按钮上时不会再产生 pointerenter，悬停意图也就不会启动。
-    await moveTo(5, 200)
-    await new Promise(resolve => setTimeout(resolve, 150))
-    await moveTo(1362, 62)
-    await new Promise(resolve => setTimeout(resolve, 400))
-    if (attempt > 0) await clickAt(1362, 62)
-    menu = await waitForPanel('main')
-  }
-  if (menu === null) throw new Error('the ⋮ menu never opened')
-  const tasksItem = menu.items.find(item => item.id === 'mmTasks')
-  if (tasksItem === undefined) throw new Error('no tasks item: ' + JSON.stringify(menu.items.map(item => item.id)))
-  await provider.click(session, { x: tasksItem.left + 12, y: tasksItem.top + Math.round(tasksItem.height / 2) })
-  const panel = await waitForPanel('tasks')
-  if (panel === null) throw new Error('the tasks panel never opened')
-  // 用两个假任务驱动**真实的渲染路径**，量完把真实列表还回去。
-  const fake = [
-    { key: 'slide-a', label: 'A', status: 'idle', control: 'agent', active: false },
-    { key: 'slide-b', label: 'B', status: 'running', control: 'agent', active: false },
-  ]
-  await pageEval('(() => { window.__dshTasksBackup = window.__dshTasks; window.__dshTasks = ' + JSON.stringify(fake) + '; window.__dshTaskRender(); return \'ok\' })()')
-  await new Promise(resolve => setTimeout(resolve, 400))
-  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
-  const swapped = [fake[1], fake[0]]
-  await pageEval('(() => { window.__dshTasks = ' + JSON.stringify(swapped) + '; window.__dshTaskRender(); return \'ok\' })()')
-  let log = []
-  for (let i = 0; i < 15 && !log.some(entry => entry.id === 'task-panel'); i += 1) {
-    await new Promise(resolve => setTimeout(resolve, 120))
-    log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
-  }
-  await pageEval('(() => { if (window.__dshTasksBackup !== undefined) window.__dshTasks = window.__dshTasksBackup; window.__dshTaskRender(); return \'restored\' })()')
-  await provider.pressKey(session, { key: 'Escape' })
-  const hit = log.find(entry => entry.id === 'task-panel' && entry.phase === 'slide')
-  if (hit === undefined) throw new Error('the task rows jumped instead of sliding: ' + JSON.stringify(log))
-  return { list: hit.id, moved: hit.name }
-})
-// 切标签时页面从表面色淡进来；**导航绝不能播**（否则每次加载都闪一下）。
-// 关掉**最后一个**标签：provider 会补一个新标签，而新标签的宿主视图是异步建的 ——
-// 不等它就 showActive 会显示一个还不存在的视图（宿主报 unknown view，而且是条没人接的 rejection）。
-// frame 那份 chrome 只有 84px 高：书签栏（top:84px + 34px）会把它撑出滚动条（真机截图右边那条）。
-await check('the frame never grows a scrollbar', async () => {
-  const pageEval = async script => String((await provider.execute(session, { script })).value)
-  const frameEval = async script => String(await provider.chromeEval(script))
-  const gutter = async () => Number(await frameEval('String(window.innerWidth - document.documentElement.clientWidth)'))
-  if (await pageEval('String(window.__dshBookmarkBar === true)') !== 'true') {
-    await pageEval('window.__dshChromeBookmarkBar()')
-    await new Promise(resolve => setTimeout(resolve, 700))
-  }
-  if (await pageEval('String(window.__dshBookmarkBar === true)') !== 'true') throw new Error('the bookmark bar would not turn on')
-  await new Promise(resolve => setTimeout(resolve, 400))
-  const width = await gutter()
-  if (!Number.isFinite(width)) throw new Error('could not read the frame viewport: ' + width)
-  if (width > 0) {
-    const detail = await frameEval("JSON.stringify({ html: document.documentElement.scrollHeight, body: document.body.scrollHeight, view: document.documentElement.clientHeight, widest: (() => { let best = ''; let size = 0; for (const el of document.body.children) { const box = el.getBoundingClientRect(); if (box.bottom > size) { size = box.bottom; best = el.id || el.tagName } } return best + '@' + Math.round(size) })() })")
-    throw new Error('the frame has a ' + width + 'px scrollbar gutter: ' + detail)
-  }
-  return { gutter: width }
-})
-await check('closing the last tab leaves a working one', async () => {
-  const tabsNow = async () => provider.listTabs(session)
-  for (let i = 0; i < 6; i += 1) {
-    const list = await tabsNow()
-    if (list.length <= 1) break
-    await provider.closeTab(session, list[list.length - 1].id)
-    await new Promise(resolve => setTimeout(resolve, 400))
-  }
-  const before = await tabsNow()
-  if (before.length !== 1) throw new Error('could not get down to one tab: ' + before.length)
-  await provider.closeTab(session, before[0].id)
-  await new Promise(resolve => setTimeout(resolve, 1200))
-  const after = await tabsNow()
-  if (after.length !== 1) throw new Error('closing the last tab did not leave exactly one: ' + after.length)
-  // 有牙的那半：补上来的那个标签必须是能用的 —— 视图没被显示出来，导航就会失败。
-  await provider.navigate(session, { url: 'https://example.com/' })
-  await new Promise(resolve => setTimeout(resolve, 900))
-  const url = (await tabsNow()).find(tab => tab.active)?.url ?? ''
-  if (!url.includes('example.com')) throw new Error('the replacement tab could not navigate: ' + url.slice(0, 40))
-  return { tabs: after.length, url: url.slice(0, 18) }
-})
-await check('a tab switch fades the incoming page in, a navigation does not', async () => {
-  const pageEval = async script => String((await provider.execute(session, { script })).value)
-  const readLog = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
-  const clickAt = async (x, y) => {
-    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
-    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
-  }
-  const waitForTabs = async want => {
-    for (let i = 0; i < 25; i += 1) {
-      const list = await provider.listTabs(session)
-      if (list.length === want) return list
-      await new Promise(resolve => setTimeout(resolve, 150))
-    }
-    return null
-  }
-  let tabs = await provider.listTabs(session)
-  if (tabs.length < 2) { await clickAt(258, 20); tabs = await waitForTabs(2) }
-  if (tabs === null || tabs.length < 2) throw new Error('could not get two tabs: ' + JSON.stringify(tabs))
-  // 先导航一次（在第二个标签上）：导航**不许**播 reveal。
-  await provider.navigate(session, { url: 'https://example.com/' })
-  await new Promise(resolve => setTimeout(resolve, 1600))
-  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
-  await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
-  await new Promise(resolve => setTimeout(resolve, 1800))
-  const afterNav = await readLog()
-  if (afterNav.some(entry => entry.name === 'dshReveal')) throw new Error('a navigation replayed the reveal: ' + JSON.stringify(afterNav))
-  // 再切回第一个标签：这一次**必须**播。
-  await clickAt(221, 20)
-  await new Promise(resolve => setTimeout(resolve, 900))
-  let log = []
-  for (let i = 0; i < 12 && !log.some(entry => entry.name === 'dshReveal'); i += 1) {
-    await new Promise(resolve => setTimeout(resolve, 120))
-    log = await readLog()
-  }
-  const hit = log.find(entry => entry.name === 'dshReveal')
-  if (hit === undefined) throw new Error('switching tabs did not reveal the page: ' + JSON.stringify(log))
-  // 收尾：把多出来的标签关掉，后面的检查假定只有一个。
-  const extra = (await provider.listTabs(session)).length
-  if (extra > 1) { await clickAt(453, 20); await waitForTabs(1) }
-  return { switch: hit.name, navigation: 'none' }
-})
-await check('a second notice cross-fades its text', async () => {
-  const pageEval = async script => String((await provider.execute(session, { script })).value)
-  await pageEval("(() => { window.__dshChromeToast('first', 'info'); return 'ok' })()")
-  await new Promise(resolve => setTimeout(resolve, 400))
-  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
-  await pageEval("(() => { window.__dshChromeToast('second', 'info'); return 'ok' })()")
-  let log = []
-  for (let i = 0; i < 15 && !log.some(entry => entry.name === 'dshTextIn'); i += 1) {
-    await new Promise(resolve => setTimeout(resolve, 120))
-    log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
-  }
-  const hit = log.find(entry => entry.name === 'dshTextIn' && entry.id === 'toast')
-  if (hit === undefined) throw new Error('the notice swapped its text without fading: ' + JSON.stringify(log))
-  return { animation: hit.name }
-})
 await check('the back button fades in as it becomes available', async () => {
   const frameEval = async script => String(await provider.chromeEval(script))
   const readLog = async () => JSON.parse(await frameEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
@@ -1666,6 +1427,307 @@ await check('100 urls at concurrency 8', async () => {
   }
   return 'timed out'
 })
+// 用户实测反馈：点收藏不该把当前页面顶掉 —— 必须是**新标签**，而且原来那个页面还在。
+// binding 的 token 是强校验的，所以只能**真点**（从 ⋮ 进收藏面板，和真人一样）。
+await check('a bookmark opens a new tab instead of replacing the page', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const readPanels = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])'))
+  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
+  const clickAt = async (x, y) => {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+  }
+  const waitForPanel = async id => {
+    for (let i = 0; i < 24; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      const found = (await readPanels()).find(entry => entry.id === id && entry.open === true)
+      if (found) return found
+    }
+    return null
+  }
+  let menu = null
+  for (let attempt = 0; attempt < 4 && menu === null; attempt += 1) {
+    await moveTo(5, 200)
+    await new Promise(resolve => setTimeout(resolve, 150))
+    await moveTo(1362, 62)
+    await new Promise(resolve => setTimeout(resolve, 400))
+    if (attempt > 0) await clickAt(1362, 62)
+    menu = await waitForPanel('main')
+  }
+  if (menu === null) throw new Error('the ⋮ menu never opened')
+  const item = menu.items.find(candidate => candidate.id === 'mmBookmarks')
+  if (item === undefined) throw new Error('no bookmarks item: ' + JSON.stringify(menu.items.map(i => i.id)))
+  await provider.click(session, { x: item.left + 12, y: item.top + Math.round(item.height / 2) })
+  const panel = await waitForPanel('bookmarks')
+  if (panel === null) throw new Error('the bookmarks panel never opened')
+  // 行的可点区域没在 seam 里暴露（items 只有「保存」和每行的 ✕）—— 就照真人的点法：点这一行 ✕ 左边那块。
+  const removeButtons = Array.isArray(panel.items) ? panel.items.filter(entry => entry.id === 'x') : []
+  if (removeButtons.length === 0) throw new Error('the bookmarks panel showed no rows: ' + JSON.stringify(panel.items))
+  const before = await provider.listTabs(session)
+  const wasActive = before.find(tab => tab.active)
+  const row = { x: removeButtons[0].left - 260, y: removeButtons[0].top + Math.round(removeButtons[0].height / 2) }
+  await provider.click(session, { x: row.x, y: row.y })
+  await new Promise(resolve => setTimeout(resolve, 1600))
+  const after = await provider.listTabs(session)
+  if (after.length !== before.length + 1) throw new Error('clicking a bookmark did not open a new tab: ' + before.length + ' -> ' + after.length)
+  const kept = after.find(tab => tab.id === (wasActive && wasActive.id))
+  if (kept === undefined || kept.url !== (wasActive && wasActive.url)) throw new Error('the page that was open got replaced: ' + JSON.stringify(kept && kept.url))
+  const opened = after.find(tab => tab.active)
+  if (opened === undefined || !String(opened.url).startsWith('http')) throw new Error('the new tab got no url: ' + JSON.stringify(opened && opened.url))
+  await provider.closeTab(session, opened.id)
+  await new Promise(resolve => setTimeout(resolve, 600))
+  await provider.pressKey(session, { key: 'Escape' })
+  // 交棒前把历史还原成后面的检查期待的样子（关掉新标签后活动的是哪个不由我挑）。
+  await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
+  await new Promise(resolve => setTimeout(resolve, 700))
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 700))
+  return { tabs: before.length + ' -> ' + after.length, kept: String(kept.url).slice(0, 24), opened: String(opened.url).slice(0, 24) }
+})
+
+// 缩略图每隔几秒就来一帧：新的一帧要**淡入盖住旧的**，硬换会闪。
+await check('a new task thumbnail fades in over the previous one', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const readPanels = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])'))
+  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
+  const clickAt = async (x, y) => {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+  }
+  const waitForPanel = async id => {
+    for (let i = 0; i < 24; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      const found = (await readPanels()).find(entry => entry.id === id && entry.open === true)
+      if (found) return found
+    }
+    return null
+  }
+  let menu = null
+  for (let attempt = 0; attempt < 4 && menu === null; attempt += 1) {
+    // 先把指针挪开：**已经在按钮上**时不会再产生 pointerenter，悬停意图也就不会启动。
+    await moveTo(5, 200)
+    await new Promise(resolve => setTimeout(resolve, 150))
+    await moveTo(1362, 62)
+    await new Promise(resolve => setTimeout(resolve, 400))
+    if (attempt > 0) await clickAt(1362, 62)
+    menu = await waitForPanel('main')
+  }
+  if (menu === null) throw new Error('the ⋮ menu never opened')
+  const tasksItem = menu.items.find(item => item.id === 'mmTasks')
+  if (tasksItem === undefined) throw new Error('no tasks item: ' + JSON.stringify(menu.items.map(item => item.id)))
+  await provider.click(session, { x: tasksItem.left + 12, y: tasksItem.top + Math.round(tasksItem.height / 2) })
+  const panel = await waitForPanel('tasks')
+  if (panel === null) throw new Error('the tasks panel never opened')
+  // 用 Chromium 自己生成的 JPEG：一定是能解码的真帧。
+  const jpeg = await pageEval("(() => { const c = document.createElement('canvas'); c.width = 16; c.height = 16; const x = c.getContext('2d'); x.fillStyle = '#336699'; x.fillRect(0, 0, 16, 16); return c.toDataURL('image/jpeg') })()")
+  if (!jpeg.startsWith('data:image/jpeg;base64,')) throw new Error('could not build a jpeg frame: ' + jpeg.slice(0, 40))
+  const first = Number(await pageEval('String(window.__dshChromeTaskThumb ? window.__dshChromeTaskThumb(' + JSON.stringify(jpeg) + ', 0) : 0)'))
+  if (first !== 1) throw new Error('the tasks panel exposed no thumbnail to paint into')
+  await new Promise(resolve => setTimeout(resolve, 600))
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  // 第二帧：这时已经有一张旧 canvas，走的是「淡入盖住旧的」那条路。
+  await pageEval('String(window.__dshChromeTaskThumb(' + JSON.stringify(jpeg) + ', 0))')
+  let log = []
+  for (let i = 0; i < 20 && !log.some(entry => entry.id === 'task-thumb'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 150))
+    log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  }
+  await provider.pressKey(session, { key: 'Escape' })
+  const hit = log.find(entry => entry.id === 'task-thumb' && entry.name === 'dshThumbIn')
+  if (hit === undefined) throw new Error('the new thumbnail swapped in without a fade: ' + JSON.stringify(log))
+  return { animation: hit.name }
+})
+// 书签栏的入场只在**人真的去开**时播：开关是宿主级的，而 chrome 每次导航都会重新注入 ——
+// 不挡的话，偏好开着的人每加载一个页面书签栏都会再滑一次。
+await check('the bookmark bar does not replay its entrance on every page load', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const readLog = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  // 从已知状态开始：先确保它是关着的。
+  if (await pageEval('String(window.__dshBookmarkBar === true)') === 'true') {
+    await pageEval('window.__dshChromeBookmarkBar()')
+    await new Promise(resolve => setTimeout(resolve, 400))
+  }
+  // 人开一次：必须播入场。
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  await pageEval('window.__dshChromeBookmarkBar()')
+  let opened = []
+  for (let i = 0; i < 15 && !opened.some(entry => entry.name === 'anim:dshBarIn'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 120))
+    opened = await readLog()
+  }
+  if (!opened.some(entry => entry.name === 'anim:dshBarIn')) throw new Error('turning the bookmark bar on ran no entrance animation: ' + JSON.stringify(opened))
+  // 再导航一次：宿主会把「开着」重推一遍，**不许再播**。
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 1800))
+  const after = await readLog()
+  if (after.some(entry => entry.name === 'anim:dshBarIn')) throw new Error('the bookmark bar replayed its entrance after a navigation: ' + JSON.stringify(after))
+  if (await pageEval('String(window.__dshBookmarkBar === true)') !== 'true') throw new Error('the bar did not stay open across the navigation')
+  // 复原：后面的检查假定它是关着的；页面也回到上一条检查留下的那一页。
+  await pageEval('window.__dshChromeBookmarkBar()')
+  await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
+  await new Promise(resolve => setTimeout(resolve, 1500))
+  return { onToggle: 'anim:dshBarIn', onLoad: 'none' }
+})
+// 前进/后退能不能点由宿主算（tab.canGoBack/canGoForward）—— 变灰要**淡**进去，不是啪一下。
+// 前进/后退能不能点由宿主算（tab.canGoBack/canGoForward）—— 变灰要**淡**进去，不是啪一下。
+// toast 的正文是整段换掉的：第二句话来的时候要淡一下，不是啪地跳。
+// 任务行也是复用节点：换个顺序要滑过去，不是瞬移（书签第 46 轮修过同一个病）。
+await check('the task rows slide instead of jumping', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const readPanels = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromePanels ? window.__dshChromePanels() : [])'))
+  const moveTo = async (x, y) => { await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }) }
+  const clickAt = async (x, y) => {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+  }
+  const waitForPanel = async id => {
+    for (let i = 0; i < 24; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      const found = (await readPanels()).find(entry => entry.id === id && entry.open === true)
+      if (found) return found
+    }
+    return null
+  }
+  let menu = null
+  for (let attempt = 0; attempt < 4 && menu === null; attempt += 1) {
+    // 先把指针挪开：已经在按钮上时不会再产生 pointerenter，悬停意图也就不会启动。
+    await moveTo(5, 200)
+    await new Promise(resolve => setTimeout(resolve, 150))
+    await moveTo(1362, 62)
+    await new Promise(resolve => setTimeout(resolve, 400))
+    if (attempt > 0) await clickAt(1362, 62)
+    menu = await waitForPanel('main')
+  }
+  if (menu === null) throw new Error('the ⋮ menu never opened')
+  const tasksItem = menu.items.find(item => item.id === 'mmTasks')
+  if (tasksItem === undefined) throw new Error('no tasks item: ' + JSON.stringify(menu.items.map(item => item.id)))
+  await provider.click(session, { x: tasksItem.left + 12, y: tasksItem.top + Math.round(tasksItem.height / 2) })
+  const panel = await waitForPanel('tasks')
+  if (panel === null) throw new Error('the tasks panel never opened')
+  // 用两个假任务驱动**真实的渲染路径**，量完把真实列表还回去。
+  const fake = [
+    { key: 'slide-a', label: 'A', status: 'idle', control: 'agent', active: false },
+    { key: 'slide-b', label: 'B', status: 'running', control: 'agent', active: false },
+  ]
+  await pageEval('(() => { window.__dshTasksBackup = window.__dshTasks; window.__dshTasks = ' + JSON.stringify(fake) + '; window.__dshTaskRender(); return \'ok\' })()')
+  await new Promise(resolve => setTimeout(resolve, 400))
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  const swapped = [fake[1], fake[0]]
+  await pageEval('(() => { window.__dshTasks = ' + JSON.stringify(swapped) + '; window.__dshTaskRender(); return \'ok\' })()')
+  let log = []
+  for (let i = 0; i < 15 && !log.some(entry => entry.id === 'task-panel'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 120))
+    log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  }
+  await pageEval('(() => { if (window.__dshTasksBackup !== undefined) window.__dshTasks = window.__dshTasksBackup; window.__dshTaskRender(); return \'restored\' })()')
+  await provider.pressKey(session, { key: 'Escape' })
+  const hit = log.find(entry => entry.id === 'task-panel' && entry.phase === 'slide')
+  if (hit === undefined) throw new Error('the task rows jumped instead of sliding: ' + JSON.stringify(log))
+  return { list: hit.id, moved: hit.name }
+})
+// 切标签时页面从表面色淡进来；**导航绝不能播**（否则每次加载都闪一下）。
+// 关掉**最后一个**标签：provider 会补一个新标签，而新标签的宿主视图是异步建的 ——
+// 不等它就 showActive 会显示一个还不存在的视图（宿主报 unknown view，而且是条没人接的 rejection）。
+// frame 那份 chrome 只有 84px 高：书签栏（top:84px + 34px）会把它撑出滚动条（真机截图右边那条）。
+await check('the frame never grows a scrollbar', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const frameEval = async script => String(await provider.chromeEval(script))
+  const gutter = async () => Number(await frameEval('String(window.innerWidth - document.documentElement.clientWidth)'))
+  const barWasOn = await pageEval('String(window.__dshBookmarkBar === true)') === 'true'
+  if (!barWasOn) {
+    await pageEval('window.__dshChromeBookmarkBar()')
+    await new Promise(resolve => setTimeout(resolve, 700))
+  }
+  if (await pageEval('String(window.__dshBookmarkBar === true)') !== 'true') throw new Error('the bookmark bar would not turn on')
+  await new Promise(resolve => setTimeout(resolve, 400))
+  const width = await gutter()
+  if (!Number.isFinite(width)) throw new Error('could not read the frame viewport: ' + width)
+  // 交棒前还原：后面的检查假定书签栏是关着的（这条检查是第 58 轮加的，忘了还原，弄脏过它们）。
+  if (!barWasOn) await pageEval('window.__dshChromeBookmarkBar()')
+  if (width > 0) {
+    const detail = await frameEval("JSON.stringify({ html: document.documentElement.scrollHeight, body: document.body.scrollHeight, view: document.documentElement.clientHeight, widest: (() => { let best = ''; let size = 0; for (const el of document.body.children) { const box = el.getBoundingClientRect(); if (box.bottom > size) { size = box.bottom; best = el.id || el.tagName } } return best + '@' + Math.round(size) })() })")
+    throw new Error('the frame has a ' + width + 'px scrollbar gutter: ' + detail)
+  }
+  return { gutter: width }
+})
+await check('closing the last tab leaves a working one', async () => {
+  const tabsNow = async () => provider.listTabs(session)
+  for (let i = 0; i < 6; i += 1) {
+    const list = await tabsNow()
+    if (list.length <= 1) break
+    await provider.closeTab(session, list[list.length - 1].id)
+    await new Promise(resolve => setTimeout(resolve, 400))
+  }
+  const before = await tabsNow()
+  if (before.length !== 1) throw new Error('could not get down to one tab: ' + before.length)
+  await provider.closeTab(session, before[0].id)
+  await new Promise(resolve => setTimeout(resolve, 1200))
+  const after = await tabsNow()
+  if (after.length !== 1) throw new Error('closing the last tab did not leave exactly one: ' + after.length)
+  // 有牙的那半：补上来的那个标签必须是能用的 —— 视图没被显示出来，导航就会失败。
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 900))
+  const url = (await tabsNow()).find(tab => tab.active)?.url ?? ''
+  if (!url.includes('example.com')) throw new Error('the replacement tab could not navigate: ' + url.slice(0, 40))
+  return { tabs: after.length, url: url.slice(0, 18) }
+})
+await check('a tab switch fades the incoming page in, a navigation does not', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  const readLog = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  const clickAt = async (x, y) => {
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+    await provider.chromeInput('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+  }
+  const waitForTabs = async want => {
+    for (let i = 0; i < 25; i += 1) {
+      const list = await provider.listTabs(session)
+      if (list.length === want) return list
+      await new Promise(resolve => setTimeout(resolve, 150))
+    }
+    return null
+  }
+  let tabs = await provider.listTabs(session)
+  if (tabs.length < 2) { await clickAt(258, 20); tabs = await waitForTabs(2) }
+  if (tabs === null || tabs.length < 2) throw new Error('could not get two tabs: ' + JSON.stringify(tabs))
+  // 先导航一次（在第二个标签上）：导航**不许**播 reveal。
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 1600))
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  await provider.navigate(session, { url: 'https://www.iana.org/help/example-domains' })
+  await new Promise(resolve => setTimeout(resolve, 1800))
+  const afterNav = await readLog()
+  if (afterNav.some(entry => entry.name === 'dshReveal')) throw new Error('a navigation replayed the reveal: ' + JSON.stringify(afterNav))
+  // 再切回第一个标签：这一次**必须**播。
+  await clickAt(221, 20)
+  await new Promise(resolve => setTimeout(resolve, 900))
+  let log = []
+  for (let i = 0; i < 12 && !log.some(entry => entry.name === 'dshReveal'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 120))
+    log = await readLog()
+  }
+  const hit = log.find(entry => entry.name === 'dshReveal')
+  if (hit === undefined) throw new Error('switching tabs did not reveal the page: ' + JSON.stringify(log))
+  // 收尾：把多出来的标签关掉，后面的检查假定只有一个。
+  const extra = (await provider.listTabs(session)).length
+  if (extra > 1) { await clickAt(453, 20); await waitForTabs(1) }
+  return { switch: hit.name, navigation: 'none' }
+})
+await check('a second notice cross-fades its text', async () => {
+  const pageEval = async script => String((await provider.execute(session, { script })).value)
+  await pageEval("(() => { window.__dshChromeToast('first', 'info'); return 'ok' })()")
+  await new Promise(resolve => setTimeout(resolve, 400))
+  await pageEval("(() => { window.__dshChromeMotionClear(); return 'cleared' })()")
+  await pageEval("(() => { window.__dshChromeToast('second', 'info'); return 'ok' })()")
+  let log = []
+  for (let i = 0; i < 15 && !log.some(entry => entry.name === 'dshTextIn'); i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 120))
+    log = JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))
+  }
+  const hit = log.find(entry => entry.name === 'dshTextIn' && entry.id === 'toast')
+  if (hit === undefined) throw new Error('the notice swapped its text without fading: ' + JSON.stringify(log))
+  return { animation: hit.name }
+})
+
 
 } finally {
   host.dispose()

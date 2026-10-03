@@ -585,7 +585,7 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
     const listener = this.chromeEventListener
     if (listener === undefined) return
     if (typeof event !== 'object' || event === null || Array.isArray(event)) return
-    const record = event as { type?: unknown; taskKey?: unknown; tabId?: unknown; toIndex?: unknown }
+    const record = event as { type?: unknown; taskKey?: unknown; tabId?: unknown; toIndex?: unknown; url?: unknown }
     const type = record.type
     if (type !== 'new-tab' && type !== 'close-tab' && type !== 'activate-tab' && type !== 'move-tab') return
     if (typeof record.taskKey !== 'string' || record.taskKey === '') return
@@ -595,6 +595,8 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
       ...typeof record.tabId === 'string' ? { tabId: record.tabId } : {},
       // Drag-to-reorder: the index the tab was dropped at, after removal.
       ...type === 'move-tab' && typeof record.toIndex === 'number' ? { toIndex: record.toIndex } : {},
+      // 点收藏来的新标签带着 url：这里也是**重建**事件的地方，漏一个字段它就被静默丢掉。
+      ...type === 'new-tab' && typeof record.url === 'string' && /^https?:[/][/]/i.test(record.url) ? { url: record.url } : {},
     })
   }
 

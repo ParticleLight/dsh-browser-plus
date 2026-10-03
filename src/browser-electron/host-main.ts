@@ -753,7 +753,11 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
         && activeViewByTask.has(action.taskKey)) {
         // The provider creates the view; this host never invents a tab
         // it does not own, or the strip and the session would diverge.
-        emitChromeEvent({ type: 'new-tab', taskKey: action.taskKey })
+        // 收藏点开的新标签：只放行 http(s)，别把 javascript: 之类的东西交给 provider。
+        const target = typeof action.url === 'string' && /^https?:\/\//i.test(action.url) ? action.url : undefined
+        emitChromeEvent(target === undefined
+          ? { type: 'new-tab', taskKey: action.taskKey }
+          : { type: 'new-tab', taskKey: action.taskKey, url: target })
       } else if (action.type === 'move-tab'
         && typeof action.taskKey === 'string'
         && typeof action.tabId === 'string'
