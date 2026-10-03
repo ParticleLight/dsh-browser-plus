@@ -67,6 +67,18 @@ declare module 'electron' {
   }
   export interface WebContents {
     readonly id: number
+    readonly navigationHistory: {
+      back(): void
+      canGoBack(): boolean
+      canGoForward(): boolean
+      forward(): void
+    }
+    isDestroyed(): boolean
+    getTitle(): string
+    getZoomFactor(): number
+    setZoomFactor(factor: number): void
+    reload(): void
+    stop(): void
     readonly debugger: WebContentsDebugger
     readonly session: Session
     close(): void
@@ -77,11 +89,14 @@ declare module 'electron' {
     getURL(): string
     setWindowOpenHandler(handler: (details: { url: string }) => { action: 'deny' | 'allow' }): void
     on(event: 'did-navigate' | 'did-navigate-in-page', listener: (event: unknown, url?: string) => void): this
+    on(event: 'did-finish-load' | 'did-start-loading' | 'did-stop-loading' | 'page-title-updated', listener: () => void): this
+    on(event: 'page-favicon-updated', listener: (event: unknown, favicons: string[]) => void): this
   }
   export interface WebContentsView {
     readonly webContents: WebContents
     setBounds(bounds: { x: number; y: number; width: number; height: number }): void
     setVisible(visible: boolean): void
+    setBackgroundColor(color: string): void
     getVisible(): boolean
     getBounds(): { x: number; y: number; width: number; height: number }
   }
@@ -91,6 +106,7 @@ declare module 'electron' {
       removeChildView(view: WebContentsView): void
       readonly children: WebContentsView[]
     }
+    getBounds(): { x: number; y: number; width: number; height: number }
     getContentSize(): [number, number]
     setMenu(menu: unknown | null): void
     isVisible(): boolean
