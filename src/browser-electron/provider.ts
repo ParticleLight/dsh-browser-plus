@@ -330,6 +330,30 @@ export interface CdpEvaluateParams {
 export const CDP_PAGE_CAPTURE_SCREENSHOT = 'Page.captureScreenshot'
 /** CDP method for runtime evaluation (the execute path). */
 export const CDP_RUNTIME_EVALUATE = 'Runtime.evaluate'
+
+/**
+ * Decide how to hand a script to `Runtime.evaluate`.
+ *
+ * CDP evaluates an *expression*, so a script made of statements is a syntax
+ * error there. Try the expression form first - that keeps bare expressions and
+ * object literals returning their value, which is what the tool has always
+ * done - then fall back to a statement body. `const x = 1; return x` is the
+ * shape people actually type, and it used to come back as a bare SyntaxError.
+ */
+export function buildEvaluateBody(script: string): { body: string } | { error: string } {
+  try {
+    // Parses only; nothing is executed here.
+    new Function(`return (${script})`)
+    return { body: `return (${script})` }
+  } catch { /* not an expression - try it as a body */ }
+  try {
+    new Function(script)
+    return { body: script }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 /** CDP method for keyboard input. */
 export const CDP_INPUT_DISPATCH_KEY_EVENT = 'Input.dispatchKeyEvent'
 /**
@@ -989,16 +1013,16 @@ export class ElectronBrowserProvider implements BrowserProvider {
     await this.drainDialog(s, handle)
     try {
       // Wrap the script in a Function so `return` statements are legal and
-      // request.args arrive as `arguments[0..n]`. A bare script handed to CDP
-      // Runtime.evaluate is an expression context — a leading `return` would
-      // be a syntax error, and an object-literal script (`{...}`) would parse
-      // as a block. So: if the script already starts with `return`, use it as
-      // the body verbatim; otherwise wrap it as `return (expr)` so both
-      // expression and object-literal forms evaluate to their value. Args are
-      // embedded as a JSON array literal; unserializable members become null.
-      const body = /^\s*return\b/.test(request.script)
-        ? request.script
-        : `return (${request.script})`
+      // request.args arrive as `arguments[0..n]` (a real function, not an
+      // arrow, so `arguments` resolves). Args are embedded as a JSON array
+      // literal; unserializable members become null.
+      const built = buildEvaluateBody(request.script)
+      if ('error' in built) {
+        const exception = `browser: execute could not parse the script as an expression or as a statement body: ${built.error}`
+        this.record(s, 'execute', { script: request.script }, false, { error: exception })
+        return { ok: false, exception }
+      }
+      const body = built.body
       const hasArgs = request.args !== undefined && request.args.length > 0
       const expression = hasArgs
         ? `(function(){ const __dshArgs = ${JSON.stringify(request.args)}; return Function(${JSON.stringify(body)}).apply(null, __dshArgs) })()`
@@ -1039,13 +1063,17 @@ export class ElectronBrowserProvider implements BrowserProvider {
   }
 
   /** Produce an AI-friendly snapshot of the active tab. */
-  async snapshot(session: BrowserSessionId, signal?: AbortSignal): Promise<BrowserSnapshotResult> {
+  async snapshot(session: BrowserSessionId, options: { query?: string; limit?: number } = {}, signal?: AbortSignal): Promise<BrowserSnapshotResult> {
     const s = this.session(session)
     const tab = this.activeTab(s)
     signal?.throwIfAborted()
     await this.drainDialog(s, tab.handle)
+    const requested = options.limit === undefined ? this.snapshotMaxElements : Math.max(1, Math.min(1000, Math.trunc(options.limit)))
+    const cap = options.limit === undefined ? this.snapshotMaxElements : requested
+    const query = (options.query ?? '').trim().toLowerCase()
     const script = `(() => {
-      const cap = ${String(this.snapshotMaxElements)}
+      const cap = ${String(cap)}
+      const query = ${JSON.stringify(query)}
       const locatorOf = (el) => {
         if (el.id) return '#' + CSS.escape(el.id)
         if (el.name) return '[name=' + JSON.stringify(el.name) + ']'
@@ -1087,7 +1115,6 @@ export class ElectronBrowserProvider implements BrowserProvider {
       const out = []
       let capped = false
       for (const el of els) {
-        if (out.length >= cap) { capped = true; break }
         if (el.closest('[data-dsh-browser-chrome]')) continue
         const r = el.getBoundingClientRect()
         const cs = getComputedStyle(el)
@@ -1099,6 +1126,9 @@ export class ElectronBrowserProvider implements BrowserProvider {
           : el.tagName === 'A' ? 'link' : 'other'
         const label = (el.getAttribute('aria-label') || el.placeholder || el.textContent || el.value || el.name || el.id || '').toString().replace(/\\s+/g, ' ').trim().slice(0, ${String(SNAPSHOT_LABEL_MAX)})
         if (!label && kind !== 'link') continue
+        // 过滤放在计上限**之前**：默认上限是 60，先截断就永远搜不到后面的元素。
+        if (query !== '' && (kind + ' ' + label).toLowerCase().indexOf(query) === -1) continue
+        if (out.length >= cap) { capped = true; break }
         out.push({
           ref: out.length + 1,
           kind,
@@ -2671,7 +2701,38 @@ async function resolvePointerTarget(
     if (typeof target.x !== 'number' || typeof target.y !== 'number') {
       throw new BrowserError('browser: a pointer action needs x and y, a selector, or text', 'BROWSER_TARGET_MISSING')
     }
-    return { x: target.x, y: target.y }
+    // Coordinates are NOT scrolled into view (only selector/text are), so a point
+    // below the fold is dropped by the renderer and the call looks like it worked.
+    // Measured on a real page: the same centre that hits at 100% is off-screen at
+    // 110% because the page reflows taller. Refuse, and say what is actually there.
+    const view = await withTimeout(
+      handleSendEvaluate(handle, `(function () {
+        var x = ${JSON.stringify(target.x)}, y = ${JSON.stringify(target.y)};
+        var el = document.elementFromPoint(x, y);
+        return { iw: window.innerWidth, ih: window.innerHeight,
+          hit: el === null ? '' : (el.tagName + (el.id ? '#' + el.id : '') + (el.textContent ? ' ' + el.textContent.replace(/\\s+/g, ' ').trim().slice(0, 40) : '')) };
+      })()`, signal),
+      5_000,
+      signal,
+      'browser: coordinate probe timed out after 5000ms',
+    )
+    const info = view.ok ? view.value as { iw?: number; ih?: number; hit?: string } | null : null
+    // A 0x0 viewport means "not laid out yet" (hidden view), not "the point is off
+    // screen": clicks still land there (the smoke's input checks prove it), so only a
+    // real, non-zero viewport may refuse.
+    if (info !== null && typeof info?.iw === 'number' && typeof info?.ih === 'number' && info.iw > 0 && info.ih > 0) {
+      if (target.x >= info.iw || target.y >= info.ih || target.x < 0 || target.y < 0) {
+        throw new BrowserError(
+          `browser: (${target.x}, ${target.y}) is outside the visible viewport (${info.iw}x${info.ih}) - a coordinate click does not scroll, so nothing would be clicked; scroll it into view first, or address the element with a selector/text (those scroll automatically)`,
+          'BROWSER_TARGET_OFFSCREEN',
+        )
+      }
+    }
+    return {
+      x: target.x,
+      y: target.y,
+      ...info?.hit !== undefined && info.hit !== '' ? { target: info.hit } : {},
+    }
   }
   const script = pointerTargetScript(target.selector, target.text)
   const result = await withTimeout(

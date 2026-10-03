@@ -208,6 +208,20 @@ export interface CdpEvaluateParams {
 export declare const CDP_PAGE_CAPTURE_SCREENSHOT = "Page.captureScreenshot";
 /** CDP method for runtime evaluation (the execute path). */
 export declare const CDP_RUNTIME_EVALUATE = "Runtime.evaluate";
+/**
+ * Decide how to hand a script to `Runtime.evaluate`.
+ *
+ * CDP evaluates an *expression*, so a script made of statements is a syntax
+ * error there. Try the expression form first - that keeps bare expressions and
+ * object literals returning their value, which is what the tool has always
+ * done - then fall back to a statement body. `const x = 1; return x` is the
+ * shape people actually type, and it used to come back as a bare SyntaxError.
+ */
+export declare function buildEvaluateBody(script: string): {
+    body: string;
+} | {
+    error: string;
+};
 /** CDP method for keyboard input. */
 export declare const CDP_INPUT_DISPATCH_KEY_EVENT = "Input.dispatchKeyEvent";
 /** CDP method for navigation. */
@@ -336,7 +350,10 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     /** Evaluate in one tab's page context. */
     private executeTab;
     /** Produce an AI-friendly snapshot of the active tab. */
-    snapshot(session: BrowserSessionId, signal?: AbortSignal): Promise<BrowserSnapshotResult>;
+    snapshot(session: BrowserSessionId, options?: {
+        query?: string;
+        limit?: number;
+    }, signal?: AbortSignal): Promise<BrowserSnapshotResult>;
     /** Click one element that belongs to a retained exact page snapshot. */
     clickRef(session: BrowserSessionId, request: BrowserRefRequest, signal?: AbortSignal): Promise<void>;
     /** Scroll one element that belongs to a retained exact page snapshot into view. */

@@ -255,8 +255,8 @@ export class BrowserRuntime extends Service {
   }
 
   /** Produce an AI-friendly snapshot of the session's page. */
-  async snapshot(session: BrowserSessionId, signal?: AbortSignal): Promise<BrowserSnapshotResult> {
-    return this.resolveProvider().snapshot(session, signal)
+  async snapshot(session: BrowserSessionId, options: { query?: string; limit?: number } = {}, signal?: AbortSignal): Promise<BrowserSnapshotResult> {
+    return this.resolveProvider().snapshot(session, options, signal)
   }
 
   /** Click one element referenced by an exact snapshot. */

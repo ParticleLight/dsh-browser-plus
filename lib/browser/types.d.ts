@@ -486,7 +486,10 @@ export interface BrowserProvider {
     /** Execute JS in the active tab's page context. */
     execute(session: BrowserSessionId, request: BrowserExecuteRequest, signal?: AbortSignal): Promise<BrowserExecuteResult>;
     /** Produce an AI-friendly snapshot of the active tab. */
-    snapshot(session: BrowserSessionId, signal?: AbortSignal): Promise<BrowserSnapshotResult>;
+    snapshot(session: BrowserSessionId, options?: {
+        query?: string;
+        limit?: number;
+    }, signal?: AbortSignal): Promise<BrowserSnapshotResult>;
     /** Click one element referenced by an exact snapshot. */
     clickRef(session: BrowserSessionId, request: BrowserRefRequest, signal?: AbortSignal): Promise<void>;
     /** Scroll one element referenced by an exact snapshot into view. */

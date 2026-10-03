@@ -1699,6 +1699,67 @@ await check('closing the last tab leaves a working one', async () => {
 })
 // 真机实测：Ctrl+W 关标签时，provider 自己那次按键还在往**刚被这次按键关掉的**视图上发事件
 // （宿主日志：create view:X … destroy view:X，然后报 unknown view / target closed）。
+// 真机：语句形式的脚本必须能跑（以前只有表达式能跑）。
+await check('execute runs statements, not just an expression', async () => {
+  const value = await provider.execute(session, {
+    script: 'const h = document.documentElement; const t = h ? h.tagName : "none"; return t + ":" + String(1 + 1)',
+  })
+  if (value.ok !== true) throw new Error('statement script failed: ' + String(value.exception))
+  if (String(value.value) !== 'HTML:2') throw new Error('statement script returned ' + JSON.stringify(value.value))
+  // 坏脚本要报出原因，而不是静默 undefined
+  const bad = await provider.execute(session, { script: 'this is not js' })
+  if (bad.ok !== false || typeof bad.exception !== 'string' || !bad.exception.includes('could not parse')) {
+    throw new Error('a broken script did not report a parse error: ' + JSON.stringify(bad))
+  }
+  return { value: String(value.value), broken: 'reported' }
+})
+// 真机：快照可以按关键词过滤、可以限制条数，而且过滤发生在**计上限之前**。
+// 隐藏的视图读出来是 0x0：元素全变 0 尺寸、坐标也没法判断。这台机器上偶尔会这样，
+// 那就**明确跳过**，而不是留下一条永远红的检查（那会训练我去忽略红色）。
+const laidOut = async () => {
+  const size = JSON.parse(String((await provider.execute(session, { script: 'JSON.stringify({ w: window.innerWidth, h: window.innerHeight })' })).value))
+  return typeof size.w === 'number' && typeof size.h === 'number' && size.w > 0 && size.h > 0 ? size : null
+}
+await check('snapshot can be filtered and capped', async () => {
+  // 先在**有内容**的页面上做（上一条检查可能把标签留在很小的本地页上）。
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 1400))
+  const size = await laidOut()
+  if (size === null) return { skipped: 'the view is not laid out in this run' }
+  let all = await provider.snapshot(session)
+  if (all.elements.length < 3) {
+    // 视图没布局时元素全是 0 尺寸，会被快照过滤掉；截图会强制它显示出来。
+    await provider.screenshot(session)
+    await new Promise(resolve => setTimeout(resolve, 900))
+    all = await provider.snapshot(session)
+  }
+  if (all.elements.length < 3) throw new Error('not enough elements to filter: ' + all.elements.length)
+  const limited = await provider.snapshot(session, { limit: 2 })
+  if (limited.elements.length !== 2) throw new Error('limit was not applied: got ' + limited.elements.length)
+  const pick = all.elements[Math.min(all.elements.length - 1, 5)]
+  const word = String(pick.label).split(/\s+/).find(part => part.length >= 4) ?? ''
+  if (word === '') throw new Error('could not pick a word to query from ' + JSON.stringify(pick.label))
+  const hit = await provider.snapshot(session, { query: word, limit: 5 })
+  if (hit.elements.length === 0) throw new Error('query ' + JSON.stringify(word) + ' matched nothing')
+  const wrong = hit.elements.filter(el => !(el.kind + ' ' + el.label).toLowerCase().includes(word.toLowerCase()))
+  if (wrong.length > 0) throw new Error('query returned non-matching elements: ' + JSON.stringify(wrong[0]))
+  return { all: all.elements.length, limited: limited.elements.length, query: word, matched: hit.elements.length }
+})
+
+// 真机：视口外的坐标点击必须**明确拒绝**，而不是静默什么都不点（今天真踩过）。
+await check('an off-screen coordinate click is refused instead of silently dropped', async () => {
+  const size = await laidOut()
+  if (size === null) return { skipped: 'the view is not laid out in this run' }
+  let refused = ''
+  try {
+    await provider.click(session, { x: Math.round(size.w) + 40, y: Math.round(size.h) + 40 })
+  } catch (error) { refused = String(error) }
+  if (!/outside the visible viewport/.test(refused)) throw new Error('an off-screen click was not refused: ' + refused.slice(0, 90))
+  // 视口内的坐标仍然要能点，并且要报告那个点上是什么
+  const inside = await provider.click(session, { x: Math.round(size.w / 2), y: Math.max(1, Math.round(size.h) - 5) })
+  if (inside.target === undefined) throw new Error('an in-viewport click reported no target: ' + JSON.stringify(inside))
+  return { refused: 'yes', viewport: size.w + 'x' + size.h, hit: String(inside.target).slice(0, 20) }
+})
 await check('a tab switch fades the incoming page in, a navigation does not', async () => {
   const pageEval = async script => String((await provider.execute(session, { script })).value)
   const readLog = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))

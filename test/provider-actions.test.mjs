@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ElectronBrowserProvider } from '../lib/browser-electron/provider.js'
+import { ElectronBrowserProvider, buildEvaluateBody } from '../lib/browser-electron/provider.js'
 
 /**
  * Minimal in-memory host seam. A real view handle answers CDP commands; this
@@ -113,8 +113,11 @@ test('doubleClick dispatches a clickCount 2 press/release pair', async () => {
   const provider = new ElectronBrowserProvider(host)
   const session = await provider.open()
   await provider.doubleClick(session, { x: 10, y: 20 })
-  assert.equal(host.log[0].method, 'Runtime.evaluate')
-  assert.match(host.log[0].params.expression, /data-dsh-agent-input-until/)
+  // 坐标点击会先探一次「这个点上是什么」（视口外就拒绝）——抑制不再是第一条命令，
+  // 但它必须在那两次鼠标派发**之前**。
+  const suppressAt = host.log.findIndex(entry => /data-dsh-agent-input-until/.test(String(entry.params.expression)))
+  const firstClickAt = host.log.findIndex(entry => entry.method === 'Input.dispatchMouseEvent')
+  assert.ok(suppressAt >= 0 && suppressAt < firstClickAt, 'suppression precedes the mouse dispatch')
   const clicks = host.log.filter(entry => entry.method === 'Input.dispatchMouseEvent')
   assert.equal(clicks.length, 2)
   assert.equal(clicks[0].params.type, 'mousePressed')
@@ -850,4 +853,51 @@ test('a cookie export straight from a browser editor is accepted', async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// execute 以前只认「表达式」：`const x = 1; return x` 会被包成
+// `return (const x = 1; return x)` —— 语法错。现在两种形式都先试解析。
+test('execute accepts statements as well as expressions', () => {
+  assert.equal(buildEvaluateBody('1 + 1').body, 'return (1 + 1)')
+  // 对象字面量必须仍走表达式，否则会被当成块（老行为，不能破）
+  assert.equal(buildEvaluateBody('{ a: 1 }').body, 'return ({ a: 1 })')
+  assert.equal(buildEvaluateBody('const x = 1; return x').body, 'const x = 1; return x')
+  assert.equal(buildEvaluateBody('return 5').body, 'return 5')
+  assert.equal(buildEvaluateBody('if (true) { }').body, 'if (true) { }')
+  const bad = buildEvaluateBody('this is not js')
+  assert.ok('error' in bad && typeof bad.error === 'string' && bad.error.length > 0, 'a script that parses neither way reports why')
+})
+
+// 坐标点击：视口外的点必须**明确拒绝**（今天真踩过：元素掉到视口外，点击被静默丢掉，
+// 看起来像成功了），视口内的点顺带报告「那个点上是什么」。
+test('a coordinate click is refused outside the viewport and reports what it hits inside', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+
+  host.evalReplies.push({ result: { value: { iw: 800, ih: 600, hit: 'BUTTON Sign in' } } })
+  const inside = await provider.click(session, { x: 100, y: 100 })
+  assert.equal(inside.target, 'BUTTON Sign in')
+
+  host.evalReplies.push({ result: { value: { iw: 800, ih: 600, hit: '' } } })
+  await assert.rejects(() => provider.click(session, { x: 900, y: 100 }), /outside the visible viewport/)
+
+  // 0x0 的视口是「还没布局」，不是「在视口外」：隐藏视图里的点击照样能到页面（冒烟验证过），
+  // 所以这时不能拒绝。
+  host.evalReplies.push({ result: { value: { iw: 0, ih: 0, hit: '' } } })
+  const hidden = await provider.click(session, { x: 9999, y: 9999 })
+  assert.equal(hidden.x, 9999)
+})
+
+// 快照的过滤必须写进**页面脚本**、而且排在计上限之前 —— 默认上限 60，先截断就永远搜不到后面的元素。
+test('snapshot passes query and limit into the page script, filtering before the cap', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  host.evalReplies.push({ result: { value: { url: 'https://example.com/', elements: [], truncated: true } } })
+  await provider.snapshot(session, { query: 'Sign In', limit: 7 })
+  const expression = String(host.log.find(entry => entry.method === 'Runtime.evaluate')?.params.expression ?? '')
+  assert.match(expression, /const cap = 7\b/, 'the limit reaches the page script')
+  assert.match(expression, /const query = "sign in"/, 'the query is lower-cased into the script')
+  assert.ok(expression.indexOf('query !== ') < expression.indexOf('out.length >= cap'), 'filtering happens before the cap')
 })

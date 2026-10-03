@@ -186,15 +186,20 @@ test('Agent CDP input suppresses automatic user handoff before dispatch', async 
   // The focus handshake is a separate, one-off call; the ordering that matters
   // is suppression before the input it guards.
   const inputLog = () => host.log.filter(entry => entry.method !== 'Emulation.setFocusEmulationEnabled')
+  const suppressAt = () => inputLog().findIndex(entry => /data-dsh-agent-input-until/.test(String(entry.params.expression)))
+  const mouseAt = () => inputLog().findIndex(entry => entry.method === 'Input.dispatchMouseEvent')
   await provider.click(session, { x: 12, y: 34 })
-  assert.equal(inputLog()[0].method, 'Runtime.evaluate')
-  assert.match(inputLog()[0].params.expression, /data-dsh-agent-input-until/)
-  assert.equal(inputLog()[1].method, 'Input.dispatchMouseEvent')
-  assert.equal(inputLog()[2].method, 'Input.dispatchMouseEvent')
+  // 坐标点击会先探一次「这个点上是什么」（视口外就拒绝），所以抑制不再是第一条命令。
+  // 要守的不变量是：抑制发生在它守护的那次输入**之前**。
+  assert.ok(suppressAt() >= 0, 'the auto-handoff suppression ran')
+  assert.ok(suppressAt() < mouseAt(), 'suppression precedes the mouse dispatch')
+  assert.equal(inputLog()[mouseAt()].method, 'Input.dispatchMouseEvent')
+  assert.equal(inputLog()[mouseAt() + 1].method, 'Input.dispatchMouseEvent')
 
+  const typedFrom = inputLog().length
   await provider.type(session, { text: 'hello' })
-  assert.equal(inputLog()[3].method, 'Runtime.evaluate')
-  assert.equal(inputLog()[4].method, 'Input.insertText')
+  assert.equal(inputLog()[typedFrom].method, 'Runtime.evaluate')
+  assert.equal(inputLog()[typedFrom + 1].method, 'Input.insertText')
 })
 
 test('task handoff exposes waiting-user and Agent resume states', async () => {
