@@ -1,13 +1,13 @@
 # 工具参考
 
-全部 37 个 `browser_*` 工具。守卫列:✅ 表示该动作受 `browser_restrict` 白名单约束(白名单**按调用任务隔离**,一个任务的规则不影响其它任务);只读工具永不拦截。
+全部 41 个 `browser_*` 工具。守卫列:✅ 表示该动作受 `browser_restrict` 白名单约束(白名单**按调用任务隔离**,一个任务的规则不影响其它任务);只读工具永不拦截。
 
 ## 页面与导航
 
 | 工具 | 参数 | 输出 | 守卫 | 说明 |
 | --- | --- | --- | --- | --- |
 | `browser_open` | `url`(必填), `newTab?` | 快照(snapshotId/url/title/elements/truncated/challenge) | ✅ | 打开 URL,返回带编号元素和短生命周期 `snapshotId`;`newTab: true` 在新标签打开 |
-| `browser_snapshot` | – | 快照 | – | 交互元素(输入框/按钮/链接)编号清单和 `snapshotId`,供精确定位 |
+| `browser_snapshot` | `query?`, `limit?` | 快照 | – | 交互元素(输入框/按钮/链接)编号清单和 `snapshotId`,供精确定位。`query` 按 kind+label 做大小写不敏感过滤,**过滤发生在计上限之前**(所以能搜到第 60 个之后的元素);`limit` 1-1000,默认 60 |
 | `browser_back` | – | `{ navigated }` | ✅ | 返回上一条历史;没有上一页时返回 `false` |
 | `browser_forward` | – | `{ navigated }` | ✅ | 前进到下一条历史;没有下一页时返回 `false` |
 | `browser_reload` | – | `{ reloaded }` | ✅ | 刷新当前页 |
@@ -23,8 +23,8 @@
 | --- | --- | --- | --- | --- |
 | `browser_click_ref` | `snapshotId`, `ref`(必填) | `{ clicked }` | ✅ | 以快照引用进行真实 CDP 点击;页面变化后返回过期引用错误并要求重新快照 |
 | `browser_scroll_into_view` | `snapshotId`, `ref`, `block?` | `{ scrolled,x,y,maxX,maxY }` | ✅ | 将快照引用元素滚入可见区域 |
-| `browser_execute` | `script`(必填), `args?` | `{ ok, value? / exception? }` | ✅ | 仅在引用、表单和原生浏览工具无法表达时执行页面 JS |
-| `browser_click` | `x?`, `y?`, `selector?`, `text?` | `{ clicked, x?, y?, target? }` | ✅ | 点击元素,**三种寻址任选其一**:① `x`+`y` 视口坐标(配合截图做视觉定位,覆盖图标/图片按钮/canvas);② `selector` CSS 选择器;③ `text` 可见文字(或 aria-label/value,不区分大小写)。后两者在**页内解析**并把元素滚入视野,所以「点登录按钮」**不必先 snapshot 拿 ref**(省一轮);返回 `target` 告诉你实际点到了什么。多个匹配时**最内层的可见元素胜出**(文字最短者优先,同长取更深者) |
+| `browser_execute` | `script`(必填), `args?` | `{ ok, value? / exception? }` | ✅ | 仅在引用、表单和原生浏览工具无法表达时执行页面 JS。`script` 可以是**表达式**,也可以是**语句体**(自动判别,语句体用 `return` 返回值,如 `const rows = [...document.querySelectorAll('a')]; return rows.length`);两种都不是时报可读的解析错误 |
+| `browser_click` | `x?`, `y?`, `selector?`, `text?` | `{ clicked, x?, y?, target? }` | ✅ | 点击元素,**三种寻址任选其一**:① `x`+`y` 视口坐标(配合截图做视觉定位;**坐标不会自动滚动** —— 落在视口外会**明确报错**而不是静默丢弃,并报出那个点上是什么元素;覆盖图标/图片按钮/canvas);② `selector` CSS 选择器;③ `text` 可见文字(或 aria-label/value,不区分大小写)。后两者在**页内解析**并把元素滚入视野,所以「点登录按钮」**不必先 snapshot 拿 ref**(省一轮);返回 `target` 告诉你实际点到了什么。多个匹配时**最内层的可见元素胜出**(文字最短者优先,同长取更深者) |
 | `browser_double_click` | `x?`, `y?`, `selector?`, `text?` | `{ clicked, x?, y?, target? }` | ✅ | 同上寻址方式;用于选中文本、展开忽略单击的 UI |
 | `browser_hover` | `x?`, `y?`, `selector?`, `text?` | `{ hovered, x?, y?, target? }` | ✅ | 同上寻址方式;悬停不点击(触发 hover 态、tooltip、下拉菜单) |
 | `browser_drag` | `from`(必填), `to`(必填), `steps?` | `{ dragged, from?, to? }` | ✅ | 拖拽:`from` 按下 → 中间移动 → 在 `to` 释放。两端都用与 `browser_click` 相同的寻址(`x`+`y` / `selector` / `text`)并先滚入视野。`steps` 默认 12、上限 60 —— 中间移动是滑块/可排序库监听的东西,**瞬移会被忽略**。用于滑块、可排序列表、canvas 编辑器。**只驱动指针式拖拽**:依赖 HTML5 拖放(`dragstart`/`drop`)的页面不会响应,那种页面请用其自带控件 |
@@ -74,6 +74,26 @@
 | --- | --- | --- | --- | --- |
 | `browser_screenshot` | `fullPage?`, `savePath?` | `{ dataUrl, path? }` | – | PNG 截图;`savePath` 落盘供视觉模型读取,且必须落在 `browser-electron.writeRoots` 之内 |
 
+## 对话框与诊断
+
+| 工具 | 参数 | 输出 | 守卫 | 说明 |
+| --- | --- | --- | --- | --- |
+| `browser_dialog` | `action`(`inspect` / `accept` / `dismiss`,必填), `promptText?` | `{ dialog?, policy }` | – | 查看/引导 JS 对话框(`alert`/`confirm`/`prompt`)。**对话框会冻住渲染器**,所以宿主默认立刻接受并记下内容 —— `inspect` 报告上一次(排空后再报,所以紧跟着触发它的那次调用也能看到)与当前策略;要驱动「确认删除」这类页面,先用 `dismiss`(或 `accept`,配 `promptText` 填 `prompt()`)设好**下一个**怎么答,再触发它 |
+| `browser_console` | `level?`, `limit?`, `clear?` | `{ messages[] }` | – | 读控制台消息与未捕获异常(有界环形缓冲,各 200 条,最新在后)。**读不清空**,`clear: true` 才清;`level` 过滤 `log`/`info`/`warning`/`error`/`debug` |
+| `browser_network` | `urlContains?`, `failedOnly?`, `limit?`, `clear?` | `{ requests[] }` | – | 读网络请求:`method`/`url`/`status`/`mime`/`kind`/`ms`/`failed`。同样**读不清空**;`failedOnly` 只看没跑完的 |
+
+## 设备模拟
+
+| 工具 | 参数 | 输出 | 守卫 | 说明 |
+| --- | --- | --- | --- | --- |
+| `browser_emulate` | `width?`, `height?`, `deviceScaleFactor?`, `mobile?`, `userAgent?`, `colorScheme?`, `clear?` | `{ applied[] }` | ✅ | 在活动标签上模拟设备:视口尺寸(可带移动端行为与 DPR)、自定义 UA、`prefers-color-scheme`。这是**渲染层覆盖**,窗口本身不变大;`clear: true` 一次撤销三样 |
+
+**页面没反应时怎么查**(这三件套比截图有用)
+```
+browser_console → 看有没有报错 / 未捕获异常
+browser_network urlContains="/api" → 请求到底发出去没有、状态码是多少
+browser_execute → 页面状态探针(比如 elementFromPoint(x,y) 到底命中谁)
+```
 ## 常用组合
 
 **调研一个网站**

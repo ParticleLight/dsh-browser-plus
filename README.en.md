@@ -40,6 +40,9 @@ If another browser bundle is already installed, read the [migration guide](docs/
 | Forms and files | `browser_fill`, `browser_upload_file`, `browser_wait_for` |
 | Tasks and handoff | `browser_tasks`, `browser_handoff`, `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab`, `browser_space` |
 | Auth and recovery | `browser_auth`, `browser_reset_session`, `browser_history` |
+| Dialogs | `browser_dialog` |
+| Diagnostics | `browser_console`, `browser_network` |
+| Device emulation | `browser_emulate` |
 
 Snapshots expose a short-lived `snapshotId` plus element references. Prefer reference tools and take a fresh snapshot after the page changes; page-level scripts automatically ignore the browser's own chrome.
 
@@ -55,7 +58,7 @@ browser_* tools
 
 The chrome and task manager are injected through a closed Shadow DOM rather than a second Electron view. Versioned incremental workspace updates keep task and trail rendering light while background task updates stay isolated and do not steal the user's visible page.
 
-`alert`, `confirm`, and `prompt` are auto-accepted so pages do not block. The next page operation records the detail as a `dialog` item in `browser_history`.
+`alert`, `confirm`, and `prompt` are accepted immediately **by default** so pages do not block, and the detail is recorded as a `dialog` item in `browser_history`. To drive a page that confirms a destructive action, set how the NEXT dialog is answered with `browser_dialog` (`accept` / `dismiss`, with `promptText` for `prompt()`) and then trigger it; `inspect` reports the last one.
 
 ## Reliability rules
 

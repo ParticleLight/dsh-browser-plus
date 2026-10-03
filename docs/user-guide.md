@@ -74,7 +74,7 @@ dsh plugin --profile web add <本仓库路径>
 
 任务与轨迹状态采用版本化增量更新：普通操作只更新受影响的任务卡和一条轨迹。缩略图仅在工作区打开时按需刷新当前可见任务，后台任务保留最后图像。
 
-页面原生 `alert/confirm/prompt` 会被**自动接受**(页面永不卡死),对话框内容记录在 `browser_history`(`dialog` 条目)中。
+页面原生 `alert/confirm/prompt` **默认**会被立刻接受(页面永不卡死),内容记录在 `browser_history`(`dialog` 条目)中。要驱动「确认删除」这类页面,先用 `browser_dialog` 设好**下一个**对话框怎么答(`accept`/`dismiss`,`prompt()` 可配 `promptText`)再触发它;`inspect` 报告上一次。
 
 按键、双击、悬停、文件上传、等待元素、快照引用和原生导航:见 `browser_press_key` / `browser_double_click` / `browser_hover` / `browser_upload_file` / `browser_wait_for` / `browser_click_ref` / `browser_back` 等工具(完整参考见 [工具参考](tool-reference.md))。
 

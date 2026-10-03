@@ -40,6 +40,9 @@ dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 | 表单与文件 | `browser_fill`、`browser_upload_file`、`browser_wait_for` |
 | 任务与交接 | `browser_tasks`、`browser_handoff`、`browser_list_tabs`、`browser_switch_tab`、`browser_close_tab`、`browser_space` |
 | 登录与恢复 | `browser_auth`、`browser_reset_session`、`browser_history` |
+| 对话框 | `browser_dialog` |
+| 诊断 | `browser_console`、`browser_network` |
+| 设备模拟 | `browser_emulate` |
 
 快照返回短生命周期的 `snapshotId` 与元素引用；优先用 `browser_click_ref` 或 `browser_scroll_into_view` 操作，页面变化后重新快照。页面级脚本会自动过滤浏览器自身 chrome。
 
@@ -55,7 +58,7 @@ browser_* tools
 
 页面 chrome 和任务管理器通过 closed Shadow DOM 注入，而不是第二个 Electron view；任务状态与轨迹以版本化增量消息同步，后台任务更新自己的隔离视图，不会抢走用户当前可见页面。
 
-`alert`、`confirm`、`prompt` 会自动接受，避免页面卡死；下一次页面操作会把详情记到 `browser_history` 的 `dialog` 条目。
+`alert`、`confirm`、`prompt` **默认**会被立刻接受，避免页面卡死，详情记到 `browser_history` 的 `dialog` 条目。要驱动「确认删除」这类页面，先用 `browser_dialog` 设好**下一个**对话框怎么答（`accept` / `dismiss`，`prompt()` 可配 `promptText`）再触发它；`inspect` 报告上一次。
 
 ## 可靠性规则
 
