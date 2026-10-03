@@ -4,14 +4,14 @@
 
 dsh-browser-plus is developed on top of the MIT-licensed `dsh-browser` codebase and independently maintained by ParticleLight.
 
-[![awesome · DSH plugin](https://img.shields.io/badge/awesome%20%C2%B7%20DSH%20plugin-%E2%9C%94-red?style=flat&labelColor=white)](#)
-[![npm](https://img.shields.io/npm/v/dsh-browser-plus?style=flat&label=npm&color=blue)](https://www.npmjs.com/package/dsh-browser-plus)
-[![downloads](https://img.shields.io/npm/dm/dsh-browser-plus?style=flat&label=downloads&color=blue)](https://www.npmjs.com/package/dsh-browser-plus)
-[![GitHub Stars](https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?style=flat&label=Stars&logo=github)](https://github.com/ParticleLight/dsh-browser-plus)
-[![license](https://img.shields.io/github/license/ParticleLight/dsh-browser-plus?style=flat&label=license&color=green)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/ParticleLight/dsh-browser-plus/ci.yml?branch=main&style=flat&label=CI&logo=github)](https://github.com/ParticleLight/dsh-browser-plus/actions)
-[![DSH](https://img.shields.io/badge/DSH-0.1.0--rc.1%20%7C%7C%200.2.0--rc.1-blue?style=flat)](#)
-[![status](https://img.shields.io/badge/status-stable-green?style=flat)](#)
+[![awesome · DSH plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+[![npm](https://img.shields.io/npm/v/dsh-browser-plus?label=npm&color=4D6BFE)](https://www.npmjs.com/package/dsh-browser-plus)
+[![downloads](https://img.shields.io/npm/dt/dsh-browser-plus?label=downloads&color=4D6BFE)](https://www.npmjs.com/package/dsh-browser-plus)
+[![stars](https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?label=stars&logo=github)](https://github.com/ParticleLight/dsh-browser-plus/stargazers)
+[![license](https://img.shields.io/github/license/ParticleLight/dsh-browser-plus?label=license&color=green)](LICENSE)
+[![CI](https://github.com/ParticleLight/dsh-browser-plus/actions/workflows/ci.yml/badge.svg)](https://github.com/ParticleLight/dsh-browser-plus/actions/workflows/ci.yml)
+[![DSH](https://img.shields.io/badge/DSH-0.1.0--rc.1%20%7C%7C%200.2.0--rc.1-4D6BFE)](#install)
+[![status](https://img.shields.io/badge/status-stable-brightgreen)](https://github.com/ParticleLight/dsh-browser-plus/releases)
 
 ## Why it exists
 
