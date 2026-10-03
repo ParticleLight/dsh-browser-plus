@@ -4,6 +4,7 @@
 
 基于 MIT 许可的 `dsh-browser` 代码基础持续开发，并由 ParticleLight 独立维护。
 
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
 [![awesome · DSH plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
 [![npm](https://img.shields.io/npm/v/dsh-browser-plus?label=npm&color=4D6BFE)](https://www.npmjs.com/package/dsh-browser-plus)
 [![downloads](https://img.shields.io/npm/dt/dsh-browser-plus?label=downloads&color=4D6BFE)](https://www.npmjs.com/package/dsh-browser-plus)
