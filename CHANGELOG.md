@@ -1,166 +1,125 @@
 # Changelog
 
 ## v0.5.0 (2026-10-03)
-
 **新增四个工具（37 → 41）**
-
-- **`browser_dialog`** —— 查看/引导 `alert`/`confirm`/`prompt`。以前一律自动接受，「确认删除」这类页面**永远被同意**；现在可以先设 `accept`/`dismiss`（`prompt()` 配 `promptText`）再触发它，`inspect` 报告上一次与当前策略。
-- **`browser_console` / `browser_network`** —— 读控制台报错、未捕获异常与网络请求（每个视图各 200 条环形缓冲）。**读取默认不清空**，`clear: true` 才清；支持 `level` / `urlContains` / `failedOnly` / `limit`。
-- **`browser_emulate`** —— 视口（可带移动端行为与 DPR）、自定义 UA、`prefers-color-scheme`；`clear: true` 一次撤销三样。
-
+- **`browser_dialog`** —— 查看/引导 `alert`/`confirm`/`prompt`。
+- **`browser_console` / `browser_network`** —— 读控制台报错、未捕获异常与网络请求（每个视图各 200 条环形缓冲）。
+- **`browser_emulate`** —— 视口（可带移动端行为与 DPR）、自定义 UA、`prefers-color-scheme`；
 **改进**
-
 - **`browser_execute` 现在也收语句体**（自动判别：先试表达式，再试脚本体，语句体用 `return` 返回值）。
 - **`browser_snapshot` 新增 `query` 与 `limit`** —— 按 kind+label 过滤，且**过滤发生在计上限之前**（否则默认上限 60 之外的元素永远搜不到）。
 - **坐标点击落在视口外时明确报错**，并报出那个点上实际是什么元素（坐标点击**不会自动滚动**，以前是静默丢弃）。
-
 **修复**
-
-- **页面缩放 ≠ 100% 时，二级菜单弹层不贴按钮** —— 实测 160% 下偏 330px（`left` 311 → 502）。根因是 chrome 内部 px 与页面 px 差一个缩放倍数。
+- **页面缩放 ≠ 100% 时，二级菜单弹层不贴按钮** —— 实测 160% 下偏 330px（`left` 311 → 502）。
 - **`browser_dialog` 的 `inspect` 看不到刚触发的对话框** —— 它没有自己排空宿主里的对话框。
-
 > 每条改动的背景、真机证据与踩过的坑，见对应提交信息。
 
 ## v0.4.3 (2026-09-30)
-
 - **取消抽屉设计 + 页面不再被顶栏遮挡**（用户要求「取消抽屉的设计，同时为了不遮挡，像谷歌浏览器那样处理」）。
-  - **取消抽屉**：隐藏悬停热区 `#toolbarRevealZone` 与「收起」按钮 `#toolbarHide` ✓ —— 顶栏**常驻**，不再有滑出/收起 ✓。
-  - **不遮挡**：Chrome 的语义是「页面从工具栏下方开始」✓。这里是**注入式** chrome（在页面内部）✗，所以用同一语义把**文档整体下移**顶栏高度（标签行 40 + 工具栏 44 = 84px ✓，`padding-top` + `!important` 以压过页面自身样式 ✓）。
-  - **实测**：`getComputedStyle(html).paddingTop === '84px'` ✓，页面首个内容元素 `getBoundingClientRect().top === 84` ✓ —— 正好在顶栏下方 ✓。截图确认 IANA 的 logo 与导航**完整可见** ✓。
-  - **已知限制**：页面自身的 `position:fixed` 元素仍会贴到视口顶部（被顶栏盖住）✗ —— 因为注入式 chrome 无法缩小页面视口 ✗。**彻底解决需要把 chrome 做成独立的宿主视图**（Chrome 的真实架构 ✓），那是更大的改动 ✓。
-- **标签栏显示 favicon**（Chrome 的标签几乎由 favicon 主导，这是「像不像」最显眼的一块）。宿主监听 `page-favicon-updated` ✓，把图标 URL 放进 `ChromeTabSummary.favicon` ✓，chrome 用 `createElement('img')` + `.src` 渲染 ✓（**绝不拼 innerHTML** —— 该 URL 由页面控制 ✓）。页面没给图标时回退**内联 SVG 地球** ✓（与 Chrome 一致）。
-  - `data:,`（空 data URI）被显式忽略 ✓ —— 有些页面用它代替真图标 ✓，当成图标会渲染出**破图** ✗（实测 example.com 就是这样 ✓）。
-  - **实测**：GitHub 标签显示猫图标 ✓、Example Domain 显示地球 ✓。
-- 🔴 **修复：窗口从最小化恢复后，视图不会被重新布局（一直是 0×0）**。宿主只订阅了 `resize` ✗，而**最小化时 `getContentSize()` 返回 0** ✓ → 此时创建的视图被布局成 0×0 ✓，恢复窗口**不会触发 `resize`** ✗ → 该视图**永远**是 0 宽 ✓。**实测**：正常时创建的视图 `innerWidth=1388` ✓；最小化时创建的 `0` ✓；**恢复后同一视图仍是 0** ✗（修复前）。
-  - **修法**：除 `resize` 外，补订阅 `restore` / `show` / `maximize` / `unmaximize` 触发 `layoutViews()` ✓。
-  - **验证（按效果）**：最小化时创建视图 → `0` ✓ → **恢复窗口后同一视图变为 `1388×831`** ✓✓。
-  - **副作用**：这解释了此前一连串怪现象 —— 隐藏/最小化视图里 `100vw` 为 0 → chrome 的标签栏塌缩成 8px ✓、`visibilityState: hidden` ✓、`browser_screenshot` 超时 ✓。
-- 🔴 **修复 `showView` 与 `createView` 的竞态 —— 新标签的视图永远不会被显示**。`RemoteElectronViewHost.showView()` 只等 client ready ✗，**不等视图 materialize** ✗，而 `createView` 的 RPC 是**首次使用时才发**的 ✓ → `showView` 先到宿主 ✓ → 宿主抛 `unknown view` ✓ → 被 `.catch` 吞掉 ✓ → **新标签的视图从未 `setVisible(true)`** ✗。而 `createView` 又无条件 `activeViewByTask.set(...)` ✓ → `switch-tab` 的 `activeViewChanged` 守卫对「点那个新标签」**恒为 false** ✓ → **按构造就是空操作** ✓✓。
-  - **修法**：`showView` 先 `await handle.materializeForShow()`（新增的公开方法，内部走既有的 `materializeOnce`）再发 `showView` RPC ✓。
-  - **验证**：新增回归测试钉住**顺序**（`materializeForShow` 必须在 `call('showView')` 之前，且必须被 `await`）—— 该测试在修复前必然失败 ✓。**注意**：`remote-host.ts` 跑在 **DSH 进程**里，**此修复需重启 DSH 才生效**。
-- **chrome 改成 Chrome 那样的「窗框」，而不是浮动小部件**。用户指出「一点都不像」——根因是形态：之前是**居中的 1180px 浮动条**（圆角 + 阴影 + 上下两行之间留缝），而 Chrome 的窗框是**贴满窗口宽度、上下齐平**的。现改为全宽 + 齐平：标签行通栏在最顶部、激活标签与工具栏同色连成一片、工具栏无圆角无阴影、地址栏全宽。
-  - 顺带消除了一处**视口单位依赖**：原规则 `width:min(1180px,calc(100vw - 20px))` 在**窗口最小化或视图隐藏**时 `100vw` 为 0 → `calc` 变负数 → `width` 非法失效 → 回退 `auto` 收缩成 **8px = 左右 padding**，`left:50%` 也失效。**实测确认**（同一份 CSS，1 个标签时 `[104,0,1180,34]`、2 个标签时 `[-4,0,8,34]`）。新规则不依赖视口单位。
-- **注入式 chrome 新增 Chrome 风格标签栏**（渲染层已完成并真机验证）。位置在工具栏**上方**，每个标签显示页面标题、当前标签高亮；工具栏随之下移 42px 给它让位。数据来自宿主新增的 `tabs` 状态（每个标签 = 一个宿主视图，`active` 标记可见的那个）。
-  - 🔒 **标签的 URL 只保留 origin**（走 `taskSummaryUrl()`）。该状态会注入页面、并写进按钮的 `title` 属性，若给完整 URL 等于把查询串/token 交给页面。**这一点是队友在实现时主动指出我契约里的疏漏。**
-  - 🐛 **真机验证发现并修掉一处 CSS 缺陷**：`#tabstrip` 没有自己的背景，标签只有 5% 白 → 在白色页面上**完全看不见**。工具栏之所以可见是因为它自带深色底。现给标签加不透明底色 + 边框 + 阴影，并把 `flex-basis` 设为 200px（此前被压到 44px 最小宽度，标题只剩「E…」，多个标签无法区分）。
-  - ⚠️ **已知未完成：点击标签不会切换**。真机实测：点击确实落在 chrome 上（`elementFromPoint` 返回 chrome 宿主）、binding 通路正常（「接管」按钮可用、control 正确翻转）、宿主 `switch-tab` 分支与 `syncVisibleTaskVisibility` 逻辑复核无误 —— 但 `active` 标记不变、可见页面不变。**根因尚未定位**，下一轮继续。
-- **注入式 chrome 改成 Chrome 式常驻顶栏**。此前工具栏**默认隐藏**,鼠标移到顶部中央才滑出;现在**默认常驻**,按 Chrome 的排布分组:左侧导航组(← → ⟳ ⏹ 🏠)│ 胶囊地址栏(带锁图标)│ 右侧功能组(☆ ⏱ ▤ 接管 收起)。点「收起」后仍回到原来的悬停模式。
-  - 三个功能图标原先排在地址栏**之前**,用挂载后重排 DOM 的方式挪到右侧——比重写那几行超长 SVG 字符串安全得多。
-  - 新增 `host.dataset.dshChrome` **版本标记**:宿主元素在 light DOM 里,即使 chrome 用 closed shadow root,外部也能读到它,用来判断页面里跑的是哪一版 chrome。
-  - 🔴 **实测发现**:在 `address` 的 `focus` 里调 `select()`(想复刻 Chrome「点一下即全选」)**会让 CDP `Input.insertText` 再也落不进这个 shadow DOM 地址栏** ✗ —— 普通页面输入框不受影响,`browser_type` 本身正常。已在代码里留注释阻止再加回来。**Chrome 式全选待另行实现。**
-- **用 DSH 自己的校验器验证全部 37 个工具的 schema**。DSH 在**注册时**校验每个工具的 schema,**被拒会让整个插件从会话里消失**(而不是只失败一次调用) —— 此前这一点只有重启才能发现 ✗。新增 `test/tool-schema.test.mjs`:导入 `@deepseek-ai/dsh-tools` 的 `assertObjectJsonSchema` / `assertSupportedJsonSchema`(注册时用的就是它们)对 37 个工具全跑一遍,并用 `validateJsonSchemaValue`(DSH **每次调用**时跑的)验证 10 组**真实调用参数**能被接受 ✓。**全部通过** → 插件能被 DSH 接受 ✓。
-  - 冒烟里**手写的**输出形状检查也换成同一个 `validateJsonSchemaValue` ✓ —— 不再是我自己近似的规则,而是 DSH 真正执行的那一条。33 项仍全绿。
-- **补上 JS 侧指纹的断言(冒烟共 33 项),并确认现有指纹是自洽的**。此前只验证过**请求头**(UA / sec-ch-ua / Accept-Language),**页面里 JS 读到的指纹从未验证过**。实测:UA `...Chrome/148.0.7778.280...`、brands `[Not/A)Brand 99, Chromium 148]`、`webdriver:false`、`vendor:Google Inc.`、`window.chrome` 存在、`languages` 已加权 —— **这正是真实 Chromium 的样子**(真实 Chromium 的 UA 同样带 `Chrome/`,brands 同样没有 `Google Chrome`),自洽 ✓。新增断言钉住**「UA 的主版本号必须出现在某个 brand 里」**这条不变量,防止以后被改坏。
-  - **没有改动指纹**:我一度把「UA 说 Chrome、brands 说 Chromium」当成矛盾并准备用 `Emulation.setUserAgentOverride` 去「修」,测量后确认那是 Chromium 的正常表现,且是 `fingerprint.ts` 模块注释里**有意为之**的设计(不编造引擎背不出来的指纹)。**是测量拦住了我。**
-- 🔴 **修复:浏览器直接导出的 cookie 文件会被整份拒绝**。`browser_auth { action: 'restore', file }` 的条目校验**要求 `url` 字段**,但**浏览器扩展(Cookie-Editor / EditThisCookie)与 Edge 自带导出写的是 `domain` + `path`,根本没有 `url`** → 于是「从浏览器导出 → 导入」这条**声明的主要工作流完全不工作** ✗(报 `no usable entries`),只有本插件自己导出的格式能用 ✗。
-  - **修法**:条目校验改为**归一化** —— 有 `url` 用之,否则由 `domain` + `path` + `secure` 推导(`.example.com` 的前导点会去掉,因为 URL host 不能带它)。顺带支持 `sameSite`,并同时接受 Chromium 拼写(`no_restriction`)与 Playwright 拼写(`None`/`Lax`/`Strict`),透传到宿主的 `cookies.set`。
-  - **验证**:单测用扩展的真实字段形状(含 `sameSite: 'Lax'` 的大小写差异);冒烟在**真实 Chromium** 上导入一份扩展形状的文件 → `{restored:1, present:1}`(装进去了且事后能读回),32 项 `EXIT=0`。
-- **交互效果断言补全到 10 项(冒烟共 31 项)**:新增 **`click_ref`**(文档里的主要交互方式,此前只验证过「调用返回了」,从未验证过「页面收到了」)、双击、滚动、`fill` 选 select 四条**效果断言**。同时对 `browser_scroll` 与 `browser_fill` 做了**旧代码现场实测**:滚动 `scrollY` 0 → 69 ✓、填充输入框拿到值 ✓ —— **没有第三个静默失效的输入工具**。`browser_scroll` 那条断言第一版写错了(当时页面本身没有可滚动高度,`scrollY` 理应不变),已改为先注入高元素。
-- **键盘输入此前也在空转(由第 9 轮的修复一并治好,本轮补上断言)**:实测运行中的旧代码,`browser_press_key` 派发后页面收到的 `keydown` 列表**为空** ✗ —— Enter/Tab/Escape/方向键/Ctrl+A 全靠它。它与鼠标按压走**同一条 `dispatchInput` 路径**,因此第 9 轮的 `Emulation.setFocusEmulationEnabled` 修复**同时治好了两者**。`browser_type`(`Input.insertText`)不受影响,一直正常。冒烟新增两条**效果断言**(键盘 → 页面收到 `Enter`;输入法 → 聚焦输入框内容变为所输入文本),现共 **27 项**、`EXIT=0`。
-- **新增 `browser_drag`(工具数 36 → 37)**:`from` 按下 → 中间移动 → `to` 释放。两端复用 `browser_click` 的三种寻址(`x`+`y` / `selector` / `text`)并先滚入视野。`steps` 默认 12、上限 60 —— **中间移动是滑块与可排序库真正监听的东西,瞬移会被忽略**,单测把插值坐标逐一钉住(`[32.5, 55, 77.5, 100]`),并断言 `buttons` 在按下后保持为 1、释放时归 0(否则页面会看到卡住的按键)。冒烟在真实页面上注入探针,验证手势**跨 7 次事件**(悬停 + 6 次中间移动)、按在源、释放在目标。**已知限制**:只驱动指针式拖拽,依赖 HTML5 `dragstart`/`drop` 的页面不会响应(合成鼠标移动不产生原生拖放),描述里已写明。
-- 🔴 **修复:点击在真实网站上完全不生效**。`browser_click`/`browser_double_click`/`browser_ref` 会返回 `{clicked:true}` 而**页面收不到任何鼠标事件** —— 实测 example.com / iana.org / httpbin.org 三个站点全部如此。
-  - **根因**:Chromium 在**渲染进程不认为自己被聚焦**时会丢弃合成的鼠标**按压**(移动不受此门控,所以 `hover` 看起来一直正常,掩盖了问题)。后台任务的视图天然不聚焦;真实 https 页面上连可见视图在其窗口未激活时也不聚焦。`data:` URL 的渲染器在进程内、不做这个门控,所以本地探针一直「看起来正常」,掩盖了它。
-  - **修法**:派发任何合成输入前,对每个视图调用一次 `Emulation.setFocusEmulationEnabled({ enabled: true })`(provider 侧,任何宿主都适用;用 `WeakSet` 保证每视图只调一次)。
-  - **关键**:这**保持在可信 CDP 输入路径上** —— 没有退化成 `element.click()`,事件仍是 `isTrusted`,因此**不削弱反检测能力**,不需要在「点击可用」与「更少触发人机验证」之间做取舍。
-  - 焦点模拟是**惰性**的:只有 agent 真正派发输入时才启用,纯人工浏览的会话永远不会打开它。
-  - **验证**:冒烟里三条断言(左键到达 `mousedown,mouseup,click` / 右键到达页面 `contextmenu` 且 `button:2` / 修饰键 `shiftKey+ctrlKey` 均为真)从**全红变全绿**,24 项 `EXIT=0`。
-- **指针工具支持右键与修饰键**:`browser_click`/`browser_double_click` 新增 `button`(left/right/middle)与 `modifiers`(alt/ctrl/meta/shift),`browser_hover` 新增 `modifiers`。右键用于页面自定义上下文菜单(Electron 不装原生菜单,所以拿到事件的就是页面自己的 handler);修饰键用于 shift 扩选等。CDP 修饰位掩码复用既有的 `modifierMask()`。单测钉住位掩码(ctrl=2/shift=8)与「按下与抬起必须同键」——否则页面会看到卡住的按键。
-- **集成冒烟扩到 21 项,覆盖工具层与并行**:新增 ① **真实工具层跑在真实 provider 上**(`browser_open`/`browser_content`/`browser_click`/`browser_snapshot`/`browser_scrape`/`browser_auth`)——单测用假浏览器、此前的冒烟直接调 provider,这是唯一让两者相遇的地方;② **工具输出形状检查**(逐字段比对声明 schema,因为 DSH 会在运行时校验输出,而直接调 `execute()` 绕过了它);③ **双任务并行**:A 跑 8 URL 抓取时,B 的 snapshot **13ms 返回**且 `aWasStillBusy:true`;④ **100 个 URL @ 并发 8**:100 行、100 个不同 `seq`、0 失败、**8.1 秒**、结束后**标签页数回到 1**(无泄漏)。
-- **修 `text` 寻址在「逐字符 span」页面上匹配失败(真实集成测试抓到的真 bug)**:文字匹配此前枚举候选标签(`a, button, input, span, div, li, td…`),**漏了 `p` 等大量承载正文的标签**。现代站点常把正文/按钮文字拆成**逐字符的 `<span>`**(带淡入动画,example.com 现在就是这样),此时每个叶子只含一个字,**整句只存在于容器上**——容器不在候选表里就永远匹配不到。现改为**一次自底向上遍历**,让每个元素都算出自己的文本(不枚举标签、也不用逐元素 `textContent` 重复走子树)。实测同一页面:`text='This domain is for use'` 命中 `<p>` ✓,`text='Learn more'` 命中 `<a>` 而非包含它的 `<p>`(最短标签优先)✓。
-- **新增真实集成冒烟 `npm run smoke:browser-tools`**:用**真实 Electron 宿主 + 真实 Chromium** 驱动**真实 provider**,覆盖 12 项(含 click 三种寻址、scrape 并发、cookie 导出→文件→导入往返)。这是唯一覆盖「provider → RPC → host-main → CDP → Chromium」整条链路的检查。它**自带 profile**(`DSH_BROWSER_PLUS_USER_DATA`),所以能在 DSH 运行时跑而不抢 profile 锁。**首次运行即抓到上面那个 bug。**
+- **标签栏显示 favicon**（Chrome 的标签几乎由 favicon 主导，这是「像不像」最显眼的一块）。
+- 🔴 **修复：窗口从最小化恢复后，视图不会被重新布局（一直是 0×0）**。
+- 🔴 **修复 `showView` 与 `createView` 的竞态 —— 新标签的视图永远不会被显示**。
+- **chrome 改成 Chrome 那样的「窗框」，而不是浮动小部件**。
+- **注入式 chrome 新增 Chrome 风格标签栏**（渲染层已完成并真机验证）。
+- **注入式 chrome 改成 Chrome 式常驻顶栏**。
+- **用 DSH 自己的校验器验证全部 37 个工具的 schema**。
+- **补上 JS 侧指纹的断言(冒烟共 33 项),并确认现有指纹是自洽的**。
+- 🔴 **修复:浏览器直接导出的 cookie 文件会被整份拒绝**。
+- **交互效果断言补全到 10 项(冒烟共 31 项)**:新增 **`click_ref`**(文档里的主要交互方式,此前只验证过「调用返回了」,从未验证过「页面收到了」)、双击、滚动、`fill` 选 select 四条**效果断言*…
+- **键盘输入此前也在空转(由第 9 轮的修复一并治好,本轮补上断言)**:实测运行中的旧代码,`browser_press_key` 派发后页面收到的 `keydown` 列表**为空** ✗ —— Enter/Tab/Escape/方…
+- **新增 `browser_drag`(工具数 36 → 37)**:`from` 按下 → 中间移动 → `to` 释放。
+- 🔴 **修复:点击在真实网站上完全不生效**。
+- **指针工具支持右键与修饰键**:`browser_click`/`browser_double_click` 新增 `button`(left/right/middle)与 `modifiers`(alt/ctrl/meta/shif…
+- **集成冒烟扩到 21 项,覆盖工具层与并行**:新增 ① **真实工具层跑在真实 provider 上**(`browser_open`/`browser_content`/`browser_click`/`browser_snaps…
+- **修 `text` 寻址在「逐字符 span」页面上匹配失败(真实集成测试抓到的真 bug)**:文字匹配此前枚举候选标签(`a, button, input, span, div, li, td…`),**漏了 `p` 等大量承载正…
+- **新增真实集成冒烟 `npm run smoke:browser-tools`**:用**真实 Electron 宿主 + 真实 Chromium** 驱动**真实 provider**,覆盖 12 项(含 click 三种寻址、sc…
 - **`DSH_BROWSER_PLUS_USER_DATA` 可覆盖宿主 profile**:Chromium 对 profile 加单例锁,此前无法并存两个宿主(验证脚本会与运行中的 DSH 冲突)。
-- **指针工具支持选择器/文字寻址**:`browser_click`/`browser_double_click`/`browser_hover` 此前**只能给坐标**,想点一个按钮必须先 `browser_snapshot` 拿 `ref` 再 `click_ref`——**每次交互两轮**。现在三种寻址任选:`x`+`y`、`selector`、或 `text`(可见文字/aria-label/value,不区分大小写)。后两者在**页内解析**、把元素滚入视野,再派发**真实鼠标事件**(不是 `element.click()`,保留真实输入语义);返回 `target` 说明实际点到了什么。多个匹配时**最内层可见元素胜出**(文字最短优先,同长取更深者),避免点到包住按钮的容器。页内脚本抽成可导出的 `pointerTargetScript()`,因此新增了一条**构建期语法测试**(页内脚本只在浏览器里解析,写错要等运行时才炸)与注入防护断言。
-- **`browser_scrape` 支持并发**:新增 `concurrency`(默认 1,上限 8),每个 worker 占一个自己的标签页,从共享队列取 URL。6 个 URL / 3 并发的测试验证「每个 URL 恰好访问一次、`seq` 覆盖 0..n-1、worker 标签页全部回收」。每行新增 **`seq`**(URL 在输入里的下标):并发时行按完成顺序落盘,按 `seq` 排序即可还原原始顺序。
-- **`browser_scrape` 改用独立标签页**:此前批次调用的是作用于「会话当前激活标签页」的 `navigate`/`execute`,于是 ① 批次运行期间任何工具调用都会和它**抢同一个标签页**,抽取可能拿到错误的页面;② 用户正在读的页面被导航冲掉。现在批次创建**自己的标签页且不激活它**,结束后销毁。为此把 `navigate`/`execute`/`waitForElement` 的核心抽成按标签页的私有方法(公开方法变成一行转发),为后续并发打底。
-- **后台批次跳过 250ms 绘制等待**:`waitForDocumentReady` 在 `document.readyState === complete` 后会**固定再等 250ms**,目的是让截图/快照不抓到空白渲染——但抓取只读 **DOM** 不读像素,这一等纯属浪费(1000 个 URL 白等 250 秒)。现在该延迟可参数化,后台批次传 0。**实测单页开销从 ~267ms 降到 ~6ms**(测试里 2 个 URL 的批次 534ms → 12.7ms)。
-- **新增 `browser_scrape`:批量抓取,结果直接落盘**:后台批量访问 URL,每页把一行 JSON 追加到文件,**结果完全不经过模型**——一千条与一条的 token 成本相同。`action=start` 立即返回(单次工具调用只有 ~60s 预算,大批次要跑几分钟),用 `action=status` 轮询,`action=stop` 停止且**保留已写入的行**(每行产生即落盘)。每行是 `{ url, ok, data }` 或 `{ url, ok, error }`;**单页失败不终止整批**;页面返回不可序列化的值(循环引用/BigInt)也只让该行降级为错误行。`outPath` 受 `writeRoots` 限制并在开始时截断(重跑不会混入上一批)。工具总数 35 → **36**。
-- **`browser_auth` 支持从文件导入登录状态**:新增 `file` 参数(`action=restore`),从 JSON 文件读取 cookie 列表 —— 真实导出动辄几百条,内联经模型传递不现实。接受裸数组或 `{"cookies": [...]}`;不合法条目跳过并在 `failed` 中计数。路径受 `browser-electron.readRoots` 白名单约束(与 `browser_upload_file` 同一道闸),越界抛 `BROWSER_READ_PATH_DENIED`;文件不可读/形状不对抛 `BROWSER_AUTH_FILE_INVALID`。**注意**:Chrome/Edge 127+ 的 App-Bound Encryption 使 cookie 无法从磁盘解密(复制 profile 也无效,实测取到 0 条),所以只能导入用户自己导出的文件,或直接在本插件浏览器里用「接管」登录一次。
-- **对齐请求指纹,减少被判定为机器人**:实测服务端收到的请求里有三处明显破绽 —— ① `User-Agent` 里带着 `Electron/42.9.3`;② **完全没有 `sec-ch-ua` 系列头**(真 Chrome 必发);③ `Accept-Language` 只有光秃秃的 `zh-CN`(真 Chrome 是带 q 权重的列表)。现在:剥离 Electron 令牌、补上与引擎自身 `navigator.userAgentData` 一致的 client hints、把语言列表交给 Chromium 自己加权。**关键是三者互相一致**(请求头与页面内 JS 说法相同),而不是单点伪装。新增配置 `browser-electron.userAgent`(整体替换)与 `maskAutomation`(默认 `true`,设 `false` 则原样发送引擎指纹)。纯逻辑抽到 `fingerprint.ts` 并有真实单测。
-- **新增深色空状态页,并修复空白视图上所有操作超时**:新建的 `WebContentsView` 在首次导航前**没有提交任何文档** —— 既按默认白底渲染(和整套深色 UI 格格不入),又让 CDP **没有 frame 可 evaluate**,于是 `browser_execute`/`browser_snapshot`/`browser_content` 全部 30s 超时、`browser_screenshot` 直接报错。现在视图创建时立即加载一个惰性(无可交互元素)的深色空状态页,窗口也设了深色 `backgroundColor`。**两个症状是同一个根因**。
-- **修复写盘白名单默认值从未生效**:`entry.ts` 的 `writeRoots`/`readRoots` 声明为 `z.array(z.string())` 而没有默认值,而 schemastery 会把**缺省键物化成 `[]`**;`[]` 不是 nullish,于是 provider 的 `config.writeRoots ?? defaultWriteRoots()` **永远走不到默认分支** —— 结果是文档承诺的「默认 = 工作目录 + 系统临时目录」从来不成立,`browser_screenshot(savePath)` / `browser_download` / `browser_upload_file` 一律以「none configured」被拒。现在默认值在 **schema 层**物化,既让缺省等于文档默认值,又保住「显式 `[]` = 全禁」这个真实语义。
-- **可选:把注入 chrome 移进隔离世界**(`browser-electron.chromeWorld: isolated`,**默认仍是 main**)。开启后 chrome 经 `Page.createIsolatedWorld` 注入自己的 JS 世界,`Runtime.addBinding` 也用 `executionContextName` 限定在其中——被访问页面**读不到** `window.__dshTasks` / `window.__dshTrail` / `window.__dshBrowserTaskAction`,连「提前 hook JSON.stringify 偷 binding token」这条残留路径也一并消失。四条注入路径(挂载、bootstrap、patch、active 标记)统一走 `runChromeScript`,导航时丢弃旧 world 以便为新文档重建。**默认未切换**:该改动重写工具栏注入路径,必须在真实窗口按 `docs/SOAK-CHECKLIST.md` 第 8 节逐项验证后再考虑改默认值。
-- **下载改由子进程直接落盘**:此前子进程把整包 base64 塞进一行 JSON 回传,父进程再解码写盘——64MiB 的下载在 host→parent→disk 路径上要复制约 8 份(含 RPC 行缓冲)。现在子进程自己写文件、只回 `{ bytes }`,下载体**完全不再经过 RPC socket**,峰值内存与 `MAX_RPC_BUFFER_BYTES` 的压力同时消失。
-- **测试 seam 移出声明的 API 面**:`tsconfig` 打开 `stripInternal`,`internals` 与 `DeferredRemoteView` 不再出现在 `lib/*.d.ts` 里(运行时导出保留,定点测试照常可用)。
-- **chrome 重装改由宿主执行**:provider 在导航后注入的是**无 token** 的 `PAGE_CHROME_SCRIPT`,而只有宿主持有每视图 token——一旦宿主自身的注入失败,退化的那份会让工具栏按钮静默失效。新增可选的 `reinstallChrome()` seam:自托管宿主经 RPC 重装 token 版,不提供该能力的宿主(桌面外壳)仍走原回退。
-- **每次调用的 `timeoutMs` 被夹在工具预算之下**:`browser_wait_for`/`browser_content` 此前把调用方给的值原样下传,所以 `timeoutMs: 90000` 实际会在 60s 被运行时掐断,模型只会收到一条笼统的 tool timeout。现在夹到「预算 − 5s」,并在参数描述里写明上限,让 provider 先给出干净的 `BROWSER_OPERATION_TIMEOUT`。
-- **历史记录不再全量深拷贝**:`browser_history` 此前对每条 entry 做 `JSON.parse(JSON.stringify(params))`,把完整脚本与输入文本逐条复制一遍;现在只做浅拷贝并对超长字符串截断(附剩余字数),同时保持 lossless JSON。
-- **单条历史有存储上限**:`execute` 的脚本与 `type` 的文本超过 32KiB 时会被截断并打标;`browser_replay` 遇到被截断的条目会明确拒绝(`BROWSER_HISTORY_TRUNCATED`),而不是重放一个被悄悄剪短的脚本。
-- **补上两处零覆盖**:① `entry.ts` 的组合入口(外部 viewHost 优先 / 缺省自托管 / 销毁时只 dispose 自托管 host / 配置透传)此前没有任何测试;② 页面 chrome 的 patch 握手(epoch 与 revision 连续性判定)此前只有「标识符还在」的源码断言——现在把它抽成纯函数 `decideChromeMessage` 并真跑:丢包、乱序、重放、跨文档都要 resync 而不是部分应用。
-- **自愈不再在空白页上重放输入**:主机崩溃后重建的视图是 `about:blank`,而 `Input.*` 在空白文档上会「什么都不做但正常 resolve」,于是 `browser_click`/`browser_type` 会在页面上什么都没发生的情况下报成功。现在这类命令不再自动重放,而是抛 `BROWSER_HOST_RESTARTED` 并提示重开页面(读类命令仍照常自愈)。
-- **快照 `truncated` 语义修正**:此前用 `out.length >= cap` 判断,页面恰好有 cap 个可见候选时会误报截断;现在只有真的因达到上限而提前跳出才算截断。
+- **指针工具支持选择器/文字寻址**:`browser_click`/`browser_double_click`/`browser_hover` 此前**只能给坐标**,想点一个按钮必须先 `browser_snapshot` 拿 `…
+- **`browser_scrape` 支持并发**:新增 `concurrency`(默认 1,上限 8),每个 worker 占一个自己的标签页,从共享队列取 URL。
+- **`browser_scrape` 改用独立标签页**:此前批次调用的是作用于「会话当前激活标签页」的 `navigate`/`execute`,于是 ① 批次运行期间任何工具调用都会和它**抢同一个标签页**,抽取可能拿到错误的页面…
+- **后台批次跳过 250ms 绘制等待**:`waitForDocumentReady` 在 `document.readyState === complete` 后会**固定再等 250ms**,目的是让截图/快照不抓到空白渲染——但…
+- **新增 `browser_scrape`:批量抓取,结果直接落盘**:后台批量访问 URL,每页把一行 JSON 追加到文件,**结果完全不经过模型**——一千条与一条的 token 成本相同。
+- **`browser_auth` 支持从文件导入登录状态**:新增 `file` 参数(`action=restore`),从 JSON 文件读取 cookie 列表 —— 真实导出动辄几百条,内联经模型传递不现实。
+- **对齐请求指纹,减少被判定为机器人**:实测服务端收到的请求里有三处明显破绽 —— ① `User-Agent` 里带着 `Electron/42.9.3`;
+- **新增深色空状态页,并修复空白视图上所有操作超时**:新建的 `WebContentsView` 在首次导航前**没有提交任何文档** —— 既按默认白底渲染(和整套深色 UI 格格不入),又让 CDP **没有 frame 可 ev…
+- **修复写盘白名单默认值从未生效**:`entry.ts` 的 `writeRoots`/`readRoots` 声明为 `z.array(z.string())` 而没有默认值,而 schemastery 会把**缺省键物化成 `[]…
+- **可选:把注入 chrome 移进隔离世界**(`browser-electron.chromeWorld: isolated`,**默认仍是 main**)。
+- **下载改由子进程直接落盘**:此前子进程把整包 base64 塞进一行 JSON 回传,父进程再解码写盘——64MiB 的下载在 host→parent→disk 路径上要复制约 8 份(含 RPC 行缓冲)。
+- **测试 seam 移出声明的 API 面**:`tsconfig` 打开 `stripInternal`,`internals` 与 `DeferredRemoteView` 不再出现在 `lib/*.d.ts` 里(运行时导出保留,…
+- **chrome 重装改由宿主执行**:provider 在导航后注入的是**无 token** 的 `PAGE_CHROME_SCRIPT`,而只有宿主持有每视图 token——一旦宿主自身的注入失败,退化的那份会让工具栏按钮静默失效…
+- **每次调用的 `timeoutMs` 被夹在工具预算之下**:`browser_wait_for`/`browser_content` 此前把调用方给的值原样下传,所以 `timeoutMs: 90000` 实际会在 60s 被运行时…
+- **历史记录不再全量深拷贝**:`browser_history` 此前对每条 entry 做 `JSON.parse(JSON.stringify(params))`,把完整脚本与输入文本逐条复制一遍;
+- **单条历史有存储上限**:`execute` 的脚本与 `type` 的文本超过 32KiB 时会被截断并打标;
+- **补上两处零覆盖**:① `entry.ts` 的组合入口(外部 viewHost 优先 / 缺省自托管 / 销毁时只 dispose 自托管 host / 配置透传)此前没有任何测试;
+- **自愈不再在空白页上重放输入**:主机崩溃后重建的视图是 `about:blank`,而 `Input.*` 在空白文档上会「什么都不做但正常 resolve」,于是 `browser_click`/`browser_type` 会在…
+- **快照 `truncated` 语义修正**:此前用 `out.length >= cap` 判断,页面恰好有 cap 个可见候选时会误报截断;
 - **`browser_scroll` 描述与实现对齐**:实际是「约一屏(视口高度的 80%,最少 480px)」,描述原写「one viewport」。
-- **新增 CI**:`.github/workflows/ci.yml` 在 push/PR 上跑 `npm ci --omit=optional` + `npm test`,并额外用 `git diff --exit-code -- lib` 校验**已提交的 `lib/`** 与 `src/` 一致——这正是 `pretest` 会掩盖的那类漂移(改了 src、本地重建了 lib,却没提交重建结果)。
-- **新增 ESLint 最小集**:只启用类型感知的 `no-floating-promises` / `no-misused-promises` 与两条一致性规则,不引入格式化以免搅动现有风格。首次运行即发现一处真实缺陷:`setWindowOpenHandler` 里的 `loadURL()` 未被 await 也未挂 rejection handler,失败时会产生未处理拒绝。
+- **新增 CI**:`.github/workflows/ci.yml` 在 push/PR 上跑 `npm ci --omit=optional` + `npm test`,并额外用 `git diff --exit-code -- …
+- **新增 ESLint 最小集**:只启用类型感知的 `no-floating-promises` / `no-misused-promises` 与两条一致性规则,不引入格式化以免搅动现有风格。
 - **`CHANGELOG.md` 现在会进 npm tarball**(此前 `files` 未列)。
-- **缩略图捕获加超时**:`capturePage()` 在合成器卡住时可能永不 settle,而 `finally` 不会执行 → 单飞标志永远为 true,此后缩略图静默停更。现在 5s 超时按失败处理。
-- **减少跨进程 IPC**:`syncVisibleTaskVisibility` 此前对**每个** view(含其它任务的隐藏页与后台标签)各发一次 `executeJavaScript`;现在只对 active 状态真正变化的 view 发送。
-- **`installPageChrome` 的 active 判定改用 viewId**:此前只比 taskKey,导致可见任务的**后台标签页**导航时被当成「正在显示」,会启动其页面定时器并顶掉真正可见视图的 chrome epoch。
-- **`restoreAuth` 逐条隔离**:此前任一条 cookie 非法即整批 reject、已写入不可回滚、调用方也拿不到计数;现在逐条 try/catch 并回报 `{restored, failed}`。
-- **会话丢失会自动重开**:工具层按任务缓存 session id;若 provider 被重载(实例换了、不再认识旧 id),此前该任务之后**每次**调用都报 `BROWSER_SESSION_UNKNOWN`,只能靠人想到调 `browser_reset_session`。现在检测到该错误会丢弃缓存并重开一次(仅此一种错误会重试)。
-- **`browser_close_tab` 如实返回**:此前无条件 `{closed:true}`,render 里「Tab not found.」是死代码;未知 tabId 与成功无法区分。现在 provider 返回布尔值,工具层如实回填。
+- **缩略图捕获加超时**:`capturePage()` 在合成器卡住时可能永不 settle,而 `finally` 不会执行 → 单飞标志永远为 true,此后缩略图静默停更。
+- **减少跨进程 IPC**:`syncVisibleTaskVisibility` 此前对**每个** view(含其它任务的隐藏页与后台标签)各发一次 `executeJavaScript`;
+- **`installPageChrome` 的 active 判定改用 viewId**:此前只比 taskKey,导致可见任务的**后台标签页**导航时被当成「正在显示」,会启动其页面定时器并顶掉真正可见视图的 chrome epoc…
+- **`restoreAuth` 逐条隔离**:此前任一条 cookie 非法即整批 reject、已写入不可回滚、调用方也拿不到计数;
+- **会话丢失会自动重开**:工具层按任务缓存 session id;
+- **`browser_close_tab` 如实返回**:此前无条件 `{closed:true}`,render 里「Tab not found.」是死代码;
 - **`browser_handoff` 纳入白名单**:它不是只读工具(会改任务控制状态),此前不受 `browser_restrict` 约束。
-- **`browser_screenshot` 仅在写盘时受白名单约束**:不带 `savePath` 的截图仍是只读,保持「只读工具永不拦截」的承诺;带 `savePath` 时按写盘工具守卫。
+- **`browser_screenshot` 仅在写盘时受白名单约束**:不带 `savePath` 的截图仍是只读,保持「只读工具永不拦截」的承诺;
 - **`browser_reset_session` 纳入每任务 FIFO**:此前直接 close,可能把并发排队操作正在使用的会话/视图拆掉。
 - **`browser_restrict` 校验名字是否存在**:此前只校验 `browser_` 前缀,拼错(如 `browser_snapsho`)会被接受并静默拒绝该任务所有受守卫动作。
-- **输入派发补上超时兜底**:`click`/`clickRef`/`doubleClick`/`hover`/`type`/`pressKey` 的 8 处 `Input.*` 派发此前是裸 `await`,页面主线程被同步 JS 阻塞时会一直挂到工具预算耗尽;现在与其它 CDP 调用一样有 15s 上限并响应调用方 signal。
-- **超时错误带稳定 code**:`withTimeout` 现在抛 `BROWSER_OPERATION_TIMEOUT`(保留 `TimeoutError` 名称),此前只有 `execute`/`waitForElement` 两处归一化,其余超时是裸 Error,无法按 code 分支。
-- **快照重试有总预算且尊重取消**:空清单重试此前最多 5 次、每次可等满求值超时(理论上约 182s,远超 60s 工具预算),且 `.catch(() => undefined)` 会吞掉 abort 继续重试。现在整段重试有 3s 预算,abort 会立即中止并上抛。
-- **`browser_fill` 不再静默假成功**:checkbox/radio 点击后回读 `checked`,未变更(disabled 或被处理器取消)报 `ok:false`;input/textarea 在请求了非空值却得到空值时报错;`submit` 改为锚定**实际填入成功**的最后一个字段所在表单(此前取第一个能解析到的字段),并在 `requestSubmit()` 因 HTML5 约束校验不通过而**不提交**时如实返回 `submitted:false`(此前一律报 true)。
-- **`browser_content format=json` 不再恒返回 `{}`**:DOM 元素没有自有可枚举属性,`JSON.stringify(document.body)` 永远是 `{}`。现在返回有界的结构视图(标签/id/class/子节点/叶子文本),若文本本身就是 JSON 则原样透传。
-- **`browser_press_key` 支持标点**:此前只认字母数字与功能键,`Ctrl+-`、`Ctrl+/`、`,`、`.`、`[`、`]` 等一律抛 `BROWSER_KEY_UNKNOWN`,而工具描述却写「single characters」。现在按 US 布局补全可打印 ASCII。
-- **`browser_wait_for` 非法选择器快速失败**:此前会每 250ms 重试直到超时(默认 15s)再报一个误导性的 `BROWSER_WAIT_TIMEOUT`,现在立即抛 `BROWSER_SELECTOR_INVALID`。
-- **工具栏不再吞掉代理点击**:注入 chrome 的顶部中央 280×56 感应区在捕获阶段 `preventDefault` + `stopImmediatePropagation`,且从不检查 Agent 输入抑制窗口,导致落在该带的 CDP 点击到不了页面、`browser_click` 却报成功;抽屉打开后无自动关闭,死区还会扩大到约 940×42。现在感应与触发都会在 Agent 输入期间让路。
-- **缩略图失败不再 5Hz 重试**:抓取失败(空图/编码失败/抛错)时 dirty 标记未清除,`finally` 每 200ms 重排一次,任务面板打开期间会以 5 次/秒无限抓屏。失败路径现在清除标记,只在有新动作时才重试。
-- **下载上限改为流式判定**:此前先 `arrayBuffer()` 读完整包再比 64MiB,超大响应会先撑爆渲染进程,上限形同虚设;现在先看 `content-length`,再边读边累计并在超限时 `cancel()` 流,同时给页内 fetch 加了超时。
-- **`browser_upload_file` 加读白名单**:此前只有写有白名单,上传可把任意本地文件交给页面(绕过 DSH 文件策略)。现在 `filePath` 必须存在且落在 `browser-electron.readRoots`(默认同 `writeRoots`)之内,校验在触碰 DOM 之前完成,越界抛 `BROWSER_READ_PATH_DENIED`。
-- **任务摘要不再下发缩略图**:`window.__dshTasks` 走页面主世界,此前携带可见任务的 288px JPEG,任意页面可据此读走其他任务的屏幕内容。摘要只保留 `thumbnailVersion`,图片仅经定向的 `task.thumbnail` 补丁下发。写盘拒绝消息也不再回显允许根路径。
-- **`browser_restrict` 改为按任务隔离**:此前白名单是模块级全局状态,一个任务设置后会把**所有**并行任务的浏览器工具一起限制。现在规则按调用任务存储,插件级 `tool-browser.allowedActions` 作为默认值,单个任务可用空列表只为解除自己。
-- **页面可见轨迹脱敏**:注入页面的 `window.__dshChromeBootstrap.trail` 只保留展示所需字段——`type` 折叠为字符数、`execute` 丢弃脚本、URL 折叠为 origin、路径折叠为 basename。此前被访问页面可用一行 JS 读走同任务中早前站点输入的文本(含密码)与执行过的脚本。
-- **页面→宿主控制通道加每视图 token**:`__dshBrowserTaskAction` 的 payload 必须携带 `createView` 生成的随机 token。此前任意页面脚本可伪造 `set-control-owner=human` 冻结该任务的 Agent 自动化。残留风险:页面若在 chrome 注入前 hook `JSON.stringify` 仍可能窃取 token,彻底解法是 isolated world 注入(后续工作)。
-- **读操作纳入每任务 FIFO**:`snapshot`/`content`/`screenshot`/`list_tabs`/`history`/`session`/`space(list)` 现在会等待在飞写操作,修复并发 `browser_open` + `browser_snapshot` 读到导航前页面的竞态;同 readKey 的 in-flight 去重保留,`operationTails` 改为队列空闲即回收。
-- **主机自愈改用稳定错误码**:新增 `BROWSER_HOST_DEAD` 与 `isBrowserHostDead()`;子进程在**调用中途**崩溃(exit / spawn error / socket close / 缓冲溢出 / RPC 超时)现在与"先崩再调"一样自愈一次,不再依赖错误文案匹配。disposed 之后不再重启子进程。
-- **`available()` 实检**:`ElectronBrowserViewHost` 新增可选 `isAvailable?()`;自托管 host 落地实现(带缓存),Electron 缺失时如实上报不可用,seam 的 provider 选择错误码得以真正生效。
+- **输入派发补上超时兜底**:`click`/`clickRef`/`doubleClick`/`hover`/`type`/`pressKey` 的 8 处 `Input.*` 派发此前是裸 `await`,页面主线程被同步 JS 阻…
+- **超时错误带稳定 code**:`withTimeout` 现在抛 `BROWSER_OPERATION_TIMEOUT`(保留 `TimeoutError` 名称),此前只有 `execute`/`waitForElement` 两…
+- **快照重试有总预算且尊重取消**:空清单重试此前最多 5 次、每次可等满求值超时(理论上约 182s,远超 60s 工具预算),且 `.catch(() => undefined)` 会吞掉 abort 继续重试。
+- **`browser_fill` 不再静默假成功**:checkbox/radio 点击后回读 `checked`,未变更(disabled 或被处理器取消)报 `ok:false`;
+- **`browser_content format=json` 不再恒返回 `{}`**:DOM 元素没有自有可枚举属性,`JSON.stringify(document.body)` 永远是 `{}`。
+- **`browser_press_key` 支持标点**:此前只认字母数字与功能键,`Ctrl+-`、`Ctrl+/`、`,`、`.`、`[`、`]` 等一律抛 `BROWSER_KEY_UNKNOWN`,而工具描述却写「single …
+- **`browser_wait_for` 非法选择器快速失败**:此前会每 250ms 重试直到超时(默认 15s)再报一个误导性的 `BROWSER_WAIT_TIMEOUT`,现在立即抛 `BROWSER_SELECTOR_INVA…
+- **工具栏不再吞掉代理点击**:注入 chrome 的顶部中央 280×56 感应区在捕获阶段 `preventDefault` + `stopImmediatePropagation`,且从不检查 Agent 输入抑制窗口,导致落在该…
+- **缩略图失败不再 5Hz 重试**:抓取失败(空图/编码失败/抛错)时 dirty 标记未清除,`finally` 每 200ms 重排一次,任务面板打开期间会以 5 次/秒无限抓屏。
+- **下载上限改为流式判定**:此前先 `arrayBuffer()` 读完整包再比 64MiB,超大响应会先撑爆渲染进程,上限形同虚设;
+- **`browser_upload_file` 加读白名单**:此前只有写有白名单,上传可把任意本地文件交给页面(绕过 DSH 文件策略)。
+- **任务摘要不再下发缩略图**:`window.__dshTasks` 走页面主世界,此前携带可见任务的 288px JPEG,任意页面可据此读走其他任务的屏幕内容。
+- **`browser_restrict` 改为按任务隔离**:此前白名单是模块级全局状态,一个任务设置后会把**所有**并行任务的浏览器工具一起限制。
+- **页面可见轨迹脱敏**:注入页面的 `window.__dshChromeBootstrap.trail` 只保留展示所需字段——`type` 折叠为字符数、`execute` 丢弃脚本、URL 折叠为 origin、路径折叠为 ba…
+- **页面→宿主控制通道加每视图 token**:`__dshBrowserTaskAction` 的 payload 必须携带 `createView` 生成的随机 token。
+- **读操作纳入每任务 FIFO**:`snapshot`/`content`/`screenshot`/`list_tabs`/`history`/`session`/`space(list)` 现在会等待在飞写操作,修复并发 `bro…
+- **主机自愈改用稳定错误码**:新增 `BROWSER_HOST_DEAD` 与 `isBrowserHostDead()`;
+- **`available()` 实检**:`ElectronBrowserViewHost` 新增可选 `isAvailable?()`;
 - **markdown 抓取修复**:`browser_content format=markdown` 的 walker 现在递归块级容器,标题/链接/列表在常见 `div` 嵌套下不再退化成纯文本。
 - **下载内存**:子进程下载上限 256MiB → 64MiB,父进程 RPC 缓冲 512MiB → 128MiB(按 base64 推导保留 1.5× 余量)。
 - **`browser_upload_file`**:补 30s 超时与 Agent 输入抑制标记,与其它输入工具一致。
-- **`internals`**:标注 `@internal`;因 `lib/tool-browser/index.d.ts` 仍会导出,未真正移出公共 API 面(后续)。
-- **写入路径白名单**:`browser_screenshot` 与 `browser_download` 只能写入 `browser-electron.writeRoots`(默认工作目录 + 系统临时目录)之内的路径;越界抛出 `BROWSER_WRITE_PATH_DENIED` 且不落盘。路径解析会处理最深已存在祖先的真实路径,防 `..` 与符号链接逃逸。
+- **`internals`**:标注 `@internal`;
+- **写入路径白名单**:`browser_screenshot` 与 `browser_download` 只能写入 `browser-electron.writeRoots`(默认工作目录 + 系统临时目录)之内的路径;
 - **下载共用导航准入**:`browser_download` 与 `browser_navigate` 走同一套 URL 准入(仅 HTTP(S),拒绝 URL 内嵌凭据),不再绕过 `httpOnly`。
-- **测试可信度**:`npm test` 现在先执行 `tsc`(`pretest`),不再对可能过期的构建产物 `lib/` 做假绿测试;快速迭代可用 `npm run test:only`。
-## v0.4.2 (2026-09-17)
+- **测试可信度**:`npm test` 现在先执行 `tsc`(`pretest`),不再对可能过期的构建产物 `lib/` 做假绿测试;
 
-- **按站点清理 Cookie**: `browser_auth action="clear"` 支持按 `domain`(含子域)与/或 `name` 精确删除 Cookie;未限定范围时必须显式 `all: true`,避免误清全部登录态。用于清理 WAF 轮换名称留下的旧代挑战 Cookie。
+## v0.4.2 (2026-09-17)
+- **按站点清理 Cookie**: `browser_auth action="clear"` 支持按 `domain`(含子域)与/或 `name` 精确删除 Cookie;
 
 ## v0.4.1 (2026-08-26)
-
-- **多标签会话恢复**: keyed browser sessions are recovered when the tool-layer session cache is lost, so the first direct switch or close operation still targets the existing tabs.
+- **多标签会话恢复**: keyed browser sessions are recovered when the tool-layer session cache is lost, so the first direct switc…
 
 ## v0.4.0 (2026-08-26)
-
-- **显式人机交接**: 任务卡显示运行、等待用户、用户接管、失败和空闲状态；用户可在页面中接管/交还任务，`browser_tasks` 与 `browser_handoff` 暴露同一状态。
+- **显式人机交接**: 任务卡显示运行、等待用户、用户接管、失败和空闲状态；
 - **语义浏览控制**: 新增后退、前进、刷新、停止、滚动，以及由 `snapshotId` 和元素 ref 驱动的精确点击/滚动到元素工具。
-- **轻量工作区同步**: Host 改为 bootstrap + versioned patch；常规操作只更新一张任务卡和一条轨迹。
-- **资源预算**: 任务缩略图仅在任务面板打开时按需单飞捕获，带 2 秒节流和 32 项缓存；后台页面停止地址栏和用户活动轮询。
-- **低干扰工具栏**: 工具栏默认隐入页面上方，顶部中间悬停出现圆形下箭头；展开后最右侧上箭头可收起工具栏及其关联浮层。
+- **轻量工作区同步**: Host 改为 bootstrap + versioned patch；
+- **资源预算**: 任务缩略图仅在任务面板打开时按需单飞捕获，带 2 秒节流和 32 项缓存；
+- **低干扰工具栏**: 工具栏默认隐入页面上方，顶部中间悬停出现圆形下箭头；
 
 ## v0.3.1 (2026-08-23)
-
-- **单窗口任务管理器**: 所有 DSH 任务共享一个可见浏览器窗口，同时保留隔离的任务视图、标签和历史；页面任务管理器切换可见任务，后台任务操作不会抢走当前页面。
-- **任务标签**: `browser_space` 命名或列出浏览器任务，不再表示原生窗口；任务标签显示在任务管理器和活动窗口标题。
+- **单窗口任务管理器**: 所有 DSH 任务共享一个可见浏览器窗口，同时保留隔离的任务视图、标签和历史；
+- **任务标签**: `browser_space` 命名或列出浏览器任务，不再表示原生窗口；
 - **可视工作区**: 任务与操作轨迹可同时打开，切换任务同步轨迹，并显示可见页面的实时缩略图。
 - **Browser Flow 图标**: 新增 SVG 主源、PNG/ICO 衍生资源及 Electron 窗口图标接入。
 
 ## v0.3.0 (2026-08-21)
-
 Ego 级功能集:
-
 - **JS 对话框**:宿主自动 accept(页面永不卡死),草案以 `drainDialog` 读回并写入 `browser_history`(`dialog` 记录)。
-- **输入工具**:`browser_press_key`(CDP keyDown/keyUp,修饰键位掩码)、`browser_double_click`(clickCount 2)、`browser_hover`(mouseMoved)、`browser_upload_file`(DOM.setFileInputFiles 真实文件选择)。
-- **等待与定位**:`browser_wait_for`(250ms 有界轮询,`BROWSER_WAIT_TIMEOUT`);快照每个元素输出 `loc=`(id/name/aria-label/text 定位链)。
-- **每任务窗口**:每个 DSH 任务一个独立 `BrowserWindow`(createView key);`browser_space` 命名窗口标题并列出全部窗口。
-- **稳定性**:Electron 锁定 42.9.3(43.4.1 组合器故障);capture CDP 回退仅 detach 同窗口视图;截断/挂起防护(per-poll 超时)。
-- **质量**:32/32 测试(FakeHost 行为测试 12 条 + 源码断言/页面 chrome 断言);SDD 全流程评审(每任务 implement->review->fix 循环 + 整支 final review)。
+- **输入工具**:`browser_press_key`(CDP keyDown/keyUp,修饰键位掩码)、`browser_double_click`(clickCount 2)、`browser_hover`(mouseMoved…
+- **等待与定位**:`browser_wait_for`(250ms 有界轮询,`BROWSER_WAIT_TIMEOUT`);
+- **每任务窗口**:每个 DSH 任务一个独立 `BrowserWindow`(createView key);
+- **稳定性**:Electron 锁定 42.9.3(43.4.1 组合器故障);
+- **质量**:32/32 测试(FakeHost 行为测试 12 条 + 源码断言/页面 chrome 断言);
 
 ## v0.2.0 (2026-08-21)
-
 首版 `dsh-browser-plus`:共享可见浏览器、ego 风格页面内工具栏、操作轨迹(trail)面板、用户控制检测、稳定单视图合成。

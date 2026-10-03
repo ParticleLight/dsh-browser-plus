@@ -4,7 +4,7 @@
 
 基于 MIT 许可的 `dsh-browser` 代码基础持续开发，并由 ParticleLight 独立维护。
 
-[![awesome · DSH plugin](https://img.shields.io/badge/awesome-DSH_plugin_%E2%9C%94-red?style=flat)](#)
+[![awesome · DSH plugin](https://img.shields.io/badge/awesome%20%C2%B7%20DSH%20plugin-%E2%9C%94-red?style=flat&labelColor=white)](#)
 [![npm](https://img.shields.io/npm/v/dsh-browser-plus?style=flat&label=npm&color=blue)](https://www.npmjs.com/package/dsh-browser-plus)
 [![downloads](https://img.shields.io/npm/dm/dsh-browser-plus?style=flat&label=downloads&color=blue)](https://www.npmjs.com/package/dsh-browser-plus)
 [![GitHub Stars](https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?style=flat&label=Stars&logo=github)](https://github.com/ParticleLight/dsh-browser-plus)
