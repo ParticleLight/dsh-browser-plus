@@ -904,6 +904,29 @@ await check('the task rows slide instead of jumping', async () => {
   return { list: hit.id, moved: hit.name }
 })
 // 切标签时页面从表面色淡进来；**导航绝不能播**（否则每次加载都闪一下）。
+// 关掉**最后一个**标签：provider 会补一个新标签，而新标签的宿主视图是异步建的 ——
+// 不等它就 showActive 会显示一个还不存在的视图（宿主报 unknown view，而且是条没人接的 rejection）。
+await check('closing the last tab leaves a working one', async () => {
+  const tabsNow = async () => provider.listTabs(session)
+  for (let i = 0; i < 6; i += 1) {
+    const list = await tabsNow()
+    if (list.length <= 1) break
+    await provider.closeTab(session, list[list.length - 1].id)
+    await new Promise(resolve => setTimeout(resolve, 400))
+  }
+  const before = await tabsNow()
+  if (before.length !== 1) throw new Error('could not get down to one tab: ' + before.length)
+  await provider.closeTab(session, before[0].id)
+  await new Promise(resolve => setTimeout(resolve, 1200))
+  const after = await tabsNow()
+  if (after.length !== 1) throw new Error('closing the last tab did not leave exactly one: ' + after.length)
+  // 有牙的那半：补上来的那个标签必须是能用的 —— 视图没被显示出来，导航就会失败。
+  await provider.navigate(session, { url: 'https://example.com/' })
+  await new Promise(resolve => setTimeout(resolve, 900))
+  const url = (await tabsNow()).find(tab => tab.active)?.url ?? ''
+  if (!url.includes('example.com')) throw new Error('the replacement tab could not navigate: ' + url.slice(0, 40))
+  return { tabs: after.length, url: url.slice(0, 18) }
+})
 await check('a tab switch fades the incoming page in, a navigation does not', async () => {
   const pageEval = async script => String((await provider.execute(session, { script })).value)
   const readLog = async () => JSON.parse(await pageEval('JSON.stringify(window.__dshChromeMotion ? window.__dshChromeMotion() : [])'))

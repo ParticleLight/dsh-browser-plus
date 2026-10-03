@@ -763,7 +763,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
    * Close one tab; closing the active tab activates the next. Resolves false when
    * the id is not open in this session, so a miss is distinguishable from a close.
    */
-  closeTab(session: BrowserSessionId, tabId: string): Promise<boolean> {
+  async closeTab(session: BrowserSessionId, tabId: string): Promise<boolean> {
     const s = this.session(session)
     const index = s.tabs.findIndex(tab => tab.id === tabId)
     if (index < 0) return Promise.resolve(false) // idempotent
@@ -773,8 +773,10 @@ export class ElectronBrowserProvider implements BrowserProvider {
       this.host.destroyView(removed.handle)
     }
     if (s.tabs.length === 0) {
-      // Session keeps one blank tab so it stays usable.
-      this.newTab(s)
+      // Session keeps one blank tab so it stays usable. **必须等**：newTab 建宿主视图是异步的，
+      // 先 showActive 会去显示一个还不存在的视图 → 宿主报 unknown view（而且是条没人接的 rejection，
+      // 会串到别的工具调用上报错）。
+      await this.newTab(s)
     } else if (index < s.activeIndex) {
       // Closing a tab before the active one shifts the array left; keep the
       // same tab active by decrementing the index.
@@ -784,7 +786,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
       s.activeIndex = s.tabs.length - 1
     }
     this.showActive(s)
-    return Promise.resolve(true)
+    return true
   }
 
   /** Close every tab and reset to one blank tab. */
@@ -2450,7 +2452,9 @@ export class ElectronBrowserProvider implements BrowserProvider {
 
   /** Notify the host of the active tab; it preserves the human-selected task view. */
   private showActive(s: Session): void {
-    this.host.showView?.(this.activeTab(s).handle)
+    // 让陈旧的一次显示安静地失败：紧接着的操作/切换会把它纠正回来，而一条没人接的
+    // rejection 会以「别的工具调用失败了」的形式冒出来（实测 Ctrl+W 关最后一个标签就是这样）。
+    void Promise.resolve(this.host.showView?.(this.activeTab(s).handle)).catch(() => undefined)
   }
 
   /** Read the current URL of a view through CDP. */
