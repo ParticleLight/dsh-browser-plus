@@ -910,3 +910,13 @@ test('the chrome ships the floating orb for the Agent task', () => {
   assert.ok(script.includes("operation.op === 'task.todos'"), 'the todo patch is applied')
   assert.ok(script.includes('renderOrb()'), 'and the orb re-renders on it')
 })
+
+test('the orb takes pointer events back from the chrome overlay', () => {
+  // 宿主整层是 pointer-events:none（它盖住整个页面），交互元素必须各自开回来。
+  // 漏了这一句的后果不是「画错了」而是「拖不动、悬停不出卡片」—— 球看着好好的，
+  // 事件全从它身上穿过去了（用户实测报的就是这个）。
+  const script = buildPageChromeScript('orb-pointer-check')
+  assert.ok(script.includes('#orb { pointer-events:auto;'), 'the orb re-enables pointer events')
+  assert.ok(script.includes('#orbCard { pointer-events:auto;'), 'and so does its card')
+  assert.ok(script.includes('pointer-events:none'), 'while the overlay layer itself stays transparent to input')
+})
