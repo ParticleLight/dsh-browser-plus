@@ -118,6 +118,11 @@ export interface ChromeWorkspaceState {
      * rounds before this made it visible.
      */
     readonly windowProbe?: string;
+    /** Where the human dragged the floating orb, in page CSS pixels. */
+    readonly orbPosition?: {
+        readonly x: number;
+        readonly y: number;
+    };
 }
 export interface ChromeBootstrapMessage extends ChromeWorkspaceState {
     readonly kind: 'bootstrap';

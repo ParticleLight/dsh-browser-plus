@@ -275,6 +275,13 @@ function saveBookmarksToDisk(): void {
  */
 let chromeBookmarkBar = false
 
+/**
+ * Where the human parked the floating orb. Remembered in the chrome prefs file
+ * rather than in the page: a page-side position is per ORIGIN and would jump
+ * back to the corner on the next site.
+ */
+let chromeOrbPosition: { x: number; y: number } | undefined
+
 let chromePrefsFile: string | undefined
 
 function loadPrefsFromDisk(): void {
@@ -283,12 +290,24 @@ function loadPrefsFromDisk(): void {
     const parsed: unknown = JSON.parse(readFileSync(chromePrefsFile, 'utf8'))
     if (typeof parsed !== 'object' || parsed === null) return
     chromeBookmarkBar = (parsed as { bookmarkBar?: unknown }).bookmarkBar === true
+    const orb = (parsed as { orbPosition?: unknown }).orbPosition
+    if (typeof orb === 'object' && orb !== null) {
+      const { x, y } = orb as { x?: unknown; y?: unknown }
+      if (typeof x === 'number' && typeof y === 'number' && Number.isFinite(x) && Number.isFinite(y)) {
+        chromeOrbPosition = { x: Math.round(x), y: Math.round(y) }
+      }
+    }
   } catch { /* first run, or an unreadable file */ }
 }
 
 function savePrefsToDisk(): void {
   if (chromePrefsFile === undefined) return
-  try { writeFileSync(chromePrefsFile, JSON.stringify({ bookmarkBar: chromeBookmarkBar }, null, 2), 'utf8') } catch { /* read-only profile */ }
+  try {
+    writeFileSync(chromePrefsFile, JSON.stringify({
+      bookmarkBar: chromeBookmarkBar,
+      ...chromeOrbPosition !== undefined ? { orbPosition: chromeOrbPosition } : {},
+    }, null, 2), 'utf8')
+  } catch { /* read-only profile */ }
 }
 
 /** Only these raster types are admitted; anything else keeps the letter fallback. */
@@ -704,7 +723,7 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
   const binding = (params ?? {}) as { name?: unknown; payload?: unknown }
   if (binding.name === '__dshBrowserTaskAction' && typeof binding.payload === 'string') {
     try {
-      const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown; visible?: unknown; tabs?: unknown; action?: unknown; id?: unknown; open?: unknown; left?: unknown; width?: unknown; toIndex?: unknown; cookies?: unknown; pinned?: unknown }
+      const action = JSON.parse(binding.payload) as { type?: unknown; taskKey?: unknown; tabId?: unknown; tasks?: unknown; trail?: unknown; control?: unknown; factor?: unknown; url?: unknown; title?: unknown; visible?: unknown; tabs?: unknown; action?: unknown; id?: unknown; open?: unknown; left?: unknown; width?: unknown; toIndex?: unknown; cookies?: unknown; pinned?: unknown; x?: unknown; y?: unknown }
       // Authenticate before acting: only our injected chrome knows this
       // view's token, so a forged payload never reaches the dispatcher.
       if (!authorizeChromeAction(action, chromeToken)) return
@@ -722,6 +741,13 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
         // the surface every image we already have for them.
         if (workspacePanels.tasks) { pushCachedTaskThumbnails(); pushCachedTaskTodos() }
         queueChromePatch({ op: 'panels.set', panels: workspacePanels })
+      } else if (action.type === 'orb-move'
+        && typeof action.x === 'number'
+        && typeof action.y === 'number'
+        && Number.isFinite(action.x)
+        && Number.isFinite(action.y)) {
+        chromeOrbPosition = { x: Math.round(action.x), y: Math.round(action.y) }
+        savePrefsToDisk()
       } else if (action.type === 'set-control-owner'
         && typeof action.taskKey === 'string'
         && (action.control === 'agent' || action.control === 'human')
@@ -1308,6 +1334,7 @@ function chromeWorkspaceState(selectedTaskKey = visibleTaskKey): ChromeWorkspace
     trail: activeTraceForTask(selectedTaskKey),
     bookmarks: chromeBookmarks,
     bookmarkBar: chromeBookmarkBar,
+    ...chromeOrbPosition !== undefined ? { orbPosition: chromeOrbPosition } : {},
     frameError: chromeFrameError,
     windowProbe: (() => {
       const win = window

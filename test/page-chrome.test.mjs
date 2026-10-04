@@ -283,7 +283,9 @@ test('the frame chrome relays page actions instead of touching its own document'
   assert.ok(frame.includes('onFrameSurface ? activeTabUrl() : location.href'), 'the star saves the page url')
   // 书签栏现在由 frame 那份画：帧视图跟着开关长到 118px（84 + 34），它正好落在 84..118。
   // 页面视图从 118 开始，所以页面不用让位 —— 站点的 position:fixed 头部再也不会被压住。
-  assert.ok(frame.includes('#findBar, #toast { display:none !important }'), 'the frame still hides the popups it would clip')
+  // 悬浮球也是页面表面独有的：frame 只有 84px 高，画在它里面就是工具栏上多一个球（用户实测报过
+  // 「怎么有两个球」—— 两个 chrome 表面跑的是同一份脚本）。
+  assert.ok(frame.includes('#findBar, #toast, #orb, #orbCard { display:none !important }'), 'the frame still hides the popups it would clip, and never draws the orb')
   assert.ok(!frame.includes('#bookmarkBar { display:none'), 'the frame draws the bookmark bar itself now')
   const pageSurface = buildPageChromeScript('t', 'page')
   assert.ok(pageSurface.includes('#tabstrip, #bar, #bookmarkBar, #toolbarRevealZone, #toolbarHide { display:none !important }'), 'the page leaves the bar to the frame')
