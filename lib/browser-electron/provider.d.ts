@@ -317,6 +317,14 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     /** Stable task-key index so callers can recover a session after tool-layer state loss. */
     private readonly sessionsByTask;
     private readonly taskStates;
+    /**
+     * The Agent's todo list per task, kept here as well as in the host.
+     *
+     * The host's copy is in memory and dies with the host process, and the bridge
+     * only pushes on a todo change — so without this cache a host restart left the
+     * floating orb with no plan until the Agent happened to write its list again.
+     */
+    private readonly taskTodos;
     private readonly httpOnly;
     private readonly snapshotMaxElements;
     private readonly contentMaxChars;

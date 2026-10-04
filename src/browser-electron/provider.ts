@@ -716,6 +716,14 @@ export class ElectronBrowserProvider implements BrowserProvider {
   /** Stable task-key index so callers can recover a session after tool-layer state loss. */
   private readonly sessionsByTask = new Map<string, BrowserSessionId>()
   private readonly taskStates = new Map<string, LocalTaskState>()
+  /**
+   * The Agent's todo list per task, kept here as well as in the host.
+   *
+   * The host's copy is in memory and dies with the host process, and the bridge
+   * only pushes on a todo change — so without this cache a host restart left the
+   * floating orb with no plan until the Agent happened to write its list again.
+   */
+  private readonly taskTodos = new Map<string, readonly BrowserTaskTodo[]>()
   private readonly httpOnly: boolean
   private readonly snapshotMaxElements: number
   private readonly contentMaxChars: number
@@ -838,6 +846,12 @@ export class ElectronBrowserProvider implements BrowserProvider {
     const id = `browser:${randomUUID()}`
     this.sessions.set(id, { id, taskKey, taskLabel, tabs: [this.createTab(handle)], activeIndex: 0, history: [], nextSeq: 1 })
     this.sessionsByTask.set(taskKey, id)
+    // A fresh view means a host that may never have seen this task's plan (a host
+    // restart drops the host's copy), so replay what the Agent last wrote.
+    const cachedTodos = this.taskTodos.get(taskKey)
+    if (cachedTodos !== undefined && typeof this.host.setTaskTodos === 'function') {
+      void this.host.setTaskTodos(taskKey, cachedTodos).catch(() => undefined)
+    }
     if (!this.taskStates.has(taskKey)) {
       this.taskStates.set(taskKey, { status: 'idle', control: 'agent', updatedAt: Date.now() })
     }
@@ -2574,6 +2588,7 @@ export class ElectronBrowserProvider implements BrowserProvider {
    * view rather than wait for the next write.
    */
   async pushTaskTodos(taskKey: string, todos: readonly BrowserTaskTodo[]): Promise<void> {
+    this.taskTodos.set(taskKey, todos)
     if (typeof this.host.setTaskTodos !== 'function') return
     await this.host.setTaskTodos(taskKey, todos).catch(() => undefined)
   }

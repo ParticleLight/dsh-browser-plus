@@ -71,17 +71,29 @@ function normalize(value: unknown): TodoItem[] {
  * @param ctx - plugin context carrying the browser seam.
  */
 export function apply(ctx: Context): void {
+  // 一行诊断：这条链路横跨「会话投影 → 桥接行 → provider → 宿主 → 页面」，任一环断掉
+  // 在页面上都只表现为「球上没有清单」，所以每一环都留一句话在 DSH 的 stderr 里。
+  const trace = (line: string): void => { try { process.stderr.write('[browser-task-todos] ' + line + '\n') } catch { /* no stderr */ } }
   const browser = (ctx as unknown as { readonly browser?: TodoSink }).browser
-  if (browser === undefined || typeof browser.pushTaskTodos !== 'function') return
+  if (browser === undefined || typeof browser.pushTaskTodos !== 'function') {
+    trace('skip: the browser seam has no pushTaskTodos')
+    return
+  }
   const push = browser.pushTaskTodos.bind(browser)
+  trace('mounted, waiting for sessionProjections')
   // `ctx.inject` keeps the row loadable when the registry is absent: the
   // callback simply never runs and the browser keeps working without a plan.
   ctx.inject(['sessionProjections'], (scoped: Context) => {
     const registry = (scoped as unknown as { readonly sessionProjections?: ProjectionRegistry }).sessionProjections
-    if (registry === undefined || typeof registry.onChanged !== 'function') return
+    if (registry === undefined || typeof registry.onChanged !== 'function') {
+      trace('sessionProjections arrived without onChanged')
+      return
+    }
+    trace('subscribed to the projection change feed')
     registry.onChanged((session, key, value) => {
       if (key !== 'todos') return
       const taskKey = typeof session?.id === 'string' ? session.id : ''
+      trace('todos for ' + (taskKey === '' ? '(no id)' : taskKey) + ': ' + String(Array.isArray(value) ? value.length : -1) + ' items')
       if (taskKey === '') return
       // The tool layer keys browser tasks by the calling Agent's id, which is the
       // session id — so a plan written by an Agent lands on that Agent's task.
