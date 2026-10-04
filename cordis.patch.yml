@@ -5,6 +5,13 @@
 # and otherwise the plugin self-hosts its own Electron window, so installing
 # the plugin is enough for the browser to work anywhere.
 - insert:
+    # Root row: no behaviour of its own, but the client module system only reads
+    # a package's `dsh.client` from a Loader row whose specifier is the EXACT
+    # package root (a subpath resolves to undefined and is skipped). Without this
+    # row the Web GUI panel is never composed, however many subpath rows exist.
+    - id: browser-plus
+      name: dsh-browser-plus
+
     - id: browser
       name: dsh-browser-plus/browser
 

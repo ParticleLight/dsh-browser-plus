@@ -59,3 +59,24 @@ test('the client half stands down when the services are absent', async () => {
   const exports = entry.factory(() => ({}))
   assert.doesNotThrow(() => exports.apply({ effect(fn) { fn() }, get() { return undefined } }))
 })
+
+test('the bundle patch carries an exact package-root row', async () => {
+  // The client module system resolves a Loader row to a package only when its
+  // specifier is the exact package root; a subpath is skipped silently. This
+  // test is what keeps that row from being dropped as "redundant".
+  const patch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+  const names = [...patch.matchAll(/^\s*-?\s*name:\s*['"]?([^'"\s]+)['"]?\s*$/gm)].map(match => match[1])
+  assert.ok(names.includes('dsh-browser-plus'), 'a row must name the package root: ' + JSON.stringify(names))
+})
+
+test('the package root exports a mountable plugin and declares the client half', async () => {
+  const root = await import('../lib/index.js')
+  assert.equal(root.name, 'browser-plus')
+  assert.equal(typeof root.apply, 'function')
+  assert.doesNotThrow(() => root.apply())
+
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.equal(manifest.dsh.client.platform, 'web')
+  assert.ok(Array.isArray(manifest.dsh.client.inject))
+  assert.equal(manifest.exports['./client'].default, './lib/client.js')
+})
