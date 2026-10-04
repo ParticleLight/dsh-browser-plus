@@ -50,6 +50,7 @@ If another browser bundle is already installed, read the [migration guide](docs/
 | Scenario | Tools |
 | --- | --- |
 | Open and inspect | `browser_open`, `browser_snapshot`, `browser_content`, `browser_screenshot` |
+| Print and highlight | `browser_pdf`, `browser_highlight` |
 | Native navigation | `browser_back`, `browser_forward`, `browser_reload`, `browser_stop`, `browser_scroll` |
 | Snapshot references | `browser_click_ref`, `browser_scroll_into_view` |
 | Page interaction | `browser_click`, `browser_press_key`, `browser_double_click`, `browser_hover`, `browser_type` |
@@ -69,6 +70,15 @@ If another browser bundle is already installed, read the [migration guide](docs/
 | Session | `browser_session`, `browser_reset` |
 
 Snapshots expose a short-lived `snapshotId` plus element references. Prefer reference tools and take a fresh snapshot after the page changes; page-level scripts automatically ignore the browser's own chrome.
+
+## Opening the browser window
+
+The window normally appears the first time the agent calls a browser tool. A human can open it too, two ways:
+
+- **The `/browser` command** — type `/` in the composer (or click `+`) and pick it; the window opens or is raised, and **no model message is produced**.
+- **The shared-browser tab in the right sidebar** — pick it from the rightbar's add list: the window comes up as the panel opens, and the panel keeps a button for raising it again plus the current task count.
+
+> The product's own browser tab is a different thing: DSH's sandboxed iframe browser, unrelated to this self-hosted window.
 
 ## How it works
 

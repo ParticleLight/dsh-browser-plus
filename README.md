@@ -50,6 +50,7 @@ dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 | 场景 | 工具 |
 | --- | --- |
 | 打开与读取 | `browser_open`、`browser_snapshot`、`browser_content`、`browser_screenshot` |
+| 打印与高亮 | `browser_pdf`、`browser_highlight` |
 | 语义导航 | `browser_back`、`browser_forward`、`browser_reload`、`browser_stop`、`browser_scroll` |
 | 快照引用 | `browser_click_ref`、`browser_scroll_into_view` |
 | 页面交互 | `browser_click`、`browser_press_key`、`browser_double_click`、`browser_hover`、`browser_type` |
@@ -69,6 +70,15 @@ dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 | 会话 | `browser_session`、`browser_reset` |
 
 快照返回短生命周期的 `snapshotId` 与元素引用；优先用 `browser_click_ref` 或 `browser_scroll_into_view` 操作，页面变化后重新快照。页面级脚本会自动过滤浏览器自身 chrome。
+
+## 打开浏览器窗口
+
+窗口默认只在 Agent 第一次调用浏览器工具时出现。人也可以自己打开它，有两个入口：
+
+- **`/browser` 命令** —— 在输入框敲 `/`（或点 `+`）选「浏览器」，回车即打开或前置窗口。它**不产生模型消息**，只是把窗口带到眼前。
+- **右侧栏「共享浏览器」** —— 在右侧栏的「添加」列表里选它，面板打开的同时窗口就被带出来了；面板里还有一个按钮可以随时再前置一次，并显示当前有几个浏览器任务。
+
+> 右侧栏里 DSH 自带的「浏览器」是另一个东西：那是 DSH 自己的沙箱 iframe 浏览器，与这个自托管窗口无关。
 
 ## 工作方式
 
