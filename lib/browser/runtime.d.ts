@@ -220,6 +220,11 @@ export declare class BrowserRuntime extends Service {
     updateTask(session: BrowserSessionId, update: BrowserTaskUpdate): Promise<BrowserTaskInfo>;
     /** Mark one session as waiting for the user or returned to Agent control. */
     setHandoff(session: BrowserSessionId, state: BrowserHandoffState): Promise<BrowserTaskInfo>;
+    /**
+     * Bring the shared browser window to the front through the selected
+     * provider, opening it when nothing is open yet.
+     */
+    ensureWindowVisible(): Promise<void>;
     /** Close the session through the selected provider. Idempotent; a missing
      *  provider is treated as already-closed so teardown paths stay no-ops. */
     close(session: BrowserSessionId): Promise<void>;

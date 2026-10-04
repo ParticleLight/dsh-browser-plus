@@ -2030,6 +2030,19 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         reply(msg.id, { ok: true })
         return
       }
+      case 'focusWindow': {
+        const viewId = msg.viewId
+        if (viewId === undefined) throw new Error('focusWindow missing viewId')
+        if (!views.has(viewId)) throw new Error(`focusWindow: unknown view ${viewId}`)
+        const win = ensureWindow()
+        // The same three steps capture uses: a minimized window has to be
+        // restored, and a window behind another one only comes forward on focus.
+        try { if (!win.isVisible()) win.show() } catch { /* closing */ }
+        try { win.restore() } catch { /* not minimized */ }
+        try { win.focus() } catch { /* closing */ }
+        reply(msg.id, { ok: true })
+        return
+      }
       case 'label': {
         const viewId = msg.viewId
         const label = msg.label

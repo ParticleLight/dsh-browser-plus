@@ -490,6 +490,11 @@ class RemoteView implements ElectronViewHandle {
     return this.client.call<{ base64: string }>('printToPdf', { viewId: this.id, options }, RPC_TRANSFER_TIMEOUT_MS)
   }
 
+  /** Raise the child's window (show + restore + focus). */
+  focusWindow(): Promise<void> {
+    return this.client.call<Record<string, never>>('focusWindow', { viewId: this.id }, RPC_COMMAND_TIMEOUT_MS).then(() => undefined)
+  }
+
   /** Export the session's cookies (login state). */
   flushAuth(): Promise<ExportedCookie[]> {
     return this.client.call<{ cookies: ExportedCookie[] }>('flushAuth', { viewId: this.id }, RPC_COMMAND_TIMEOUT_MS).then(r => r.cookies)
@@ -944,6 +949,10 @@ export class DeferredRemoteView implements ElectronViewHandle {
 
   async printToPdf(options: Record<string, unknown>): Promise<{ base64: string }> {
     return this.withView(view => view.printToPdf(options))
+  }
+
+  async focusWindow(): Promise<void> {
+    return this.withView(view => view.focusWindow())
   }
 
   async download(url: string, savePath: string): Promise<void> {

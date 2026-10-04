@@ -15,3 +15,14 @@
 
     - id: tool-browser
       name: dsh-browser-plus/tool-browser
+
+    # Human-facing `/browser`: opens/raises the shared window without the model.
+    # Its own row on purpose — a composition without the command registry must
+    # still get the tools above.
+    - id: browser-command
+      name: dsh-browser-plus/command-browser
+
+    # The Web GUI panel's bridge: opens/raises the window from a button in the
+    # right sidebar. Needs the web server, so it is its own row too.
+    - id: browser-http
+      name: dsh-browser-plus/http-browser

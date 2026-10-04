@@ -460,6 +460,18 @@ export class BrowserRuntime extends Service {
     return this.resolveProvider().setHandoff(session, state)
   }
 
+  /**
+   * Bring the shared browser window to the front through the selected
+   * provider, opening it when nothing is open yet.
+   */
+  async ensureWindowVisible(): Promise<void> {
+    const provider = this.resolveProvider()
+    if (provider.ensureWindowVisible === undefined) {
+      throw new BrowserError('browser: this provider has no window to open', 'BROWSER_WINDOW_UNSUPPORTED')
+    }
+    return provider.ensureWindowVisible()
+  }
+
   /** Close the session through the selected provider. Idempotent; a missing
    *  provider is treated as already-closed so teardown paths stay no-ops. */
   async close(session: BrowserSessionId): Promise<void> {

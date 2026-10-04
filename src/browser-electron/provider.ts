@@ -245,6 +245,12 @@ export interface ElectronViewHandle {
    * @param options - Electron PrintToPDFOptions (pageSize in microns).
    */
   printToPdf?(options: Record<string, unknown>): Promise<{ readonly base64: string }>
+  /**
+   * Raise this view's window (show + restore + focus). Optional: a host that
+   * owns no window omits it. Distinct from the provider's own show/switch
+   * path, which deliberately leaves a human-selected visible task alone.
+   */
+  focusWindow?(): Promise<void>
 }
 
 /** Internal selector and fingerprint captured for one snapshot element. */
@@ -2654,6 +2660,27 @@ export class ElectronBrowserProvider implements BrowserProvider {
       }
       default:
         throw new BrowserError(`browser: history seq ${seq} action "${entry.action}" is not replayable`, 'BROWSER_HISTORY_NOT_REPLAYABLE')
+    }
+  }
+
+  /**
+   * Put the shared window on screen and raise it. With no session yet this
+   * opens the default one, which spawns the host and creates the first view —
+   * that is what makes the window appear. With a session already open the
+   * window exists, so it only has to be raised.
+   */
+  async ensureWindowVisible(): Promise<void> {
+    // With no session yet this opens the default one. Its handle is lazy —
+    // `createView` only records a deferred view — so the raise below is ALSO
+    // what spawns the host and puts the window on screen. Returning right after
+    // `open()` would leave the window to appear whenever some later call
+    // happened to materialize the view.
+    if (this.sessions.size === 0) await this.open()
+    for (const s of this.sessions.values()) {
+      const tab = s.tabs[s.activeIndex] ?? s.tabs[0]
+      if (tab === undefined) continue
+      if (tab.handle.focusWindow !== undefined) await tab.handle.focusWindow()
+      return
     }
   }
 

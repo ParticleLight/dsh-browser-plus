@@ -394,6 +394,24 @@ test('pdf prefers the host print path over CDP and converts inches to microns', 
   }
 })
 
+test('ensureWindowVisible opens the default session once, then only raises the window', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  let focused = 0
+  const createView = host.createView.bind(host)
+  host.createView = (key, label) => {
+    const view = createView(key, label)
+    view.focusWindow = async () => { focused += 1 }
+    return view
+  }
+  await provider.ensureWindowVisible()
+  assert.equal(host.createViewArgs.length, 1, 'the first call opens the default session')
+  assert.equal(focused, 1, 'the first call must also raise: that RPC is what materializes the lazy view')
+  await provider.ensureWindowVisible()
+  assert.equal(focused, 2, 'the second call raises the existing window')
+  assert.equal(host.createViewArgs.length, 1, 'the second call must not open another session')
+})
+
 test('pdf refuses a path outside the write roots before printing', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-pdf-out-'))
   try {

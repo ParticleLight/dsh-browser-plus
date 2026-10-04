@@ -22,6 +22,17 @@
       "types": "./lib/tool-browser/index.d.ts",
       "default": "./lib/tool-browser/index.js"
     },
+    "./command-browser": {
+      "types": "./lib/command-browser/index.d.ts",
+      "default": "./lib/command-browser/index.js"
+    },
+    "./http-browser": {
+      "types": "./lib/http-browser/index.d.ts",
+      "default": "./lib/http-browser/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
     "./host-main": {
       "default": "./lib/browser-electron/host-main.js"
     },
@@ -31,6 +42,7 @@
   "files": [
     "lib",
     "src",
+    "client",
     "docs",
     "assets",
     "scripts",
@@ -43,8 +55,9 @@
     "NOTICE.md"
   ],
   "scripts": {
-    "build": "npm run build:icons && tsc -p tsconfig.json",
+    "build": "npm run build:icons && tsc -p tsconfig.json && npm run build:client",
     "build:icons": "node scripts/build-icons.mjs",
+    "build:client": "node scripts/build-client.mjs",
     "pretest": "tsc -p tsconfig.json",
     "test": "node --test test/*.test.mjs",
     "test:only": "node --test test/*.test.mjs",
@@ -89,6 +102,13 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ],
+      "platform": "web"
     }
   },
   "optionalDependencies": {

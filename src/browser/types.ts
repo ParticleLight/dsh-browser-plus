@@ -688,6 +688,13 @@ export interface BrowserProvider {
   setHandoff(session: BrowserSessionId, state: BrowserHandoffState): Promise<BrowserTaskInfo>
   /** Close the session and destroy its backing surface. Idempotent. */
   close(session: BrowserSessionId): Promise<void>
+  /**
+   * Bring the shared browser window to the front, creating it (and a default
+   * session) when nothing is open yet. Optional: a provider whose browser has
+   * no window of its own omits it, and callers must report that as unsupported
+   * rather than pretending a window was raised.
+   */
+  ensureWindowVisible?(): Promise<void>
 }
 
 /** One recorded browser operation, in chronological order (seq 1, 2, 3…). */
