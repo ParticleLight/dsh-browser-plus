@@ -2,23 +2,21 @@
 
 ## v0.5.1 (开发中)
 ### 新功能
-- **网页右下角多了一个悬浮球：Agent 在浏览器里干什么，一眼看得见** —— 一个 46px 的圆（chrome 注入，每页都有，半透明、可拖动、位置记在宿主的 `chrome-prefs.json` 里）。Agent 干活时**蓝色弧线转圈**，角标显示它的 todo 进度（`2/4`）；鼠标停上去弹出卡片：**Agent 的 todo 清单**（进行中转圈 / 已完成 ✓ / 待办 ○）+ 底部一行**现在执行**的具体动作（`click page` 这种）。空闲只剩一个标记，失败 `!`，等人工操作是黄色暂停。
-  - 数据来源是 DSH 自己的 `todo_write`：新增插件行 `browser-task-todos` 订阅会话投影的 `todos`，按**会话 id = 浏览器任务 key** 推给对应任务；**依赖全是可选的**（没有投影服务就什么都不做，浏览器其它功能照常）。
-  - **todo 清单只发给当前可见任务**（和任务缩略图同一个道理：任务摘要会被注入每个访问过的页面的主世界，而 Agent 的计划不该进那里）。
-  - 卡片会**翻面**：球拖到屏幕上方时卡片放到下面，不会盖住球自己；存下来的坐标每次应用都重新夹进视口（窗口变小 / 换显示器也不会把球丢在屏幕外）。
-- **人和 Agent 都能开窗了** —— 以前窗口只在 Agent 第一次调用浏览器工具时出现，人没法主动打开。现在有两个入口：**`/browser` 斜杠命令**（打开或前置窗口，**不产生模型消息**），以及右侧栏「添加」列表里的**「DSH-Browser-Plus」面板**（点开即把窗口带出来，面板里还有按钮可以再前置一次，并显示当前任务数；名字和图标都是插件自己的，不会和 DSH 自带的「浏览器」撞名）。
-- **`browser_snapshot` 现在能看进 iframe** —— 同源子框架会递归走一遍，里面的元素带 `frame` 序号、坐标已加上框架自身的偏移（所以 ref 照样能点 —— 解析器会先进入对应框架）；**跨源**框架读不到内容，就明确记一条 `readable: false`，不假装能读。
-- **新增 `browser_highlight`** —— 把匹配选择器的第一个元素用 **DevTools 那套高亮框**画出来（人在看窗口时能看清 Agent 要动哪里）：走 CDP 的 `Overlay.highlightNode`，**完全不碰页面 DOM**；返回是否命中、节点 id 和元素在 CSS 像素里的盒子；`clear: true` 清掉。
-- **新增 `browser_pdf`** —— 把当前标签页打印成 PDF（相当于 Chrome 的「另存为 PDF」）：`savePath` 必须落在浏览器写根内（和截图、下载同一套校验）；可选 `landscape`、`printBackground`（默认开 —— 否则深色页面会打成白纸）、`paperWidth` / `paperHeight`（英寸）。真机复验时发现 **Electron 的 debugger 没有 CDP `Page.printToPDF`**（报 `'Page.printToPDF' wasn't found`），所以改走宿主新增的 `printToPdf` op（`webContents.printToPDF`，`pageSize` 单位是微米 —— 工具层的英寸在宿主侧换算）；写盘仍复用 `resolveWritePath`。
-- **`browser_wait_for` 能等文字、也能等东西消失** —— 新增 `text`（有选择器就在元素里找、没有就查整篇文档）与 `state`（`visible` 默认、`attached` 只要存在、`hidden` / `detached` 等它消失）；`visible: false` 仍映射到 `attached`。
+- **网页右下角的悬浮球：Agent 在浏览器里干什么，一眼看得见** —— 半透明、可拖动（位置存在宿主），干活时转圈、角标是 todo 进度，悬停弹出清单与「现在执行」的动作。
+- **人和 Agent 都能开窗了** —— `/browser` 斜杠命令（不产生模型消息）+ 右侧栏「DSH-Browser-Plus」面板，不再只能等 Agent 第一次调用工具。
+- **`browser_snapshot` 能看进 iframe** —— 同源框架递归遍历，元素带 `frame` 序号且坐标已加偏移（ref 照样能点）；跨源明确标 `readable: false`。
+- **新增 `browser_highlight`** —— 用 DevTools 那套高亮框标出元素（走 CDP `Overlay`，完全不碰页面 DOM）。
+- **新增 `browser_pdf`** —— 打印当前标签页；Electron 的 debugger 没有 CDP `Page.printToPDF`，改走宿主 `webContents.printToPDF`。
+- **`browser_wait_for` 能等文字、也能等东西消失** —— 新增 `text` 与 `state`（`attached` / `hidden` / `detached`）。
 ### 优化
-- **两种等法直接拒绝，不空等到超时** —— 既没选择器也没文字、`hidden`/`detached` 却没给选择器（不知道等谁消失）→ `BROWSER_WAIT_INVALID`。
+- **等不了的情况直接报错** —— 既没选择器也没文字、或要等消失却没给选择器 → `BROWSER_WAIT_INVALID`，不空等到超时。
 ### 修复
-- **修：页面脚本能读到 Agent 的计划** —— 注入的 chrome（工具栏、标签栏、悬浮球）以前跑在页面自己的 JavaScript 世界里，于是任何被访问的网页只要 hook `Map.prototype.set` 或 `document.createElement`，就能拿到 Agent 的 todo 清单与任务状态。现在 chrome 默认跑在**隔离世界**（`chromeWorld: 'isolated'`，chrome 的全局对页面脚本一律是 `undefined`），DOM、事件、CDP 输入与补丁通道都不变 —— 实测隔离模式下工具栏照常挂载并渲染（1386px 满宽），而页面对 `__dshBrowserTaskAction` / `__dshTasks` / `__dshTrail` 读到的都是 `undefined`。想要旧行为（例如二分排查）可以显式配 `chromeWorld: 'main'`。
-- **修：面板的两个 HTTP 路由能被别的网站调用** —— 它们没有认证、只查了 method，而浏览器里任何网页都能对 localhost 发一个**不带预检的 POST**，于是别人的页面可以把我们的浏览器窗口弹出来（CSRF）。现在要求 `Origin` 与 `Host` 一致；同源的面板与无 Origin 的调用方（curl、冒烟脚本）不受影响。
-- **修：任务面板里点另一条任务没反应** —— 任务行的点击处理器读的是 `row.dataset.dshTaskKey`，而行是列表复用器 `reconcileList` 用 `dataset.dshKey` 建的 —— 那个属性**全文件没有任何地方写过**，于是每次点击都在「key 是不是非空字符串」那一步静默退出，`switch-task` 从来没发出去过（面板反而自己关掉）。同一个错字还让任务补丁的按 key 查找永远落空 —— 每次任务更新都退化成整表重渲染。三处统一成 `dshKey`，并顺手修掉那条死路径里的 `row.disabled = false`（它一旦生效会把「当前任务」那行错误地变成可点）。**这个 bug 能活到现在，是因为一条测试把错字当成正确行为钉住了**（断言写的就是 `dshTaskKey`）—— 那条断言已改，并新增一条守卫。
-- **修：任务面板里只有当前任务有缩略图** —— 任务图像只走定向的 `task.thumbnail` 补丁、且**只发给当前可见任务**（图像是屏幕内容，而任务摘要会被注入每个访问过的页面的主世界，所以摘要里永远不带图）。结果面板里除当前任务外全是 `DSH` 占位符 —— 哪怕那条任务之前被看过、宿主手里也存着它的图。现在宿主在**面板打开**与**切任务**这两个时刻，把手里已有的图重放给可见表面。
-- **修：书签栏会压住网页内容** —— 书签栏以前是画在**页面内部**的浮层，页面靠 `padding-top` 让位，而 `position: fixed` 的内容**不认 padding** → 站点的固定头部会被它压掉一截（真机 github.com 实测：72px 的头部顶上 34px 被盖住）。现在书签栏和顶栏一样**占视图的高度**：帧视图跟着开关长到 118px（84 + 34），页面视图从 118 开始，页面**一点也不用让位** —— 改后 `paddingTop` 0、页面视口 749（原 783）、头部从最顶上就露出来。
+- **页面脚本能读到 Agent 的计划** —— 注入的 chrome 改跑**隔离世界**（`chromeWorld: 'isolated'`），页面对 `__dsh*` 全局一律 `undefined`；DOM、事件与补丁通道不变，显式配 `main` 可回到旧行为。
+- **面板的两个 HTTP 路由能被别的网站调用** —— 要求 `Origin` 与 `Host` 一致；同源面板与 curl 不受影响。
+- **任务面板里点另一条任务没反应** —— 点击读的 `dataset.dshTaskKey` 全文件没有任何地方写过（列表用 `dshKey` 建行），三处统一。
+- **任务面板里只有当前任务有缩略图** —— 图像只发给可见表面；现在面板打开与切任务时把手里已有的图重放一次。
+- **书签栏会压住网页内容** —— 改成和顶栏一样占视图高度（帧 84 → 118px），页面不再靠 `padding-top` 让位。
+> 每条改动的背景、真机证据与踩过的坑，见对应提交信息。
 
 ## v0.5.0 (2026-10-03)
 ### 新功能
