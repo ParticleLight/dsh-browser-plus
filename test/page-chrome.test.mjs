@@ -929,3 +929,13 @@ test('the orb card flips below the orb when there is no room above', () => {
   assert.ok(script.includes('box.bottom + gap'), 'and falls back to below the orb')
   assert.ok(script.includes('window.innerHeight - height - gap'), 'still clamped to the viewport')
 })
+
+test('a saved orb position is clamped back into a smaller window', () => {
+  // 位置存在宿主（chrome-prefs.json）里，是在**当时那个窗口**量的。窗口变小/换显示器之后
+  // 旧坐标可能已经在屏幕外 —— 球就再也拖不回来了，而且那个坏坐标会一直存着。
+  const script = buildPageChromeScript('orb-clamp')
+  assert.ok(script.includes('const clampOrbPos = (x, y) =>'), 'there is one clamp helper')
+  assert.ok(script.includes('orbPos = clampOrbPos(orbPos.x, orbPos.y)'), 'the saved position is clamped when applied')
+  assert.ok(script.includes("window.addEventListener('resize', () => { applyOrbPos();"), 'and re-clamped when the window changes')
+  assert.ok(!script.includes('const maxX = Math.max(8, window.innerWidth - orb.offsetWidth - 8)'), 'the drag uses the shared clamp instead of its own copy')
+})

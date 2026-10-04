@@ -28,6 +28,7 @@ export const STATUS_PATH = '/api/dsh-browser-plus/status'
 /** The request fields these handlers read. */
 interface WebRequest {
   readonly method?: string
+  readonly headers?: Record<string, string | string[] | undefined>
 }
 
 /** The response surface these handlers use (a subset of `ServerResponse`). */
@@ -60,6 +61,32 @@ function sendJson(res: WebResponse, status: number, payload: unknown): void {
   res.end(JSON.stringify(payload))
 }
 
+/** Read one request header as a single string. */
+function headerValue(req: WebRequest, name: string): string {
+  const raw = req.headers?.[name]
+  return Array.isArray(raw) ? (raw[0] ?? '') : (raw ?? '')
+}
+
+/**
+ * Refuse a request that a page on another site made.
+ *
+ * These two endpoints are unauthenticated and only open a window / report a task
+ * count — but any web page can POST to localhost without a preflight, so without
+ * this check a random site could pop our browser window open. The panel's own
+ * fetch is same-origin, so its Origin always matches the Host we were reached on.
+ */
+function fromAnotherSite(req: WebRequest): boolean {
+  const origin = headerValue(req, 'origin')
+  if (origin === '') return false
+  try {
+    const parsed = new URL(origin)
+    const host = headerValue(req, 'host')
+    return host === '' || parsed.host !== host
+  } catch {
+    return true
+  }
+}
+
 /** One line for the panel to show; never a stack. */
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -77,6 +104,10 @@ export function apply(ctx: Context, _config: unknown = {}): void {
         sendJson(res, 405, { ok: false, error: 'method not allowed' })
         return
       }
+      if (fromAnotherSite(req)) {
+        sendJson(res, 403, { ok: false, error: 'cross-site request refused' })
+        return
+      }
       try {
         await ctx.browser.ensureWindowVisible()
         sendJson(res, 200, { ok: true })
@@ -91,6 +122,10 @@ export function apply(ctx: Context, _config: unknown = {}): void {
     handler: async (req, res) => {
       if (req.method !== 'GET') {
         sendJson(res, 405, { ok: false, error: 'method not allowed' })
+        return
+      }
+      if (fromAnotherSite(req)) {
+        sendJson(res, 403, { ok: false, error: 'cross-site request refused' })
         return
       }
       try {

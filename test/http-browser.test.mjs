@@ -89,3 +89,31 @@ test('a composition without a web server is left alone', () => {
   const ctx = { effect(fn) { fn() }, browser: { ensureWindowVisible: async () => {}, listTasks: async () => [] } }
   assert.doesNotThrow(() => apply(ctx))
 })
+
+test('a page on another site cannot pop our window open', async () => {
+  // 这两个端点没有认证，而任何网页都能对 localhost 发不带预检的 POST —— 没有这道门，
+  // 随便一个网站就能把我们的浏览器窗口弹出来（2026-10-04 review 发现）。
+  let opened = 0
+  const { ctx, web } = context({ ensureWindowVisible: async () => { opened += 1 } })
+  apply(ctx)
+  const open = web.routes.find(route => route.path === OPEN_PATH)
+  const status = web.routes.find(route => route.path === STATUS_PATH)
+
+  const hostile = response()
+  await open.handler({ method: 'POST', headers: { origin: 'https://evil.example', host: '127.0.0.1:3080' } }, hostile)
+  assert.equal(hostile.statusCode, 403)
+  assert.equal(opened, 0, 'the window was not opened')
+
+  const sameOrigin = response()
+  await open.handler({ method: 'POST', headers: { origin: 'http://127.0.0.1:3080', host: '127.0.0.1:3080' } }, sameOrigin)
+  assert.equal(sameOrigin.statusCode, 200)
+  assert.equal(opened, 1)
+
+  const noOrigin = response()
+  await open.handler({ method: 'POST' }, noOrigin)
+  assert.equal(noOrigin.statusCode, 200, 'a client without an Origin header (curl, the smoke suite) still works')
+
+  const hostileStatus = response()
+  await status.handler({ method: 'GET', headers: { origin: 'https://evil.example', host: '127.0.0.1:3080' } }, hostileStatus)
+  assert.equal(hostileStatus.statusCode, 403)
+})
