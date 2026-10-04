@@ -281,8 +281,12 @@ test('the frame chrome relays page actions instead of touching its own document'
   assert.ok(frame.includes("if (CHROME_SURFACE !== 'frame') {"), 'no zoom compensation on the frame')
   // Bookmarking from the frame must save the PAGE's url, not the frame's.
   assert.ok(frame.includes('onFrameSurface ? activeTabUrl() : location.href'), 'the star saves the page url')
-  // frame 只有 84px 高：书签栏留在那儿会把文档撑出滚动条（真机截图右边那条带箭头的）。
-  assert.ok(frame.includes('#findBar, #toast, #bookmarkBar { display:none !important }'), 'the frame leaves the bookmark bar to the page copy')
+  // 书签栏现在由 frame 那份画：帧视图跟着开关长到 118px（84 + 34），它正好落在 84..118。
+  // 页面视图从 118 开始，所以页面不用让位 —— 站点的 position:fixed 头部再也不会被压住。
+  assert.ok(frame.includes('#findBar, #toast { display:none !important }'), 'the frame still hides the popups it would clip')
+  assert.ok(!frame.includes('#bookmarkBar { display:none'), 'the frame draws the bookmark bar itself now')
+  const pageSurface = buildPageChromeScript('t', 'page')
+  assert.ok(pageSurface.includes('#tabstrip, #bar, #bookmarkBar, #toolbarRevealZone, #toolbarHide { display:none !important }'), 'the page leaves the bar to the frame')
   // ⚠️ 这段必须写在 `const CHROME_SURFACE` **之后** —— 写在前面会 TDZ 抛死整个 mount
   // （2026-10-03 真踩过：两个 chrome 表面一起消失，只有 data-dsh-chrome-error 说得清）。
   assert.ok(frame.includes("if (CHROME_SURFACE === 'frame') {\n      document.documentElement.style.overflow = 'hidden'"), 'the frame can never grow a scrollbar (the shadow sheet cannot style the outer html)')
@@ -857,4 +861,24 @@ test('popup anchoring converts page px into the zoomed chrome space', () => {
   assert.match(script, /return \{ left: left \* z, top: top \* z, usable: usable \* z, viewportHeight: viewportHeight \* z \}/)
   assert.match(script, /popup\.style\.left = clamped \* z \+ 'px'/)
   assert.match(script, /popup\.style\.width = usable \* z \+ 'px'/)
+})
+
+test('every surface generates syntactically valid javascript', async () => {
+  // 字符串断言抓不到转义错误。2026-10-04 真踩过：我在 page-chrome 的字符串数组里
+  // 多转义了一层 → 生成的页面脚本语法错 → 两个 chrome 表面全空（截图里顶部一条暗带）。
+  // 把生成的脚本交给 node 自己的解析器，一秒就能抓住这一类。
+  const { execFileSync } = await import('node:child_process')
+  const { writeFileSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  for (const surface of ['full', 'frame', 'page']) {
+    const script = buildPageChromeScript('tok', surface)
+    const file = join(tmpdir(), 'dsh-chrome-' + surface + '-' + String(process.pid) + '.js')
+    writeFileSync(file, script)
+    try {
+      execFileSync(process.execPath, ['--check', file], { stdio: 'pipe' })
+    } finally {
+      rmSync(file, { force: true })
+    }
+  }
 })

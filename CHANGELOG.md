@@ -1,6 +1,7 @@
 # Changelog
 
 ## v0.5.1 (开发中)
+- **修：书签栏会压住网页内容** —— 书签栏以前是画在**页面内部**的浮层 ✓，页面靠 `padding-top` 让位 ✓，而 `position: fixed` 的内容**不认 padding** ✗ → 站点的固定头部会被它压掉一截 ✓（真机 github.com 实测：72px 的头部顶上 34px 被盖住 ✗）。现在书签栏和顶栏一样**占视图的高度** ✓：帧视图跟着开关长到 118px（84 + 34）✓，页面视图从 118 开始 ✓，页面**一点也不用让位** ✓✓ —— 改后 `paddingTop` 0 ✓、页面视口 749（原 783）✓、头部从最顶上就露出来 ✓。
 - **`browser_snapshot` 现在能看进 iframe** —— 同源子框架会递归走一遍 ✓，里面的元素带 `frame` 序号 ✓、坐标已加上框架自身的偏移 ✓（所以 ref 照样能点 ✓ —— 解析器会先进入对应框架 ✓）；**跨源**框架读不到内容 ✓，就明确记一条 `readable: false` ✓，不假装能读 ✓。
 - **新增 `browser_highlight`** —— 把匹配选择器的第一个元素用 **DevTools 那套高亮框**画出来 ✓（人在看窗口时能看清 Agent 要动哪里 ✓）：走 CDP 的 `Overlay.highlightNode` ✓，**完全不碰页面 DOM** ✓；返回是否命中 ✓、节点 id ✓ 和元素在 CSS 像素里的盒子 ✓；`clear: true` 清掉 ✓。
 - **新增 `browser_pdf`** —— 把当前标签页打印成 PDF（相当于 Chrome 的「另存为 PDF」）✓：`savePath` 必须落在浏览器写根内 ✓（和截图、下载同一套校验 ✓）；可选 `landscape` ✓、`printBackground`（默认开 ✓ —— 否则深色页面会打成白纸 ✓）、`paperWidth` / `paperHeight`（英寸 ✓）。**不用改宿主** ✓ —— provider 直接发 `Page.printToPDF` ✓，写盘复用 `resolveWritePath` ✓。

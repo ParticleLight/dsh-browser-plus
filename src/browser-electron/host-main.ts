@@ -599,6 +599,17 @@ function makeWindow(): BrowserWindow {
  * the page and swallow clicks in the top 84px (the chrome is drawn there today).
  */
 const CHROME_FRAME_HEIGHT = 84
+/** Height of the bookmark bar when it is shown. It becomes part of the chrome frame. */
+const BOOKMARK_BAR_HEIGHT = 34
+/**
+ * How tall the chrome frame is right now: tab strip + toolbar, plus the bookmark
+ * bar when it is on. The page view starts below ALL of it, so a site's
+ * `position: fixed` header can never end up hidden under the bar — the same
+ * reason the toolbar itself lives in a view instead of a page padding.
+ */
+function chromeFrameHeight(): number {
+  return CHROME_FRAME_HEIGHT + (chromeBookmarkBar ? BOOKMARK_BAR_HEIGHT : 0)
+}
 let chromeFrame: WebContentsView | undefined
 /** Why the frame view could not be created, if it could not. Published to the chrome. */
 let chromeFrameError = ''
@@ -727,6 +738,9 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
         // The bar is a profile-wide preference, so the host owns it and the
         // chrome reads it back from the bootstrap / patch stream.
         chromeBookmarkBar = action.visible
+    // 书签栏现在占的是帧视图的高度，所以开关一变就得重排：
+    // 只发 patch 的话，帧还是 84px 高、页面视图还从 84 开始 —— 书签栏就会压住页面。
+    layoutViews()
         savePrefsToDisk()
         queueChromePatch({ op: 'bookmarkbar.set', visible: chromeBookmarkBar })
       } else if (action.type === 'bookmark-remove' && typeof action.url === 'string') {
@@ -903,7 +917,7 @@ function ensureChromeFrame(): void {
     // did nothing (its binding was never installed).
     try { frame.webContents.debugger.attach('1.3') } catch { /* already attached */ }
     win.contentView.addChildView(frame)
-    frame.setBounds({ x: 0, y: 0, width: win.getContentSize()[0] ?? 0, height: CHROME_FRAME_HEIGHT })
+    frame.setBounds({ x: 0, y: 0, width: win.getContentSize()[0] ?? 0, height: chromeFrameHeight() })
     // HIDDEN until the frame's chrome can drive the page. A visible frame sits on
     // top of the page view, so a person's clicks land on it — and the frame's
     // chrome can only do the things it can do *in its own document* today: its
@@ -955,11 +969,12 @@ function layoutViews(): void {
     try {
       // Below the chrome frame: the page viewport is genuinely smaller now, so a
       // sticky/fixed header lands at the top of the page instead of under the chrome.
+      const frameHeight = chromeFrameHeight()
       entry.webContentsView.setBounds({
         x: 0,
-        y: CHROME_FRAME_HEIGHT,
+        y: frameHeight,
         width: width ?? 0,
-        height: Math.max(0, (height ?? 0) - CHROME_FRAME_HEIGHT),
+        height: Math.max(0, (height ?? 0) - frameHeight),
       })
     } catch { /* destroyed */ }
   }
@@ -975,7 +990,7 @@ function raiseChromeFrame(): void {
   try { win.contentView.removeChildView(chromeFrame) } catch { /* not attached */ }
   try {
     win.contentView.addChildView(chromeFrame)
-    chromeFrame.setBounds({ x: 0, y: 0, width: win.getContentSize()[0] ?? 0, height: CHROME_FRAME_HEIGHT })
+    chromeFrame.setBounds({ x: 0, y: 0, width: win.getContentSize()[0] ?? 0, height: chromeFrameHeight() })
   } catch { /* destroyed */ }
 }
 
