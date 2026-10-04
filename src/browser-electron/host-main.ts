@@ -9,7 +9,8 @@
  *   <- { id, op: 'ping' } | { id, op: 'createView', viewId, key?, label? } |
  *      { id, op: 'destroyView', viewId } | { id, op: 'showView', viewId } |
  *      { id, op: 'label', viewId, label } | { id, op: 'listWindows' } |
- *      { id, op: 'command', viewId, method, params }
+ *      { id, op: 'command', viewId, method, params } |
+ *      { id, op: 'printToPdf', viewId, options }
  *   -> { id, ok: true, result? } | { id, ok: false, err }
  *
  * The parent never parses stderr, so diagnostics may go there freely.
@@ -1657,7 +1658,7 @@ function authorizeChromeAction(action: unknown, token: string): boolean {
 }
 
 /** Handle one command. */
-async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean; behavior?: string; promptText?: string; clear?: boolean }): Promise<void> {
+async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean; behavior?: string; promptText?: string; clear?: boolean; options?: Record<string, unknown> }): Promise<void> {
   try {
     switch (op) {
       case 'ping':
@@ -2155,6 +2156,18 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         reply(msg.id, { ok: true, result: { base64, width: 0, height: 0 } })
         return
       }
+      case 'printToPdf': {
+        const viewId = msg.viewId
+        if (viewId === undefined) throw new Error('printToPdf missing viewId')
+        const entry = views.get(viewId)
+        if (entry === undefined) throw new Error(`printToPdf: unknown view ${viewId}`)
+        // Electron's debugger does not implement CDP `Page.printToPDF`; this
+        // native path is the one that actually produces a document.
+        const options = (msg.options ?? {}) as Electron.PrintToPDFOptions
+        const data = await entry.webContentsView.webContents.printToPDF(options)
+        reply(msg.id, { ok: true, result: { base64: data.toString('base64') } })
+        return
+      }
       case 'download': {
         const viewId = msg.viewId
         const url = msg.url
@@ -2318,7 +2331,7 @@ void app.whenReady().then(() => {
   rl.on('line', line => {
     const text = line.trim()
     if (text === '') return
-    let msg: { id: number; op?: string; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean }
+    let msg: { id: number; op?: string; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean; options?: Record<string, unknown> }
     try {
       msg = JSON.parse(text) as typeof msg
     } catch {

@@ -17,7 +17,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import type { BrowserSessionId } from '../browser/types.ts'
+import type { BrowserSessionId, BrowserSnapshotResult } from '../browser/types.ts'
 
 /** Plugin name used by loader diagnostics. */
 export const name = 'tool-browser'
@@ -280,6 +280,88 @@ function formatSnapshot(snapshot: {
   return `${header}\n\n${body}${tail}${banner}${user}`
 }
 
+/**
+ * The snapshot shape both `browser_open` and `browser_snapshot` return.
+ *
+ * Shared on purpose: a tool output schema rejects unknown properties, so a
+ * field declared on only one of the two schemas is silently dropped before the
+ * model ever sees it — which is exactly what happened to `frames` and the
+ * element `frame` index when iframe support landed (declared on browser_open,
+ * missing from browser_snapshot, and dropped from browser_open's own mapper).
+ */
+const SNAPSHOT_OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    snapshotId: { type: 'string', required: true },
+    url: { type: 'string', required: true },
+    title: { type: 'string' },
+    truncated: { type: 'boolean' },
+    frames: {
+      type: 'array',
+      description: 'Every iframe on the page; readable:false marks the cross-origin ones whose contents cannot be read.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          index: { type: 'number', required: true },
+          url: { type: 'string', required: true },
+          readable: { type: 'boolean', required: true },
+        },
+      },
+    },
+    elements: {
+      type: 'array',
+      required: true,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ref: { type: 'number', required: true },
+          kind: { type: 'string', required: true },
+          label: { type: 'string', required: true },
+          x: { type: 'number', required: true },
+          y: { type: 'number', required: true },
+          loc: { type: 'string', required: true },
+          frame: { type: 'number', description: 'Index into frames when this element lives inside an iframe.' },
+        },
+      },
+    },
+    challenge: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        blocked: { type: 'boolean', required: true },
+        kind: { type: 'string' },
+        reason: { type: 'string' },
+      },
+    },
+    userControlling: { type: 'boolean' },
+  },
+} as const
+
+/** Project a provider snapshot onto that shared model-facing shape. */
+function snapshotOutput(snapshot: BrowserSnapshotResult) {
+  return {
+    snapshotId: snapshot.snapshotId,
+    url: snapshot.url,
+    ...snapshot.title !== undefined ? { title: snapshot.title } : {},
+    ...snapshot.frames !== undefined ? { frames: snapshot.frames.map(frame => ({ index: frame.index, url: frame.url, readable: frame.readable })) } : {},
+    elements: snapshot.elements.map(el => ({
+      ref: el.ref,
+      kind: el.kind,
+      label: el.label,
+      x: el.x,
+      y: el.y,
+      loc: el.loc,
+      ...el.frame !== undefined ? { frame: el.frame } : {},
+    })),
+    truncated: snapshot.truncated,
+    ...snapshot.challenge !== undefined ? { challenge: snapshot.challenge } : {},
+    ...snapshot.userControlling !== undefined ? { userControlling: snapshot.userControlling } : {},
+  }
+}
+
 /** Register all browser tools with `ctx.tools`. */
 export function apply(ctx: Context, config: Config = {}): void {
   const timeoutMs = config.timeoutMs ?? 60_000
@@ -311,56 +393,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       space: { type: 'string', description: 'Optional browser-task label shown in the task manager and active window title.' },
     },
     output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          snapshotId: { type: 'string', required: true },
-          url: { type: 'string', required: true },
-          title: { type: 'string' },
-          truncated: { type: 'boolean' },
-          frames: {
-            type: 'array',
-            description: 'Every iframe on the page; readable:false marks the cross-origin ones whose contents cannot be read.',
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                index: { type: 'number', required: true },
-                url: { type: 'string', required: true },
-                readable: { type: 'boolean', required: true },
-              },
-            },
-          },
-          elements: {
-            type: 'array',
-            required: true,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                ref: { type: 'number', required: true },
-                kind: { type: 'string', required: true },
-                label: { type: 'string', required: true },
-                x: { type: 'number', required: true },
-                y: { type: 'number', required: true },
-                loc: { type: 'string', required: true },
-                frame: { type: 'number', description: 'Index into frames when this element lives inside an iframe.' },
-              },
-            },
-          },
-          challenge: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              blocked: { type: 'boolean', required: true },
-              kind: { type: 'string' },
-              reason: { type: 'string' },
-            },
-          },
-          userControlling: { type: 'boolean' },
-        },
-      },
+      schema: SNAPSHOT_OUTPUT_SCHEMA,
       render: (_args, value) => [{ type: 'text', text: formatSnapshot(value) }],
     },
     timeoutMs,
@@ -376,15 +409,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           ...args.newTab === true ? { newTab: true } : {},
         }, exec.signal)
         const snapshot = await browser.snapshot(session, {}, exec.signal)
-        return {
-          snapshotId: snapshot.snapshotId,
-          url: snapshot.url,
-          ...snapshot.title !== undefined ? { title: snapshot.title } : {},
-          elements: snapshot.elements.map(el => ({ ref: el.ref, kind: el.kind, label: el.label, x: el.x, y: el.y, loc: el.loc })),
-          truncated: snapshot.truncated,
-          ...snapshot.challenge !== undefined ? { challenge: snapshot.challenge } : {},
-          ...snapshot.userControlling !== undefined ? { userControlling: snapshot.userControlling } : {},
-        }
+        return snapshotOutput(snapshot)
       }, args.space)
     },
   }))
@@ -611,42 +636,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       limit: { type: 'number', description: 'Maximum number of elements to return (1-1000; default 60).' },
     },
     output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          snapshotId: { type: 'string', required: true },
-          url: { type: 'string', required: true },
-          title: { type: 'string' },
-          truncated: { type: 'boolean' },
-          elements: {
-            type: 'array',
-            required: true,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                ref: { type: 'number', required: true },
-                kind: { type: 'string', required: true },
-                label: { type: 'string', required: true },
-                x: { type: 'number', required: true },
-                y: { type: 'number', required: true },
-                loc: { type: 'string', required: true },
-              },
-            },
-          },
-          challenge: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              blocked: { type: 'boolean', required: true },
-              kind: { type: 'string' },
-              reason: { type: 'string' },
-            },
-          },
-          userControlling: { type: 'boolean' },
-        },
-      },
+      schema: SNAPSHOT_OUTPUT_SCHEMA,
       render: (_args, value) => [{ type: 'text', text: formatSnapshot(value) }],
     },
     timeoutMs,
@@ -659,15 +649,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...args.query !== undefined ? { query: args.query } : {},
         ...args.limit !== undefined ? { limit: args.limit } : {},
       }, exec.signal))
-      return {
-        snapshotId: snapshot.snapshotId,
-        url: snapshot.url,
-        ...snapshot.title !== undefined ? { title: snapshot.title } : {},
-        elements: snapshot.elements.map(el => ({ ref: el.ref, kind: el.kind, label: el.label, x: el.x, y: el.y, loc: el.loc })),
-        truncated: snapshot.truncated,
-        ...snapshot.challenge !== undefined ? { challenge: snapshot.challenge } : {},
-        ...snapshot.userControlling !== undefined ? { userControlling: snapshot.userControlling } : {},
-      }
+      return snapshotOutput(snapshot)
     },
   }))
 
@@ -1258,7 +1240,12 @@ export function apply(ctx: Context, config: Config = {}): void {
           text: { type: 'string' },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Found <${value.tag}> ${value.selector}${value.text !== undefined ? ` — "${value.text.slice(0, 80)}"` : ''}.` }],
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.selector === ''
+          ? `Found text "${(value.text ?? '').slice(0, 80)}" (state "${value.state}").`
+          : `Found <${value.tag}> ${value.selector}${value.text !== undefined ? ` — "${value.text.slice(0, 80)}"` : ''}.`,
+      }],
     },
     timeoutMs,
     isConcurrencySafe: () => true,

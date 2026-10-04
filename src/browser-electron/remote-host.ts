@@ -481,6 +481,15 @@ class RemoteView implements ElectronViewHandle {
     return this.client.call<{ base64: string; width: number; height: number }>('capture', { viewId: this.id }, RPC_TRANSFER_TIMEOUT_MS)
   }
 
+  /**
+   * Print the view to a PDF in the child process. Electron's debugger has no
+   * `Page.printToPDF`, so this is the only working print path; the bytes cross
+   * the RPC socket base64-encoded.
+   */
+  printToPdf(options: Record<string, unknown>): Promise<{ base64: string }> {
+    return this.client.call<{ base64: string }>('printToPdf', { viewId: this.id, options }, RPC_TRANSFER_TIMEOUT_MS)
+  }
+
   /** Export the session's cookies (login state). */
   flushAuth(): Promise<ExportedCookie[]> {
     return this.client.call<{ cookies: ExportedCookie[] }>('flushAuth', { viewId: this.id }, RPC_COMMAND_TIMEOUT_MS).then(r => r.cookies)
@@ -931,6 +940,10 @@ export class DeferredRemoteView implements ElectronViewHandle {
       : undefined
     await settle?.()
     return this.withView(view => view.sendCommand(method, params), settle, method)
+  }
+
+  async printToPdf(options: Record<string, unknown>): Promise<{ base64: string }> {
+    return this.withView(view => view.printToPdf(options))
   }
 
   async download(url: string, savePath: string): Promise<void> {

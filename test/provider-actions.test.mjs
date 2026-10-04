@@ -300,6 +300,29 @@ test('waitForElement can wait for text, or for something to go away', async () =
   assert.match(textScript, /includes\(wanted\)/)
 })
 
+test('a text-only wait really matches: the generated script is executed against a body', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const session = await provider.open()
+  // 第一次脚本返回 null，走完轮询后超时 —— 顺便把它取出来。
+  host.evalReplies.push({ result: { value: null } })
+  await assert.rejects(
+    () => provider.waitForElement(session, { text: '已完成', timeoutMs: 600 }),
+    (error) => error.code === 'BROWSER_WAIT_TIMEOUT',
+  )
+  const script = String(host.log.filter(e => e.method === 'Runtime.evaluate').at(-1).params.expression)
+  const run = new Function('document', 'getComputedStyle', 'return ' + script)
+  const style = () => ({ visibility: 'visible', display: 'block' })
+  const rect = () => ({ width: 300, height: 20 })
+  // 这个用例以前只断言脚本文本里有 textOf(document.body)，而脚本对纯文字
+  // 仍按 visibleNow(null) === false 判定，于是默认的 visible 永远不成立。
+  const hit = run({ body: { textContent: '任务已完成', getBoundingClientRect: rect }, querySelector: () => null }, style)
+  assert.equal(hit?.found, true, 'text-only wait must be able to match')
+  assert.equal(hit?.state, 'visible')
+  const miss = run({ body: { textContent: '还在跑', getBoundingClientRect: rect }, querySelector: () => null }, style)
+  assert.equal(miss, null, 'text-only wait must not match when the text is absent')
+})
+
 test('waitForElement rejects a wait with nothing to watch', async () => {
   const host = new FakeHost()
   const provider = new ElectronBrowserProvider(host)
@@ -336,6 +359,36 @@ test('pdf prints the active tab to a file inside the write roots', async () => {
     assert.equal(sent.method, 'Page.printToPDF')
     assert.equal(sent.params.landscape, true)
     assert.equal(sent.params.printBackground, true, 'backgrounds are on by default')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('pdf prefers the host print path over CDP and converts inches to microns', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-pdf-host-'))
+  try {
+    const host = new FakeHost()
+    const provider = new ElectronBrowserProvider(host, { writeRoots: [dir] })
+    const session = await provider.open()
+    const body = Buffer.from('%PDF-1.4\nhost-printed\n')
+    let options
+    let cdpCalled = false
+    host.views[0].sendCommand = async (method) => {
+      if (method === 'Page.printToPDF') cdpCalled = true
+      return {}
+    }
+    host.views[0].printToPdf = async (given) => {
+      options = given
+      return { base64: body.toString('base64') }
+    }
+    const out = join(dir, 'page.pdf')
+    const result = await provider.pdf(session, { savePath: out, paperWidth: 8.5, paperHeight: 11 })
+    assert.equal(result.bytes, body.length)
+    assert.equal(readFileSync(out, 'utf8'), body.toString('utf8'))
+    assert.equal(cdpCalled, false, 'Electron has no CDP Page.printToPDF; the host must print')
+    assert.deepEqual(options.pageSize, { width: 215900, height: 279400 })
+    assert.equal(options.landscape, false)
+    assert.equal(options.printBackground, true)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

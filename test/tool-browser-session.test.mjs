@@ -71,3 +71,67 @@ test('tab tools recover the keyed session when the tool cache is absent', async 
     internals.clearSession(key)
   }
 })
+
+test('both snapshot tools publish the iframe fields and pass them through', async () => {
+  const key = 'issue-frames-passthrough'
+  const host = new FakeHost()
+  // FakeHost records {key,label} in views and returns the handle separately,
+  // so capture the handle to stub its CDP replies.
+  const created = []
+  const createView = host.createView.bind(host)
+  host.createView = (viewKey, label) => {
+    const view = createView(viewKey, label)
+    created.push(view)
+    return view
+  }
+  const browser = new ElectronBrowserProvider(host)
+  await browser.open({ key })
+  const frames = [
+    { index: 0, url: 'https://example.com/inner', readable: true },
+    { index: 1, url: 'https://cross.test/', readable: false },
+  ]
+  created[0].sendCommand = async (method) => {
+    host.log.push({ method })
+    if (method === 'Runtime.evaluate') {
+      return { result: { value: {
+        url: 'https://example.com/frames',
+        title: 'frames',
+        truncated: false,
+        frames,
+        elements: [{
+          ref: 1,
+          kind: 'button',
+          label: 'INNER-BUTTON',
+          x: 10,
+          y: 20,
+          loc: '#innerBtn',
+          path: '#innerBtn',
+          fingerprint: 'button',
+          frame: 0,
+        }],
+        challenge: { blocked: false },
+        userControlling: false,
+      } } }
+    }
+    return {}
+  }
+  const definitions = registerTools(browser)
+  const exec = { agent: { id: key } }
+  try {
+    const snapshot = await definitions.get('browser_snapshot').execute({}, exec)
+    assert.deepEqual(snapshot.frames, frames)
+    assert.equal(snapshot.elements[0].frame, 0)
+    // 两个工具必须发布同一份 schema —— frames 只加在 browser_open 上、
+    // 元素 frame 两边都漏掉，就是它被 output schema 静默丢掉的根因。
+    assert.deepEqual(
+      definitions.get('browser_snapshot').output.schema,
+      definitions.get('browser_open').output.schema,
+      'the two snapshot tools must not drift apart',
+    )
+    const declared = definitions.get('browser_open').output.schema.properties
+    assert.ok(declared.frames, 'frames is declared')
+    assert.ok(declared.elements.items.properties.frame, 'the element frame index is declared')
+  } finally {
+    internals.clearSession(key)
+  }
+})

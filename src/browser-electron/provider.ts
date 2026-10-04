@@ -235,6 +235,16 @@ export interface ElectronViewHandle {
    * tokenless copy as a fallback.
    */
   reinstallChrome?(): Promise<void>
+  /**
+   * Print this view to a PDF and return it base64-encoded. Optional: a host
+   * with no native print path omits it, and the provider falls back to CDP.
+   *
+   * Electron's debugger does NOT implement CDP `Page.printToPDF` (it answers
+   * "'Page.printToPDF' wasn't found"), so the PDF path has to go through the
+   * host's own `webContents.printToPDF`.
+   * @param options - Electron PrintToPDFOptions (pageSize in microns).
+   */
+  printToPdf?(options: Record<string, unknown>): Promise<{ readonly base64: string }>
 }
 
 /** Internal selector and fingerprint captured for one snapshot element. */
@@ -1599,8 +1609,16 @@ export class ElectronBrowserProvider implements BrowserProvider {
       const textOf = node => (node === null ? '' : (node.textContent || '')).replace(/\\s+/g, ' ').trim()
       const attached = el !== null
       const visible = visibleNow(el)
-      let met = state === 'attached' ? attached : state === 'visible' ? visible : state === 'hidden' ? !visible : state === 'detached' ? !attached : false
-      if (met && wanted !== null) met = (selector === '' ? textOf(document.body) : textOf(el)).includes(wanted)
+      let met
+      if (selector === '') {
+        // 只等文字时没有元素可量：文字在不在，本身就是那个状态。
+        // （以前这里仍按 visibleNow(null) === false 判定，于是默认的 visible 永远不成立。）
+        const present = textOf(document.body).includes(wanted)
+        met = state === 'hidden' || state === 'detached' ? !present : present
+      } else {
+        met = state === 'attached' ? attached : state === 'visible' ? visible : state === 'hidden' ? !visible : state === 'detached' ? !attached : false
+        if (met && wanted !== null) met = textOf(el).includes(wanted)
+      }
       if (!met) return null
       return {
         found: true,
@@ -2210,27 +2228,42 @@ export class ElectronBrowserProvider implements BrowserProvider {
     signal?.throwIfAborted()
     // Resolve first: a bad path must fail before we spend time printing.
     const target = resolveWritePath(request.savePath, this.writeRoots)
-    const params: Record<string, unknown> = {
-      // Backgrounds off by default would print dark pages as white paper.
-      printBackground: request.printBackground !== false,
-      landscape: request.landscape === true,
-    }
-    if (request.paperWidth !== undefined) params.paperWidth = request.paperWidth
-    if (request.paperHeight !== undefined) params.paperHeight = request.paperHeight
+    // Electron's debugger does not implement CDP `Page.printToPDF`, so a host
+    // that can print natively does it and hands back base64. Paper size arrives
+    // in inches; Electron wants microns.
     const timeoutMs = 60_000
-    const result = await withTimeout(
-      handle.sendCommand(CDP_PAGE_PRINT_TO_PDF, params),
-      timeoutMs,
-      signal,
-      `browser: pdf timed out after ${timeoutMs}ms`,
-    )
-    const data = result.data
-    if (typeof data !== 'string' || data === '') {
+    const printOnce = async (): Promise<string> => {
+      if (handle.printToPdf !== undefined) {
+        const options: Record<string, unknown> = {
+          // Backgrounds off by default would print dark pages as white paper.
+          printBackground: request.printBackground !== false,
+          landscape: request.landscape === true,
+        }
+        if (request.paperWidth !== undefined || request.paperHeight !== undefined) {
+          options.pageSize = {
+            width: Math.round((request.paperWidth ?? 8.5) * 25_400),
+            height: Math.round((request.paperHeight ?? 11) * 25_400),
+          }
+        }
+        const printed = await handle.printToPdf(options)
+        return printed.base64
+      }
+      const params: Record<string, unknown> = {
+        printBackground: request.printBackground !== false,
+        landscape: request.landscape === true,
+      }
+      if (request.paperWidth !== undefined) params.paperWidth = request.paperWidth
+      if (request.paperHeight !== undefined) params.paperHeight = request.paperHeight
+      const result = await handle.sendCommand(CDP_PAGE_PRINT_TO_PDF, params)
+      return typeof result.data === 'string' ? result.data : ''
+    }
+    const data = await withTimeout(printOnce(), timeoutMs, signal, `browser: pdf timed out after ${timeoutMs}ms`)
+    if (data === '') {
       throw new BrowserError('browser: printToPDF returned no data', 'BROWSER_PDF_FAILED')
     }
     const bytes = Buffer.from(data, 'base64')
     writeFileSync(target, bytes)
-    this.record(s, 'pdf', { savePath: request.savePath, landscape: params.landscape }, true, { result: `${bytes.length} bytes` })
+    this.record(s, 'pdf', { savePath: request.savePath, landscape: request.landscape === true }, true, { result: `${bytes.length} bytes` })
     return { path: request.savePath, bytes: bytes.length }
   }
 

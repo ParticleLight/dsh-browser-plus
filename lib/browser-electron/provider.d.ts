@@ -159,6 +159,18 @@ export interface ElectronViewHandle {
      * tokenless copy as a fallback.
      */
     reinstallChrome?(): Promise<void>;
+    /**
+     * Print this view to a PDF and return it base64-encoded. Optional: a host
+     * with no native print path omits it, and the provider falls back to CDP.
+     *
+     * Electron's debugger does NOT implement CDP `Page.printToPDF` (it answers
+     * "'Page.printToPDF' wasn't found"), so the PDF path has to go through the
+     * host's own `webContents.printToPDF`.
+     * @param options - Electron PrintToPDFOptions (pageSize in microns).
+     */
+    printToPdf?(options: Record<string, unknown>): Promise<{
+        readonly base64: string;
+    }>;
 }
 /**
  * How the host answers a JS dialog (alert/confirm/prompt).

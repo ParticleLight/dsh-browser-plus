@@ -9,7 +9,8 @@
  *   <- { id, op: 'ping' } | { id, op: 'createView', viewId, key?, label? } |
  *      { id, op: 'destroyView', viewId } | { id, op: 'showView', viewId } |
  *      { id, op: 'label', viewId, label } | { id, op: 'listWindows' } |
- *      { id, op: 'command', viewId, method, params }
+ *      { id, op: 'command', viewId, method, params } |
+ *      { id, op: 'printToPdf', viewId, options }
  *   -> { id, ok: true, result? } | { id, ok: false, err }
  *
  * The parent never parses stderr, so diagnostics may go there freely.

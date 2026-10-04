@@ -63,6 +63,21 @@ try {
     return 'no error'
   })
   await check('waitForElement', async () => (await provider.waitForElement(session, { selector: 'body' })).tag)
+  // 纯文字等待：没有选择器可量，状态必须由「文字在不在」决定。
+  // 这一条曾经永远超时（脚本仍按 visibleNow(null) === false 判定）。
+  await check('waitForElement by text', async () => (await provider.waitForElement(session, { text: 'This domain is for use' })).state)
+  // 真机打印：Electron 的 debugger 没有 CDP Page.printToPDF，
+  // 所以这条只有走宿主的 webContents.printToPDF 才可能过。
+  await check('pdf', async () => {
+    const out = join(outDir, 'page.pdf')
+    const result = await provider.pdf(session, { savePath: out })
+    const bytes = readFileSync(out)
+    if (bytes.subarray(0, 5).toString() !== '%PDF-') throw new Error('not a PDF: ' + bytes.subarray(0, 8).toString())
+    if (bytes.length !== result.bytes) throw new Error('byte count mismatch: ' + String(bytes.length) + ' vs ' + String(result.bytes))
+    const pages = (bytes.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length
+    if (pages < 1) throw new Error('the printed document has no page objects')
+    return { bytes: bytes.length, pages }
+  })
   await check('scrape concurrent', async () => {
     const out = join(outDir, 'rows.jsonl')
     const started = await provider.startScrape(session, {
@@ -1847,6 +1862,16 @@ await check('the snapshot sees into same-origin frames and names the cross-origi
     if (cross === undefined) throw new Error('the cross-origin frame must be reported unreadable: ' + JSON.stringify(frames))
     const same = frames.find(frame => frame.readable === true)
     if (same === undefined) throw new Error('the same-origin frame should be readable: ' + JSON.stringify(frames))
+    // 工具层也必须把这两样透出去。provider 有、工具层丢，才是这个 bug 的
+    // 真正形态：只测 provider 的冒烟一直是绿的。
+    // exec 不带 agent -> taskKey() 是 'default'，正好复用上面这个会话。
+    const viaTool = await call('browser_snapshot', { limit: 50 }, {})
+    const toolFrames = viaTool.frames ?? []
+    if (toolFrames.length < 2) throw new Error('the tool layer dropped frames: ' + JSON.stringify(viaTool.frames))
+    const toolInside = (viaTool.elements ?? []).find(element => element.label === 'Inner Button')
+    if (toolInside === undefined || toolInside.frame !== 0) {
+      throw new Error('the tool layer dropped the element frame index: ' + JSON.stringify(toolInside))
+    }
     return { frames: frames.length, inside: inside.frame, cross: String(cross.url).slice(0, 34) }
   } finally {
     outerServer.close()
