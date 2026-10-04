@@ -76,7 +76,7 @@ Snapshots expose a short-lived `snapshotId` plus element references. Prefer refe
 The window normally appears the first time the agent calls a browser tool. A human can open it too, two ways:
 
 - **The `/browser` command** — type `/` in the composer (or click `+`) and pick it; the window opens or is raised, and **no model message is produced**.
-- **The shared-browser tab in the right sidebar** — pick it from the rightbar's add list: the window comes up as the panel opens, and the panel keeps a button for raising it again plus the current task count.
+- **The DSH-Browser-Plus tab in the right sidebar** (its own name and icon, so it never collides with the product's own browser tab) — pick it from the rightbar's add list: the window comes up as the panel opens, and the panel keeps a button for raising it again plus the current task count.
 
 > The product's own browser tab is a different thing: DSH's sandboxed iframe browser, unrelated to this self-hosted window.
 
