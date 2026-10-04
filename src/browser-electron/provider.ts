@@ -2590,6 +2590,10 @@ export class ElectronBrowserProvider implements BrowserProvider {
   async pushTaskTodos(taskKey: string, todos: readonly BrowserTaskTodo[]): Promise<void> {
     this.taskTodos.set(taskKey, todos)
     if (typeof this.host.setTaskTodos !== 'function') return
+    // 只在「这个任务真的开过浏览器」时才转发：宿主 RPC 的第一步是 ready()，
+    // 而 ready() 会 spawn 一个 Electron 子进程 —— 一个和浏览器无关的 todo_write
+    // 不该把几百 MB 的宿主拉起来。缓存照存，open() 会给新会话补推。
+    if (!this.sessionsByTask.has(taskKey)) return
     await this.host.setTaskTodos(taskKey, todos).catch(() => undefined)
   }
 
@@ -2729,6 +2733,8 @@ export class ElectronBrowserProvider implements BrowserProvider {
       }
       if (replacement === undefined) {
         this.taskStates.delete(existing.taskKey)
+        // 这张表和 taskStates 一样是「每个任务一条」，关掉最后一个会话就该回收。
+        this.taskTodos.delete(existing.taskKey)
       }
     }
     return Promise.resolve()

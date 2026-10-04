@@ -1204,3 +1204,43 @@ test('emulate sends the CDP overrides and clear undoes all three', async () => {
     'Emulation.setEmulatedMedia',
   ])
 })
+
+test('a plan for a task that never opened a browser is cached, not pushed', async () => {
+  // setTaskTodos 的第一步是 ready()，而 ready() 会 spawn 一个 Electron 子进程 ——
+  // 一个和浏览器无关的 todo_write 不该把几百 MB 的宿主拉起来（review 发现）。
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  const pushed = []
+  host.setTaskTodos = async (key, todos) => { pushed.push({ key, count: todos.length }) }
+
+  await provider.pushTaskTodos('session-nobody', [{ content: 'a', status: 'pending' }])
+  assert.deepEqual(pushed, [], 'nothing was forwarded to the host')
+
+  const session = await provider.open({ key: 'session-somebody' })
+  await provider.pushTaskTodos('session-somebody', [{ content: 'a', status: 'pending' }])
+  assert.equal(pushed.length, 1, 'a task with a live session is forwarded')
+  assert.equal(pushed[0].key, 'session-somebody')
+
+  // 新建会话时缓存要补推一次（宿主重启后宿主手里是空的）。
+  const before = pushed.length
+  await provider.open({ key: 'session-somebody', label: 'again' })
+  assert.ok(pushed.length >= before, 'opening does not lose the cached plan')
+
+  await provider.close(session)
+  await provider.pushTaskTodos('session-somebody', [{ content: 'b', status: 'pending' }])
+  assert.equal(pushed.at(-1).count, 1)
+})
+
+test('closing the last session for a task drops its cached plan', async () => {
+  const host = new FakeHost()
+  const provider = new ElectronBrowserProvider(host)
+  host.setTaskTodos = async () => {}
+  const session = await provider.open({ key: 'session-gone' })
+  await provider.pushTaskTodos('session-gone', [{ content: 'a', status: 'pending' }])
+  await provider.close(session)
+  // 缓存表是私有的；用「关掉后重新开一个会话」观察它没有被补推旧计划。
+  const pushed = []
+  host.setTaskTodos = async (key, todos) => { pushed.push(todos.length) }
+  await provider.open({ key: 'session-gone' })
+  assert.deepEqual(pushed, [], 'the stale plan is gone')
+})

@@ -8,20 +8,27 @@
 ## 安装
 
 ```sh
-# 从 npm 安装(已发布)
+# 从 npm 安装
+# dsh plugin --profile web add dsh-browser-plus
+
+# 或从 GitHub 安装(未发布新版本时用这条)
 dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 
 # 或从源码目录(独立仓库,一插件一仓库)
 dsh plugin --profile web add <本仓库路径>
 ```
 
-安装会链接插件、把 `dsh-browser-plus` 加入 profile 的 bundle 层,并挂载三行:
+安装会链接插件、把 `dsh-browser-plus` 加入 profile 的 bundle 层,并挂载 **7 行**:
 
 | 行 | 子路径 | 角色 |
 | --- | --- | --- |
 | `browser` | `dsh-browser-plus/browser` | `ctx.browser` 能力 seam(始终挂载) |
 | `browser-electron` | `dsh-browser-plus/browser-electron` | Electron CDP provider |
 | `tool-browser` | `dsh-browser-plus/tool-browser` | `browser_*` 模型侧工具 |
+| `browser-plus`(根行) | `dsh-browser-plus` | **空行为**的根行:只为让客户端半边(右侧栏面板)被 client-modules 扫到 |
+| `browser-command` | `dsh-browser-plus/command-browser` | `/browser` 斜杠命令(需要 `commands`) |
+| `browser-http` | `dsh-browser-plus/http-browser` | 面板用的 HTTP 路由(需要 `webServer`) |
+| `browser-task-todos` | `dsh-browser-plus/task-todos` | 把 Agent 的 `todo_write` 计划推给悬浮球(依赖可选的 `sessionProjections`) |
 
 > 没有桌面外壳时插件**自托管**:自己拉起一个标题为 `dsh-browser-plus` 的 Electron 窗口,`browser_*` 工具照常可用。
 
@@ -77,7 +84,7 @@ dsh plugin --profile web add <本仓库路径>
 
 当前版本使用**一个共享可见浏览器窗口**，每个任务仍有隔离的任务视图、标签与历史。页面任务管理器切换可见任务；后台任务操作只更新自己的视图，不会抢走当前页面。`browser_space label="..."` 为本浏览器任务命名，`browser_space`(无参)列出全部浏览器任务。
 
-工具栏默认收在页面上方。鼠标移到页面顶部中间时会出现小圆形下箭头，点击后工具栏从上方滑出；工具栏最右侧的上箭头会收回工具栏，并同时关闭书签、任务与轨迹浮层。任务按钮打开左侧工作区面板，操作轨迹按钮在桌面端打开右侧工作区面板。顶部工具栏最右侧常驻“接管 / 交还 Agent”控件，不必先打开任务面板；任务卡继续显示执行中、等待用户、用户接管、失败和空闲状态。接管期间新的 Agent 页面操作会停止，快照和内容读取仍可用于确认状态。
+工具栏是**常驻顶栏**：和标签栏一起占视图的高度（84px，开书签栏时 118px），页面**不需要为它让位**，也不会滑出或收回。任务按钮打开左侧工作区面板，操作轨迹按钮在桌面端打开右侧工作区面板。顶部工具栏最右侧常驻“接管 / 交还 Agent”控件，不必先打开任务面板；任务卡继续显示执行中、等待用户、用户接管、失败和空闲状态。接管期间新的 Agent 页面操作会停止，快照和内容读取仍可用于确认状态。
 
 用户直接点击页面、编辑表单或使用非滚动键盘操作时，会自动切换为用户控制；滚轮、触摸拖动、滚动条操作，以及页面非编辑区的上下翻页键不会触发接管。Agent 自己的 CDP 鼠标和键盘输入带有短暂抑制标记，不会误交还控制权。
 

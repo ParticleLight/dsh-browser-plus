@@ -939,3 +939,18 @@ test('a saved orb position is clamped back into a smaller window', () => {
   assert.ok(script.includes("window.addEventListener('resize', () => { applyOrbPos();"), 'and re-clamped when the window changes')
   assert.ok(!script.includes('const maxX = Math.max(8, window.innerWidth - orb.offsetWidth - 8)'), 'the drag uses the shared clamp instead of its own copy')
 })
+
+test('the orb survives the two silent-failure paths the review found', () => {
+  // 2026-10-04 review（三个只读审查子智能体）找到的三条，这里钉住它们的实现形状。
+  // 真正驱动指针事件的测试还没写 —— 这几条只是防「被改回去」。
+  const script = buildPageChromeScript('orb-review')
+  // 1) 拖动阈值必须对「按下时的起点」比较：拿 orb.offsetLeft 比会永远算成「本帧位移」，
+  //    慢速拖动就不算拖动 —— 位置不落盘，松手还会误触 click。
+  assert.ok(script.includes('startX: event.clientX, startY: event.clientY'), 'the drag remembers where it started')
+  assert.ok(script.includes('Math.abs(event.clientX - orbDrag.startX) > 3'), 'and measures against that, not the applied position')
+  // 2) 在窗口外松手收不到 pointerup，必须看 buttons 主动收尾，否则球会跟着光标裸奔。
+  assert.ok(script.includes('event.buttons === 0'), 'a released button ends the drag')
+  // 3) 终态优先：清单里总有 in_progress，running 盖过 failed/waiting-user 就永远看不到失败与等待。
+  assert.ok(script.includes("const settled = status === 'failed' || status === 'waiting-user'"), 'terminal states are named')
+  assert.ok(script.includes("(running && !settled)"), 'and they win over a running plan')
+})

@@ -7,7 +7,7 @@
 ```bash
 npm run smoke:browser-tools
 ```
-用**真实 Electron 宿主 + 真实 Chromium** 驱动**真实 provider**,覆盖 **31 项**:
+用**真实 Electron 宿主 + 真实 Chromium** 驱动**真实 provider**,覆盖 **87 项**(具体数字以脚本输出的 `passed` / `failed` 为准):
 
 - **provider 层(12 项)**:navigate / content / snapshot / screenshot / **click 三种寻址(坐标、选择器、文字)** /
   目标缺失的错误码 / waitForElement / **scrape 并发** / **cookie 导出→文件→清除→导入往返** / listTabs。

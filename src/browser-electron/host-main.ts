@@ -1366,6 +1366,9 @@ function chromePatchScript(operations: readonly ChromePatchOperation[]): string 
   const patch = createPatch(chromeEpoch, ++chromeRevision, operations)
   return ';window.__dshChromePatch = ' + JSON.stringify(patch)
     + ';try { window.__dshChromeApply?.(window.__dshChromePatch) } catch {}'
+    // 补丁里含 Agent 的计划（task.todos），而默认主世界下页面脚本读得到 window ——
+    // 应用完立刻把这份明文抹掉，别让它一直挂在页面上。
+    + ';try { delete window.__dshChromePatch } catch { window.__dshChromePatch = undefined }'
 }
 
 
@@ -1676,6 +1679,10 @@ function applyPageChrome(view: WebContentsView, viewId: string): void {
     // (whose own chrome is not on screen but whose title belongs in the strip).
     queueTabsSet()
     scheduleVisibleTaskThumbnail(taskKey, 550)
+    // 每一次真导航都会重跑整个 chrome 脚本，页面侧那份 todo 缓存跟着归零。
+    // 缩略图有 scheduleVisibleTaskThumbnail 兜住，计划没有对应物 —— 漏了它，
+    // Agent 一导航球上就只剩状态圆点（这是本轮功能的卖点场景，必现）。
+    pushCachedTaskTodos()
   }
 }
 
@@ -1768,6 +1775,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             const trail = activeTraceForTask(entryView.taskKey).at(-1)
             if (trail !== undefined) operations.push({ op: 'trail.append', taskKey: entryView.taskKey, entry: trail })
             scheduleVisibleTaskThumbnail(entryView.taskKey)
+            pushCachedTaskTodos()
           }
           if (operations.length > 0) queueChromePatch(...operations)
         }
@@ -2019,6 +2027,7 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
             if (thumbnailTimer !== undefined) clearTimeout(thumbnailTimer)
             thumbnailTimers.delete(entry.taskKey)
             taskThumbnails.delete(entry.taskKey)
+            taskTodos.delete(entry.taskKey)
             taskThumbnailVersions.delete(entry.taskKey)
             thumbnailDirty.delete(entry.taskKey)
             thumbnailLastCapturedAt.delete(entry.taskKey)
