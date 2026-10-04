@@ -69,6 +69,7 @@
     "smoke:electron-host": "node scripts/smoke-electron-host.mjs",
     "smoke:browser-tools": "node scripts/smoke-browser-tools.mjs",
     "smoke:chrome-world": "node scripts/smoke-chrome-world.mjs",
+    "test:orb-drag": "node scripts/test-orb-drag.mjs",
     "prepack": "npm run build"
   },
   "keywords": [

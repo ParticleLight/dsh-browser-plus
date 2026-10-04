@@ -949,7 +949,11 @@ test('the orb survives the two silent-failure paths the review found', () => {
   assert.ok(script.includes('startX: event.clientX, startY: event.clientY'), 'the drag remembers where it started')
   assert.ok(script.includes('Math.abs(event.clientX * s - orbDrag.localX) > 3'), 'and measures against that, not the applied position')
   // 2) 在窗口外松手收不到 pointerup，必须看 buttons 主动收尾，否则球会跟着光标裸奔。
-  assert.ok(script.includes('event.buttons === 0'), 'a released button ends the drag')
+  // 只在「这次拖动曾经观察到按下」之后才认 buttons=0：合成输入（离屏测试 / CDP）的
+  // pointermove 常常不带 buttons，见 0 就收尾会把正常拖动也打断（实测踩过）。
+  assert.ok(script.includes('if (event.buttons !== 0) orbDrag.pressed = true'), 'a pressed move is remembered')
+  assert.ok(script.includes('else if (orbDrag.pressed) { endOrbDrag(); return }'), 'and only then does a released button end the drag')
+  assert.ok(script.includes("window.addEventListener('blur', endOrbDrag)"), 'losing focus is the reliable signal for releasing outside the window')
   // 3) 终态优先：清单里总有 in_progress，running 盖过 failed/waiting-user 就永远看不到失败与等待。
   assert.ok(script.includes("const settled = status === 'failed' || status === 'waiting-user'"), 'terminal states are named')
   assert.ok(script.includes("(running && !settled)"), 'and they win over a running plan')
