@@ -103,3 +103,18 @@ test('omitted config keeps the provider defaults', () => {
   assert.ok(Array.isArray(provider.writeRoots) && provider.writeRoots.length > 0, 'writeRoots defaulted')
   assert.ok(Array.isArray(provider.readRoots) && provider.readRoots.length > 0, 'readRoots defaulted')
 })
+
+test('every row in the bundle patch resolves through package exports', async () => {
+  // 行在 cordis.patch.yml 里，模块却要靠 package.json 的 exports 才 import 得到 ——
+  // 少一条 exports，DSH 只会打一行 "failed to import"，插件照跑、那条功能静默没有。
+  // 悬浮球的 todo 桥接就是这么丢的（2026-10-04 实测）。
+  const { readFile } = await import('node:fs/promises')
+  const patch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+  const names = [...patch.matchAll(/name:\s*(dsh-browser-plus[^\s]*)/g)].map(match => match[1])
+  assert.ok(names.length >= 6, 'the patch lists the plugin rows')
+  for (const name of names) {
+    const subpath = name === 'dsh-browser-plus' ? '.' : './' + name.slice('dsh-browser-plus/'.length)
+    assert.ok(pkg.exports[subpath] !== undefined, name + ' has no exports entry, so the loader cannot import it')
+  }
+})

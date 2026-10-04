@@ -30,6 +30,10 @@
       "types": "./lib/http-browser/index.d.ts",
       "default": "./lib/http-browser/index.js"
     },
+    "./task-todos": {
+      "types": "./lib/task-todos/index.d.ts",
+      "default": "./lib/task-todos/index.js"
+    },
     "./client": {
       "default": "./lib/client.js"
     },
