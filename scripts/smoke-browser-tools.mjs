@@ -35,8 +35,13 @@ const check = async (name, fn) => {
   }
 }
 
-const host = new RemoteElectronViewHost(defaultHostMainPath())
+// 这套检查**探 chrome 的内部状态**（window.__dshTabs / __dshChromeMotion / __dshBookmarks…），
+// 而默认的 isolated 世界把这些放在 chrome 自己的世界里 —— 从页面世界读到的全是 undefined。
+// 所以行为套件显式跑 main；「隔离是否真的隔离、chrome 在隔离世界里能不能挂起来」由
+// `npm run smoke:chrome-world` 负责（它同时跑两种模式做 A/B）。
+const host = new RemoteElectronViewHost(defaultHostMainPath(), { chromeWorld: 'main' })
 const provider = new ElectronBrowserProvider(host, { writeRoots: [outDir], readRoots: [outDir] })
+
 
 try {
   const session = await provider.open()

@@ -28,7 +28,7 @@ const probe = async (label, options) => {
     await view.sendCommand('Page.navigate', { url: 'https://example.com/' })
     await wait(2500)
     const reply = await view.sendCommand('Runtime.evaluate', {
-      expression: 'JSON.stringify({ chromeHost: document.getElementById("__dsh_browser_chrome_host__") !== null, binding: typeof window.__dshBrowserTaskAction, tasks: typeof window.__dshTasks, trail: typeof window.__dshTrail })',
+      expression: 'JSON.stringify({ chromeHost: document.getElementById("__dsh_browser_chrome_host__") !== null, painted: (() => { const h = document.getElementById("__dsh_browser_chrome_host__"); if (h === null) return 0; return Math.round(h.getBoundingClientRect().width) })(), binding: typeof window.__dshBrowserTaskAction, tasks: typeof window.__dshTasks, trail: typeof window.__dshTrail })',
       returnByValue: true,
     })
     const value = JSON.parse(reply?.result?.value ?? '{}')
@@ -42,8 +42,10 @@ const probe = async (label, options) => {
   }
 }
 
-const main = await probe('main (default)', {})
-const isolated = await probe('isolated', { chromeWorld: 'isolated' })
+// 两种模式都**显式**指定：默认值会变（2026-10-04 起默认 isolated），
+// 用 `{}` 表示「main」会让这条检查在默认值一变就静默失效。
+const isolated = await probe('isolated (default)', {})
+const main = await probe('main (opt-in)', { chromeWorld: 'main' })
 
 // Assert only what chromeWorld claims. window.__dshBrowserTaskAction is reported
 // but not asserted: it appears asynchronously after load, so a fixed wait
@@ -60,4 +62,4 @@ if (failures.length > 0) {
   console.log(JSON.stringify({ ok: false, failures }))
   process.exit(1)
 }
-console.log(JSON.stringify({ ok: true, note: 'the chrome mounts in both modes; only the default leaks its globals to the page' }))
+console.log(JSON.stringify({ ok: true, note: 'the chrome mounts in both modes; only main (the opt-in bisect path) leaks its globals to the page' }))

@@ -294,7 +294,8 @@ class ElectronChildClient {
     delete env.NODE_OPTIONS
     // The chrome's world is the child's choice, so it travels as an argument.
     const childArgs = [
-      ...this.chromeWorld === 'isolated' ? ['--chrome-world', 'isolated'] : [],
+      // 缺省也按 isolated 走：主世界会把 Agent 的计划暴露给页面脚本。
+      ...this.chromeWorld === 'main' ? [] : ['--chrome-world', 'isolated'],
       ...this.fingerprintArgs,
     ]
     this.child = spawn(electron, [hostMainPath, '--rpc-port', String(port), ...childArgs], {

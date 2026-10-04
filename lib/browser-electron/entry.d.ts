@@ -38,11 +38,18 @@ export interface Config {
      */
     readonly readRoots?: string[];
     /**
-     * Which JavaScript world the injected page chrome lives in. `main` (default)
-     * is the proven path; `isolated` keeps the chrome's task state and its
-     * binding token out of the page's own context, at the cost of an extra CDP
-     * context per document. Opt in only after confirming the toolbar in a real
-     * window (see docs/SOAK-CHECKLIST.md).
+     * Which JavaScript world the injected page chrome lives in.
+     *
+     * `isolated` (default) keeps the chrome's task state — including the Agent's
+     * plan, which the floating orb renders — and its binding token out of the
+     * page's own context: the page's scripts see `undefined` for every `__dsh*`
+     * global instead of a readable copy. It costs one extra CDP context per
+     * document, and the chrome reads the DOM through that context (the DOM itself
+     * is shared, so element lookups and layout still work).
+     *
+     * `main` puts everything in the page's world: the proven-against-everything
+     * path, but a page can read the plan by hooking `Map.prototype.set` or
+     * `document.createElement`. Use it only to bisect an isolated-world bug.
      */
     readonly chromeWorld?: 'main' | 'isolated';
     /**

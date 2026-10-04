@@ -49,11 +49,18 @@ export interface Config {
    */
   readonly readRoots?: string[]
   /**
-   * Which JavaScript world the injected page chrome lives in. `main` (default)
-   * is the proven path; `isolated` keeps the chrome's task state and its
-   * binding token out of the page's own context, at the cost of an extra CDP
-   * context per document. Opt in only after confirming the toolbar in a real
-   * window (see docs/SOAK-CHECKLIST.md).
+   * Which JavaScript world the injected page chrome lives in.
+   *
+   * `isolated` (default) keeps the chrome's task state — including the Agent's
+   * plan, which the floating orb renders — and its binding token out of the
+   * page's own context: the page's scripts see `undefined` for every `__dsh*`
+   * global instead of a readable copy. It costs one extra CDP context per
+   * document, and the chrome reads the DOM through that context (the DOM itself
+   * is shared, so element lookups and layout still work).
+   *
+   * `main` puts everything in the page's world: the proven-against-everything
+   * path, but a page can read the plan by hooking `Map.prototype.set` or
+   * `document.createElement`. Use it only to bisect an isolated-world bug.
    */
   readonly chromeWorld?: 'main' | 'isolated'
   /**
@@ -82,7 +89,7 @@ export const Config: z<Config> = z.object({
   // meaning "the documented defaults" while an explicit [] still denies all.
   writeRoots: z.array(z.string()).default(defaultWriteRoots()),
   readRoots: z.array(z.string()).default(defaultWriteRoots()),
-  chromeWorld: z.union(['main', 'isolated'] as const).default('main'),
+  chromeWorld: z.union(['main', 'isolated'] as const).default('isolated'),
   userAgent: z.string(),
   maskAutomation: z.boolean().default(true),
 })
@@ -93,7 +100,10 @@ export function apply(ctx: Context & { browser: BrowserRuntime }, config: Config
   // child is disposed with the fiber, mirroring the shell's lifetime.
   const host: ElectronBrowserViewHost = config.viewHost
     ?? new RemoteElectronViewHost(defaultHostMainPath(), {
-      chromeWorld: config.chromeWorld,
+      // `?? 'isolated'` 不只是为了类型：入口可能拿到**未经 schema 解析**的配置
+      // （测试探针、其它调用方直接调 apply），那时缺省值不会自动出现，
+      // 而 remote-host 把 undefined 当成「不加 --chrome-world」→ 子进程退回 main ✗。
+      chromeWorld: config.chromeWorld ?? 'isolated',
       maskAutomation: config.maskAutomation,
       ...config.userAgent === undefined ? {} : { userAgent: config.userAgent },
     })

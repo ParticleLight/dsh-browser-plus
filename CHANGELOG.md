@@ -14,6 +14,7 @@
 ### 优化
 - **两种等法直接拒绝，不空等到超时** —— 既没选择器也没文字、`hidden`/`detached` 却没给选择器（不知道等谁消失）→ `BROWSER_WAIT_INVALID`。
 ### 修复
+- **修：页面脚本能读到 Agent 的计划** —— 注入的 chrome（工具栏、标签栏、悬浮球）以前跑在页面自己的 JavaScript 世界里，于是任何被访问的网页只要 hook `Map.prototype.set` 或 `document.createElement`，就能拿到 Agent 的 todo 清单与任务状态。现在 chrome 默认跑在**隔离世界**（`chromeWorld: 'isolated'`，chrome 的全局对页面脚本一律是 `undefined`），DOM、事件、CDP 输入与补丁通道都不变 —— 实测隔离模式下工具栏照常挂载并渲染（1386px 满宽），而页面对 `__dshBrowserTaskAction` / `__dshTasks` / `__dshTrail` 读到的都是 `undefined`。想要旧行为（例如二分排查）可以显式配 `chromeWorld: 'main'`。
 - **修：面板的两个 HTTP 路由能被别的网站调用** —— 它们没有认证、只查了 method，而浏览器里任何网页都能对 localhost 发一个**不带预检的 POST**，于是别人的页面可以把我们的浏览器窗口弹出来（CSRF）。现在要求 `Origin` 与 `Host` 一致；同源的面板与无 Origin 的调用方（curl、冒烟脚本）不受影响。
 - **修：任务面板里点另一条任务没反应** —— 任务行的点击处理器读的是 `row.dataset.dshTaskKey`，而行是列表复用器 `reconcileList` 用 `dataset.dshKey` 建的 —— 那个属性**全文件没有任何地方写过**，于是每次点击都在「key 是不是非空字符串」那一步静默退出，`switch-task` 从来没发出去过（面板反而自己关掉）。同一个错字还让任务补丁的按 key 查找永远落空 —— 每次任务更新都退化成整表重渲染。三处统一成 `dshKey`，并顺手修掉那条死路径里的 `row.disabled = false`（它一旦生效会把「当前任务」那行错误地变成可点）。**这个 bug 能活到现在，是因为一条测试把错字当成正确行为钉住了**（断言写的就是 `dshTaskKey`）—— 那条断言已改，并新增一条守卫。
 - **修：任务面板里只有当前任务有缩略图** —— 任务图像只走定向的 `task.thumbnail` 补丁、且**只发给当前可见任务**（图像是屏幕内容，而任务摘要会被注入每个访问过的页面的主世界，所以摘要里永远不带图）。结果面板里除当前任务外全是 `DSH` 占位符 —— 哪怕那条任务之前被看过、宿主手里也存着它的图。现在宿主在**面板打开**与**切任务**这两个时刻，把手里已有的图重放给可见表面。

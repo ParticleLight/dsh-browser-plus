@@ -111,7 +111,9 @@ test('every chrome injection goes through the world-aware helper', async () => {
 test('the chrome world travels to the child as an argument', async () => {
   const source = await readFile(remotePath, 'utf8')
   assert.match(source, /'--chrome-world', 'isolated'/, 'the child is told which world to use')
-  assert.match(source, /this\.chromeWorld === 'isolated'/, 'and only for the opt-in mode')
+  // 2026-10-04 起 isolated 是默认：参数只在**显式要 main** 时才省略 ——
+  // 缺省（undefined）也必须走 isolated，否则未解析的配置会把计划暴露给页面。
+  assert.match(source, /this\.chromeWorld === 'main' \? \[\] : \['--chrome-world', 'isolated'\]/, 'and only main opts out')
   assert.match(source, /chromeWorld\?: 'main' \| 'isolated'/, 'the option is typed')
 })
 test('a fresh view commits a dark start page instead of staying blank', async () => {
