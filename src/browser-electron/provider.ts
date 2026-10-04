@@ -840,6 +840,12 @@ export class ElectronBrowserProvider implements BrowserProvider {
         const labelable = active as { label?(label: string): Promise<void> } | undefined
         if (typeof labelable?.label === 'function') await labelable.label(taskLabel).catch(() => undefined)
       }
+      // 宿主重启后它内存里那份计划是空的，而这是**已存在会话**唯一会走到的入口
+      // （ensureWindowVisible 也补推一次）—— 不推的话球上会一直空着。
+      const cached = this.taskTodos.get(taskKey)
+      if (cached !== undefined && typeof this.host.setTaskTodos === 'function') {
+        void this.host.setTaskTodos(taskKey, cached).catch(() => undefined)
+      }
       return existing.id
     }
     const handle = this.host.createView(taskKey, taskLabel === '' ? undefined : taskLabel)
@@ -2716,7 +2722,15 @@ export class ElectronBrowserProvider implements BrowserProvider {
       const tab = s.tabs[s.activeIndex] ?? s.tabs[0]
       if (tab === undefined) continue
       if (tab.handle.focusWindow !== undefined) await tab.handle.focusWindow()
-      return
+      break
+    }
+    // 「把窗口带出来」也是「有人要看了」——顺手把手里存的计划补推一遍。
+    // 宿主重启会丢掉它内存里那份，而桥接只在清单**变化**时推；没有这一步，
+    // 重启后球上会一直空着，直到 Agent 再写一次 todo（review 报的 M1）。
+    for (const [taskKey, todos] of this.taskTodos) {
+      if (!this.sessionsByTask.has(taskKey)) continue
+      if (typeof this.host.setTaskTodos !== 'function') break
+      await this.host.setTaskTodos(taskKey, todos).catch(() => undefined)
     }
   }
 

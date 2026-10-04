@@ -925,9 +925,9 @@ test('the orb card flips below the orb when there is no room above', () => {
   // 球可以拖到屏幕上方；卡片固定往上放的话会被夹到视口顶，正好盖住球本身
   // （用户实测报过）。上面放不下就翻到下面 —— 两个方向都要夹在视口内。
   const script = buildPageChromeScript('orb-card-flip')
-  assert.ok(script.includes('const above = box.top - gap - height'), 'it measures the room above')
-  assert.ok(script.includes('box.bottom + gap'), 'and falls back to below the orb')
-  assert.ok(script.includes('window.innerHeight - height - gap'), 'still clamped to the viewport')
+  assert.ok(script.includes('const above = box.top * s - gap - height'), 'it measures the room above (in the host-local space)')
+  assert.ok(script.includes('box.bottom * s + gap'), 'and falls back to below the orb')
+  assert.ok(script.includes('window.innerHeight * s - height - gap'), 'still clamped to the viewport')
 })
 
 test('a saved orb position is clamped back into a smaller window', () => {
@@ -947,7 +947,7 @@ test('the orb survives the two silent-failure paths the review found', () => {
   // 1) 拖动阈值必须对「按下时的起点」比较：拿 orb.offsetLeft 比会永远算成「本帧位移」，
   //    慢速拖动就不算拖动 —— 位置不落盘，松手还会误触 click。
   assert.ok(script.includes('startX: event.clientX, startY: event.clientY'), 'the drag remembers where it started')
-  assert.ok(script.includes('Math.abs(event.clientX - orbDrag.startX) > 3'), 'and measures against that, not the applied position')
+  assert.ok(script.includes('Math.abs(event.clientX * s - orbDrag.localX) > 3'), 'and measures against that, not the applied position')
   // 2) 在窗口外松手收不到 pointerup，必须看 buttons 主动收尾，否则球会跟着光标裸奔。
   assert.ok(script.includes('event.buttons === 0'), 'a released button ends the drag')
   // 3) 终态优先：清单里总有 in_progress，running 盖过 failed/waiting-user 就永远看不到失败与等待。
