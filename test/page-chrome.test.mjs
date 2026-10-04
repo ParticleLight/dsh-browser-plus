@@ -920,3 +920,12 @@ test('the orb takes pointer events back from the chrome overlay', () => {
   assert.ok(script.includes('#orbCard { pointer-events:auto;'), 'and so does its card')
   assert.ok(script.includes('pointer-events:none'), 'while the overlay layer itself stays transparent to input')
 })
+
+test('the orb card flips below the orb when there is no room above', () => {
+  // 球可以拖到屏幕上方；卡片固定往上放的话会被夹到视口顶，正好盖住球本身
+  // （用户实测报过）。上面放不下就翻到下面 —— 两个方向都要夹在视口内。
+  const script = buildPageChromeScript('orb-card-flip')
+  assert.ok(script.includes('const above = box.top - gap - height'), 'it measures the room above')
+  assert.ok(script.includes('box.bottom + gap'), 'and falls back to below the orb')
+  assert.ok(script.includes('window.innerHeight - height - gap'), 'still clamped to the viewport')
+})
