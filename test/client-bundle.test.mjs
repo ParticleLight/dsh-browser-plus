@@ -44,9 +44,11 @@ test('the client half registers one extension tab type with a guide entry', asyn
   assert.equal(type.id, 'dsh-browser-plus')
   assert.equal(type.kind, 'dsh-browser-plus')
   assert.equal(type.priority, 'extension')
-  assert.equal(type.title(''), '浏览器')
+  // Deliberately not plain 浏览器: the product's own sandboxed browser tab is
+  // titled that, and two identical rows in the add list are a guessing game.
+  assert.equal(type.title(''), '共享浏览器')
   assert.equal(type.guide.length, 1)
-  assert.equal(type.guide[0].title(), '浏览器')
+  assert.equal(type.guide[0].title(), '共享浏览器')
   assert.ok(type.guide[0].description().length > 0)
   assert.equal(slots.length, 1)
   assert.equal(slots[0].spec.name, 'sidebar.right.pane.tab')
