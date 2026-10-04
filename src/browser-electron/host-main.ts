@@ -506,6 +506,25 @@ const dialogPolicies = new Map<string, { behavior: 'accept' | 'dismiss'; promptT
  * browser_network. A ring (not a stream) on purpose: the agent asks after the fact,
  * and an unbounded log would grow for the life of the tab.
  */
+/**
+ * The slice of Electron's `printToPDF` surface this host uses, named locally.
+ *
+ * Electron is an optional dependency, so CI (npm ci --omit=optional) has neither
+ * its types nor the global `Electron` namespace — a reference to either one fails
+ * the build there while passing locally.
+ */
+interface PrintToPdfOptions {
+  landscape?: boolean
+  printBackground?: boolean
+  pageSize?: { width: number; height: number }
+  margins?: { top?: number; bottom?: number; left?: number; right?: number }
+  scaleFactor?: number
+}
+
+interface PrintToPdfHost {
+  printToPDF: (options: PrintToPdfOptions) => Promise<Buffer>
+}
+
 interface ConsoleEntry { level: string; text: string; at: string }
 interface NetworkEntry { method: string; url: string; status?: number; mime?: string; kind?: string; failed?: string; ms?: number; at: string }
 const CONSOLE_CAP = 200
@@ -2307,8 +2326,13 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         if (entry === undefined) throw new Error(`printToPdf: unknown view ${viewId}`)
         // Electron's debugger does not implement CDP `Page.printToPDF`; this
         // native path is the one that actually produces a document.
-        const options = (msg.options ?? {}) as Electron.PrintToPDFOptions
-        const data = await entry.webContentsView.webContents.printToPDF(options)
+        const options = (msg.options ?? {}) as PrintToPdfOptions
+        // `printToPDF` and its option type are Electron's; Electron is an optional
+        // dependency (CI installs with --omit=optional, so neither the type nor the
+        // `Electron` namespace exists there). Name the shape locally instead of
+        // reaching for the namespace, and let this child — which only ever runs
+        // inside Electron — be the one that calls it.
+        const data = await (entry.webContentsView.webContents as unknown as PrintToPdfHost).printToPDF(options)
         reply(msg.id, { ok: true, result: { base64: data.toString('base64') } })
         return
       }
