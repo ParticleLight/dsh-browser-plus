@@ -528,7 +528,9 @@ test('bookmarks come from the host, not from per-origin localStorage', () => {
   // 任务行也要复用节点：整列重建时后面的行会瞬移（书签第 46 轮修过同一个病）。
   assert.ok(script.includes('reconcileList(taskList, keys, () => {'), 'the task rows are reconciled, not rebuilt')
   assert.ok(!script.includes("taskList.textContent = ''"), 'the wholesale clear is gone')
-  assert.ok(script.includes("const key = row.dataset.dshTaskKey"), 'the click handler reads the key at click time')
+  // 属性名必须是 reconcileList 真正写下的那一个（dataset.dshKey）。这条断言原先钉的是
+  // dshTaskKey —— 一个没有任何地方写过的属性，于是「点任务行」这条链在源头就是死的，测试却是绿的。
+  assert.ok(script.includes('const key = row.dataset.dshKey'), 'the click handler reads the key at click time')
   assert.ok(script.includes("'task-panel')"), 'and the slide is logged under the task panel')
   // 切标签时新露出来的页面从表面色淡进来；**导航不播**（否则每次加载都闪一下）。
   assert.ok(script.includes('#reveal { position:fixed; inset:0; background:#202124; opacity:0; pointer-events:none; }'), 'a surface-coloured overlay covers the viewport')
@@ -881,4 +883,15 @@ test('every surface generates syntactically valid javascript', async () => {
       rmSync(file, { force: true })
     }
   }
+})
+
+test('the task panel reads the key attribute its rows actually carry', () => {
+  // reconcileList keys every row it manages with dataset.dshKey. The task rows
+  // used to read dataset.dshTaskKey, which nothing ever writes — so every row's
+  // click fell out at the typeof key guard and switching tasks from the panel
+  // silently did nothing. Bookmarks read dshKey and always worked.
+  const script = buildPageChromeScript('task-key-check')
+  assert.ok(!script.includes('dshTaskKey'), 'task rows must read dataset.dshKey, not dshTaskKey')
+  assert.match(script, /row\.dataset\.dshKey/)
+  assert.match(script, /candidate\.dataset\.dshKey === task\.key/)
 })
