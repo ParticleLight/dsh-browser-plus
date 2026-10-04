@@ -711,6 +711,9 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
         && typeof action.trail === 'boolean') {
         workspacePanels = { tasks: action.tasks, trail: action.trail }
         if (workspacePanels.tasks && visibleTaskKey !== undefined) scheduleVisibleTaskThumbnail(visibleTaskKey)
+        // Opening the panel is the moment the other rows become visible, so hand
+        // the surface every image we already have for them.
+        if (workspacePanels.tasks) pushCachedTaskThumbnails()
         queueChromePatch({ op: 'panels.set', panels: workspacePanels })
       } else if (action.type === 'set-control-owner'
         && typeof action.taskKey === 'string'
@@ -1421,6 +1424,27 @@ function queueFrameAddress(): void {
   runChromeScript(frame, `window.__dshChromeAddress && window.__dshChromeAddress(${JSON.stringify(url)})`)
 }
 
+/**
+ * Replay every task's last known image to the visible surface.
+ *
+ * A task's picture never travels in the task summaries: those are injected into
+ * every visited page's main world, and the picture is screen content. So a
+ * chrome surface only ever learns an image from a targeted 'task.thumbnail'
+ * patch, and the capture path queues those for the VISIBLE task alone. Without
+ * this replay, the surface that shows the panel paints its own task's image and
+ * a placeholder for every other one — even for tasks the human already looked
+ * at, which is exactly what the panel looked like before this existed.
+ *
+ * Safe by construction: the patches go to {@link chromeSurfaces}, i.e. the
+ * visible task's page and the chrome frame, which are the only surfaces that
+ * can show the panel in the first place.
+ */
+function pushCachedTaskThumbnails(): void {
+  for (const [key, dataUrl] of taskThumbnails) {
+    queueChromePatch({ op: 'task.thumbnail', key, version: taskThumbnailVersions.get(key) ?? 0, dataUrl })
+  }
+}
+
 function scheduleVisibleTaskThumbnail(taskKey: string, delayMs = 360): void {
   if (taskKey !== visibleTaskKey) return
   thumbnailDirty.add(taskKey)
@@ -1510,6 +1534,9 @@ function switchVisibleTask(taskKey: string): void {
   // changed with it. Queued after the bootstrap: resetChromeDelivery() inside
   // pushVisibleChromeState() drops anything queued before it.
   queueTabsSet()
+  // 新露出来的那个表面此前没收到过别的任务的图像（补丁只发给可见表面），所以把
+  // 宿主手里已有的图都补给它 —— 否则切过去之后面板里除了当前任务全是占位符。
+  pushCachedTaskThumbnails()
   // 必须在 pushVisibleChromeState() **之后**排队：它里面的 resetChromeDelivery() 会把
   // 先排的东西丢掉（切标签就是走这条路）。导航走 applyPageChrome，不会播。
   queueChromePatch({ op: 'reveal' })

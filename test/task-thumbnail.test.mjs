@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFile } from 'node:fs/promises'
 
 const thumbnail = await import('../lib/browser-electron/task-thumbnail.js')
 
@@ -45,4 +46,22 @@ test('rejects empty and oversized JPEG buffers', () => {
 
     assert.equal(taskThumbnailDataUrl(image), undefined)
   }
+})
+
+test('the host replays every task image to the surface that shows the panel', async () => {
+  // A chrome surface only ever receives a task's image through a targeted
+  // 'task.thumbnail' patch, and the capture path queues those for the visible
+  // task alone. So the host has to hand over the images it already holds
+  // whenever a surface starts showing the panel — otherwise the panel shows the
+  // current task's picture and a placeholder for every other one, even for
+  // tasks the human already looked at.
+  const host = await readFile(new URL('../lib/browser-electron/host-main.js', import.meta.url), 'utf8')
+  assert.ok(host.includes('function pushCachedTaskThumbnails('), 'the replay helper exists')
+  assert.ok(host.includes('if (workspacePanels.tasks)'), 'the panel-open path is there')
+  const call = 'pushCachedTaskThumbnails();'
+  const calls = host.split(call).length - 1
+  assert.equal(calls, 2, 'declared once and called from the two moments a surface starts showing the panel')
+  const switchAt = host.indexOf('function switchVisibleTask(')
+  const switchBody = switchAt < 0 ? '' : host.slice(switchAt, switchAt + 1200)
+  assert.ok(switchBody.includes(call), 'switching tasks replays them too')
 })
