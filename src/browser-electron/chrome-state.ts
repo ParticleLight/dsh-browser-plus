@@ -131,11 +131,27 @@ export interface ChromeBootstrapMessage extends ChromeWorkspaceState {
   readonly kind: 'bootstrap'
 }
 
+/**
+ * One entry of the Agent's todo list (`todo_write`) as the floating orb renders
+ * it: the same three states the model writes, so the orb spins on
+ * `in_progress` and ticks `completed` without translating anything.
+ */
+export interface ChromeTaskTodo {
+  readonly content: string
+  readonly status: 'pending' | 'in_progress' | 'completed'
+}
+
 export type ChromePatchOperation =
   | { readonly op: 'task.upsert'; readonly task: ChromeTaskSummary }
   | { readonly op: 'task.remove'; readonly key: string }
   | { readonly op: 'task.active'; readonly key?: string }
   | { readonly op: 'task.thumbnail'; readonly key: string; readonly version: number; readonly dataUrl?: string }
+  /**
+   * The Agent's todo list for one task. Like the thumbnail it is NOT part of a
+   * summary — summaries are injected into every visited page's main world, and
+   * this is the Agent's own plan — so it travels only as a targeted patch.
+   */
+  | { readonly op: 'task.todos'; readonly key: string; readonly todos: readonly ChromeTaskTodo[] }
   | { readonly op: 'trail.append'; readonly taskKey: string; readonly entry: ChromeTrailEntry }
   | { readonly op: 'trail.replace'; readonly taskKey?: string; readonly entries: readonly ChromeTrailEntry[] }
   | { readonly op: 'panels.set'; readonly panels: ChromePanels }

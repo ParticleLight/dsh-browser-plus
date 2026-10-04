@@ -54,6 +54,7 @@ import type {
   BrowserWaitForRequest,
   BrowserWaitForResult,
   BrowserChallenge,
+  BrowserTaskTodo,
   ExportedCookie,
 } from './types.ts'
 import { BrowserError } from './types.ts'
@@ -470,6 +471,17 @@ export class BrowserRuntime extends Service {
       throw new BrowserError('browser: this provider has no window to open', 'BROWSER_WINDOW_UNSUPPORTED')
     }
     return provider.ensureWindowVisible()
+  }
+
+  /**
+   * Mirror one task's Agent todo list into the shared window (the floating orb
+   * reads it there). A provider without a window has nowhere to put it, so this
+   * is a no-op rather than an error.
+   */
+  async pushTaskTodos(taskKey: string, todos: readonly BrowserTaskTodo[]): Promise<void> {
+    const provider = this.resolveProvider()
+    if (provider.pushTaskTodos === undefined) return
+    return provider.pushTaskTodos(taskKey, todos)
   }
 
   /** Close the session through the selected provider. Idempotent; a missing

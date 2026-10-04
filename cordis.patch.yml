@@ -33,3 +33,9 @@
     # right sidebar. Needs the web server, so it is its own row too.
     - id: browser-http
       name: dsh-browser-plus/http-browser
+
+    # Bridges the Agent's todo list (DSH session projection) into the browser, so
+    # the floating orb can show what the Agent is working on. Its own row because
+    # it needs optional services the browser itself does not.
+    - id: browser-task-todos
+      name: dsh-browser-plus/task-todos

@@ -8,7 +8,7 @@
  */
 import { Context, Service } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import type { BrowserContentRequest, BrowserHandoffState, BrowserContentResult, BrowserDownloadRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserNavigateRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserDragRequest, BrowserDragResult, BrowserPointerResult, BrowserPointerTarget, BrowserPressKeyRequest, BrowserClearAuthRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserClearAuthResult, BrowserProvider, BrowserRefRequest, BrowserScreenshotRequest, BrowserScreenshotResult, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTaskInfo, BrowserTaskUpdate, BrowserTab, BrowserTypeRequest, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserPdfRequest, BrowserPdfResult, BrowserHighlightRequest, BrowserHighlightResult, BrowserWaitForRequest, BrowserWaitForResult, BrowserChallenge, ExportedCookie } from './types.ts';
+import type { BrowserContentRequest, BrowserHandoffState, BrowserContentResult, BrowserDownloadRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHistoryEntry, BrowserNavigateRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserDragRequest, BrowserDragResult, BrowserPointerResult, BrowserPointerTarget, BrowserPressKeyRequest, BrowserClearAuthRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserClearAuthResult, BrowserProvider, BrowserRefRequest, BrowserScreenshotRequest, BrowserScreenshotResult, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTaskInfo, BrowserTaskUpdate, BrowserTab, BrowserTypeRequest, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserPdfRequest, BrowserPdfResult, BrowserHighlightRequest, BrowserHighlightResult, BrowserWaitForRequest, BrowserWaitForResult, BrowserChallenge, BrowserTaskTodo, ExportedCookie } from './types.ts';
 export { BrowserError, } from './types.ts';
 export type { BrowserChallenge, BrowserContentFormat, BrowserControlOwner, BrowserContentRequest, BrowserContentResult, BrowserDownloadRequest, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillField, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserNavigateRequest, BrowserOpenOptions, BrowserOpenRequest, BrowserDragRequest, BrowserDragResult, BrowserPointerResult, BrowserPointerTarget, BrowserPressKeyRequest, BrowserClearAuthRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserClearAuthResult, BrowserProvider, BrowserRefRequest, BrowserScreenshotRequest, BrowserScreenshotResult, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotElement, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTaskInfo, BrowserTaskStatus, BrowserTaskUpdate, BrowserTab, BrowserTypeRequest, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie, } from './types.ts';
 declare module '@deepseek-ai/cordis' {
@@ -225,6 +225,12 @@ export declare class BrowserRuntime extends Service {
      * provider, opening it when nothing is open yet.
      */
     ensureWindowVisible(): Promise<void>;
+    /**
+     * Mirror one task's Agent todo list into the shared window (the floating orb
+     * reads it there). A provider without a window has nowhere to put it, so this
+     * is a no-op rather than an error.
+     */
+    pushTaskTodos(taskKey: string, todos: readonly BrowserTaskTodo[]): Promise<void>;
     /** Close the session through the selected provider. Idempotent; a missing
      *  provider is treated as already-closed so teardown paths stay no-ops. */
     close(session: BrowserSessionId): Promise<void>;

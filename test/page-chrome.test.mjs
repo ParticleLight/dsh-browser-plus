@@ -895,3 +895,16 @@ test('the task panel reads the key attribute its rows actually carry', () => {
   assert.match(script, /row\.dataset\.dshKey/)
   assert.match(script, /candidate\.dataset\.dshKey === task\.key/)
 })
+
+test('the chrome ships the floating orb for the Agent task', () => {
+  // 悬浮球：人在网页右下角就能看到 Agent 正在做什么。数据有两个来源 —— 任务摘要
+  // （status / latestAction）与定向的 task.todos 补丁（Agent 的 todo 清单）。清单
+  // 不进摘要，因为摘要会被注入每个访问过的页面的主世界。
+  const script = buildPageChromeScript('orb-check')
+  // 标记串在产物里是 JSON 转义过的（innerHTML 走 JSON.stringify），所以引号带反斜杠。
+  assert.ok(script.includes('id=\\"orb\\"'), 'the orb is in the chrome markup')
+  assert.ok(script.includes('id=\\"orbCard\\"'), 'and so is its hover card')
+  assert.ok(script.includes('@keyframes dshOrbSpin'), 'the spinner animation is there')
+  assert.ok(script.includes("operation.op === 'task.todos'"), 'the todo patch is applied')
+  assert.ok(script.includes('renderOrb()'), 'and the orb re-renders on it')
+})

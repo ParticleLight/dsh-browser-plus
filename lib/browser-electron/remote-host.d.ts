@@ -16,7 +16,7 @@
  * @module dsh-browser-plus/browser-electron/remote-host
  */
 import type { ChromeHostEvent, ElectronBrowserViewHost, ElectronViewHandle } from './provider.ts';
-import type { BrowserTaskInfo, BrowserTaskUpdate } from '../browser/types.ts';
+import type { BrowserTaskInfo, BrowserTaskTodo, BrowserTaskUpdate } from '../browser/types.ts';
 /**
  * Whether a usable Electron binary can be located right now. Cheap and local:
  * it only probes package metadata and the filesystem (no spawn, no network).
@@ -136,6 +136,8 @@ export declare class RemoteElectronViewHost implements ElectronBrowserViewHost {
     getTask(key: string): Promise<BrowserTaskInfo | undefined>;
     /** Update one task summary in the self-hosted visible workspace. */
     updateTask(key: string, task: BrowserTaskUpdate): Promise<BrowserTaskInfo | undefined>;
+    /** Mirror one task's Agent todo list into the self-hosted workspace. */
+    setTaskTodos(key: string, todos: readonly BrowserTaskTodo[]): Promise<void>;
     /** Shut the child and the RPC server down. */
     dispose(): void;
 }

@@ -6,7 +6,7 @@
  * shell that owns the `BrowserWindow`.
  * @module dsh-browser-plus/browser-electron
  */
-import type { BrowserChallenge, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserContentRequest, BrowserContentResult, BrowserDragRequest, BrowserDragResult, BrowserPointerResult, BrowserPointerTarget, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserPdfRequest, BrowserPdfResult, BrowserHighlightRequest, BrowserHighlightResult, BrowserWaitForRequest, BrowserWaitForResult, ExportedCookie } from '../browser/types.ts';
+import type { BrowserChallenge, BrowserClearAuthRequest, BrowserClearAuthResult, BrowserContentRequest, BrowserContentResult, BrowserDragRequest, BrowserDragResult, BrowserPointerResult, BrowserPointerTarget, BrowserExecuteRequest, BrowserExecuteResult, BrowserFillRequest, BrowserFillResult, BrowserHandoffState, BrowserHistoryEntry, BrowserOpenOptions, BrowserOpenRequest, BrowserPressKeyRequest, BrowserProvider, BrowserRefRequest, BrowserScrapeRequest, BrowserScrapeStatus, BrowserScrollIntoViewRequest, BrowserScrollRequest, BrowserScrollResult, BrowserSessionId, BrowserSnapshotResult, BrowserSpaceInfo, BrowserTab, BrowserTaskInfo, BrowserTaskUpdate, BrowserUploadFileRequest, BrowserUploadFileResult, BrowserPdfRequest, BrowserPdfResult, BrowserHighlightRequest, BrowserHighlightResult, BrowserWaitForRequest, BrowserWaitForResult, BrowserTaskTodo, ExportedCookie } from '../browser/types.ts';
 /** Stable provider id registered with `ctx.browser`. */
 export declare const ELECTRON_BROWSER_PROVIDER_ID = "electron";
 /**
@@ -110,6 +110,8 @@ export interface ElectronBrowserViewHost {
     getTask?(key: string): Promise<BrowserTaskInfo | undefined>;
     /** Apply a task status/control update to the visible workspace. */
     updateTask?(key: string, update: BrowserTaskUpdate): Promise<BrowserTaskInfo | undefined>;
+    /** Mirror one task's Agent todo list into the visible workspace (floating orb). */
+    setTaskTodos?(key: string, todos: readonly BrowserTaskTodo[]): Promise<void>;
 }
 /**
  * A CDP-capable view handle. This is the subset of Electron's
@@ -650,6 +652,16 @@ export declare class ElectronBrowserProvider implements BrowserProvider {
     getTask(session: BrowserSessionId): Promise<BrowserTaskInfo>;
     /** Apply one visible task state update and mirror it to a supporting host. */
     updateTask(session: BrowserSessionId, update: BrowserTaskUpdate): Promise<BrowserTaskInfo>;
+    /**
+     * Mirror one task's Agent todo list into the host so the floating orb can
+     * render it. The list is the DSH session projection for that task's session;
+     * only this side can read it, and only the host can reach the chrome.
+     *
+     * Unknown task keys are still stored: an Agent usually writes its plan before
+     * it opens a page, and the orb should show that plan the moment the task has a
+     * view rather than wait for the next write.
+     */
+    pushTaskTodos(taskKey: string, todos: readonly BrowserTaskTodo[]): Promise<void>;
     /** Hand control to the user or return it to Agent-driven actions. */
     setHandoff(session: BrowserSessionId, state: BrowserHandoffState): Promise<BrowserTaskInfo>;
     /** Append one operation to the session's history. */

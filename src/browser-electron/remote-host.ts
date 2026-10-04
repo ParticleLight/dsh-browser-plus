@@ -24,7 +24,7 @@ import { createServer, type Server, type Socket } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import type { ChromeHostEvent, ElectronBrowserViewHost, ElectronViewHandle } from './provider.ts'
 import { BrowserError } from '../browser/types.ts'
-import type { BrowserTaskInfo, BrowserTaskUpdate, ExportedCookie } from '../browser/types.ts'
+import type { BrowserTaskInfo, BrowserTaskTodo, BrowserTaskUpdate, ExportedCookie } from '../browser/types.ts'
 
 /** How long to wait for the child to signal readiness before failing. */
 const READY_TIMEOUT_MS = 20_000
@@ -831,6 +831,14 @@ export class RemoteElectronViewHost implements ElectronBrowserViewHost {
     if (client === undefined) throw new Error('browser host unavailable')
     const result = await client.call<{ task: BrowserTaskInfo | null }>('updateTask', { key, task }, RPC_QUERY_TIMEOUT_MS)
     return result.task ?? undefined
+  }
+
+  /** Mirror one task's Agent todo list into the self-hosted workspace. */
+  async setTaskTodos(key: string, todos: readonly BrowserTaskTodo[]): Promise<void> {
+    await this.ready()
+    const client = this.client
+    if (client === undefined) throw new Error('browser host unavailable')
+    await client.call<Record<string, never>>('setTaskTodos', { key, todos }, RPC_QUERY_TIMEOUT_MS)
   }
 
   /** Shut the child and the RPC server down. */

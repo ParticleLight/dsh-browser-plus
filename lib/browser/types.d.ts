@@ -715,6 +715,17 @@ export interface BrowserProvider {
      * rather than pretending a window was raised.
      */
     ensureWindowVisible?(): Promise<void>;
+    /**
+     * Mirror one task's Agent todo list into the shared window, where the floating
+     * orb renders it. Optional: a provider without a window of its own omits it.
+     * `taskKey` is the same task key the tools use (the calling Agent's id).
+     */
+    pushTaskTodos?(taskKey: string, todos: readonly BrowserTaskTodo[]): Promise<void>;
+}
+/** One entry of an Agent's todo list, as the floating orb shows it. */
+export interface BrowserTaskTodo {
+    readonly content: string;
+    readonly status: 'pending' | 'in_progress' | 'completed';
 }
 /** One recorded browser operation, in chronological order (seq 1, 2, 3…). */
 export interface BrowserHistoryEntry {

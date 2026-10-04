@@ -29,7 +29,7 @@ import { taskSummaryUrl } from './task-summary.js'
 import { taskThumbnailDataUrl, type ThumbnailImage } from './task-thumbnail.js'
 import { exportCookiesForAuth, selectCookiesForClear } from './auth-cookies.js'
 import { resolveBrowserIconPath } from './icon.js'
-import { createBootstrap, createPatch, type ChromeBookmark, type ChromePatchOperation, type ChromeTabSummary, type ChromeTaskSummary, type ChromeTrailEntry, type ChromeWorkspaceState } from './chrome-state.js'
+import { createBootstrap, createPatch, type ChromeBookmark, type ChromePatchOperation, type ChromeTabSummary, type ChromeTaskSummary, type ChromeTaskTodo, type ChromeTrailEntry, type ChromeWorkspaceState } from './chrome-state.js'
 
 // Isolate this host's profile from the DSH app's default Electron userData:
 // several Electron instances sharing Roaming\Electron fight over the GPU
@@ -508,6 +508,13 @@ const taskViewIds = new Map<string, Set<string>>()
 const taskThumbnails = new Map<string, string>()
 const taskThumbnailVersions = new Map<string, number>()
 const taskStates = new Map<string, HostTaskState>()
+/**
+ * The Agent's todo list per task, mirrored from the DSH session projection by the
+ * parent (see `setTaskTodos`). Kept here so the visible surface can be handed the
+ * current plan the moment it becomes visible — the list itself never rides in a
+ * task summary, because summaries reach every page's main world.
+ */
+const taskTodos = new Map<string, readonly ChromeTaskTodo[]>()
 const thumbnailTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const thumbnailDirty = new Set<string>()
 let thumbnailCaptureInFlight = false
@@ -713,7 +720,7 @@ function handleChromeAction(view: WebContentsView, viewId: string, chromeToken: 
         if (workspacePanels.tasks && visibleTaskKey !== undefined) scheduleVisibleTaskThumbnail(visibleTaskKey)
         // Opening the panel is the moment the other rows become visible, so hand
         // the surface every image we already have for them.
-        if (workspacePanels.tasks) pushCachedTaskThumbnails()
+        if (workspacePanels.tasks) { pushCachedTaskThumbnails(); pushCachedTaskTodos() }
         queueChromePatch({ op: 'panels.set', panels: workspacePanels })
       } else if (action.type === 'set-control-owner'
         && typeof action.taskKey === 'string'
@@ -1439,6 +1446,29 @@ function queueFrameAddress(): void {
  * visible task's page and the chrome frame, which are the only surfaces that
  * can show the panel in the first place.
  */
+/** Store one task's plan and push it to the surface that shows the panel. */
+function updateTaskTodos(key: string, todos: unknown): void {
+  if (!Array.isArray(todos)) return
+  const clean: ChromeTaskTodo[] = []
+  for (const item of todos) {
+    const entry = item as { content?: unknown; status?: unknown }
+    if (typeof entry?.content !== 'string' || entry.content === '') continue
+    const status = entry.status === 'completed' || entry.status === 'in_progress' ? entry.status : 'pending'
+    clean.push({ content: entry.content.slice(0, 160), status })
+    if (clean.length >= 40) break
+  }
+  taskTodos.set(key, clean)
+  queueChromePatch({ op: 'task.todos', key, todos: clean })
+}
+
+/**
+ * Hand every known plan to the visible surface. The orb is always on screen, so
+ * a surface that has just become visible has never seen any of them.
+ */
+function pushCachedTaskTodos(): void {
+  for (const [key, todos] of taskTodos) queueChromePatch({ op: 'task.todos', key, todos })
+}
+
 function pushCachedTaskThumbnails(): void {
   for (const [key, dataUrl] of taskThumbnails) {
     queueChromePatch({ op: 'task.thumbnail', key, version: taskThumbnailVersions.get(key) ?? 0, dataUrl })
@@ -1537,6 +1567,7 @@ function switchVisibleTask(taskKey: string): void {
   // 新露出来的那个表面此前没收到过别的任务的图像（补丁只发给可见表面），所以把
   // 宿主手里已有的图都补给它 —— 否则切过去之后面板里除了当前任务全是占位符。
   pushCachedTaskThumbnails()
+  pushCachedTaskTodos()
   // 必须在 pushVisibleChromeState() **之后**排队：它里面的 resetChromeDelivery() 会把
   // 先排的东西丢掉（切标签就是走这条路）。导航走 applyPageChrome，不会播。
   queueChromePatch({ op: 'reveal' })
@@ -1685,7 +1716,7 @@ function authorizeChromeAction(action: unknown, token: string): boolean {
 }
 
 /** Handle one command. */
-async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean; behavior?: string; promptText?: string; clear?: boolean; options?: Record<string, unknown> }): Promise<void> {
+async function handle(op: string, msg: { id: number; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; entry?: unknown; key?: string; label?: string; task?: Record<string, unknown>; todos?: unknown; domain?: string; name?: string; all?: boolean; behavior?: string; promptText?: string; clear?: boolean; options?: Record<string, unknown> }): Promise<void> {
   try {
     switch (op) {
       case 'ping':
@@ -2109,6 +2140,13 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         reply(msg.id, { ok: true, result: { task: task ?? null } })
         return
       }
+      case 'setTaskTodos': {
+        const key = msg.key
+        if (typeof key !== 'string' || msg.todos === undefined) throw new Error('setTaskTodos missing key or todos')
+        updateTaskTodos(key, msg.todos)
+        reply(msg.id, { ok: true, result: {} })
+        return
+      }
       case 'updateTask': {
         const key = msg.key
         if (typeof key !== 'string' || msg.task === undefined) throw new Error('updateTask missing key or task')
@@ -2371,7 +2409,7 @@ void app.whenReady().then(() => {
   rl.on('line', line => {
     const text = line.trim()
     if (text === '') return
-    let msg: { id: number; op?: string; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; key?: string; label?: string; task?: Record<string, unknown>; domain?: string; name?: string; all?: boolean; options?: Record<string, unknown> }
+    let msg: { id: number; op?: string; viewId?: string; method?: string; params?: Record<string, unknown>; expression?: string; url?: string; savePath?: string; cookies?: unknown[]; key?: string; label?: string; task?: Record<string, unknown>; todos?: unknown; domain?: string; name?: string; all?: boolean; options?: Record<string, unknown> }
     try {
       msg = JSON.parse(text) as typeof msg
     } catch {

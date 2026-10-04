@@ -53,6 +53,7 @@ import type {
   BrowserHighlightResult,
   BrowserWaitForRequest,
   BrowserWaitForResult,
+  BrowserTaskTodo,
   ExportedCookie,
 } from '../browser/types.ts'
 import { BrowserError } from '../browser/types.ts'
@@ -192,6 +193,8 @@ export interface ElectronBrowserViewHost {
   getTask?(key: string): Promise<BrowserTaskInfo | undefined>
   /** Apply a task status/control update to the visible workspace. */
   updateTask?(key: string, update: BrowserTaskUpdate): Promise<BrowserTaskInfo | undefined>
+  /** Mirror one task's Agent todo list into the visible workspace (floating orb). */
+  setTaskTodos?(key: string, todos: readonly BrowserTaskTodo[]): Promise<void>
 }
 
 /**
@@ -2559,6 +2562,20 @@ export class ElectronBrowserProvider implements BrowserProvider {
       return hosted
     }
     return this.localTaskInfo(s)
+  }
+
+  /**
+   * Mirror one task's Agent todo list into the host so the floating orb can
+   * render it. The list is the DSH session projection for that task's session;
+   * only this side can read it, and only the host can reach the chrome.
+   *
+   * Unknown task keys are still stored: an Agent usually writes its plan before
+   * it opens a page, and the orb should show that plan the moment the task has a
+   * view rather than wait for the next write.
+   */
+  async pushTaskTodos(taskKey: string, todos: readonly BrowserTaskTodo[]): Promise<void> {
+    if (typeof this.host.setTaskTodos !== 'function') return
+    await this.host.setTaskTodos(taskKey, todos).catch(() => undefined)
   }
 
   /** Hand control to the user or return it to Agent-driven actions. */
