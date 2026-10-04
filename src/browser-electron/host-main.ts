@@ -2094,8 +2094,16 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         const expression = msg.expression
         if (typeof expression !== 'string') throw new Error('chromeEval: expression must be a string')
         try { frame.webContents.debugger.attach('1.3') } catch { /* already attached */ }
+        // 隔离模式（默认）下，帧里的 chrome 也住在它自己的世界 —— 读它必须带上下文，
+        // 否则读的是帧的主世界（那里什么都没有）。
+        const frameContextId = CHROME_WORLD === 'isolated' ? await ensureChromeContext(frame) : undefined
         frame.webContents.debugger
-          .sendCommand('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
+          .sendCommand('Runtime.evaluate', {
+            expression,
+            returnByValue: true,
+            awaitPromise: true,
+            ...frameContextId === undefined ? {} : { contextId: frameContextId },
+          })
           .then(
             (result: unknown) => {
               // The client resolves with `msg.result`, so the value goes in there.
@@ -2200,6 +2208,28 @@ async function handle(op: string, msg: { id: number; viewId?: string; method?: s
         const method = msg.method
         if (typeof method !== 'string') throw new Error('command missing method')
         const result = await entry.webContentsView.webContents.debugger.sendCommand(method, msg.params ?? {})
+        reply(msg.id, { ok: true, result })
+        return
+      }
+      case 'chromeWorldEval': {
+        // Run a snippet in the world the *page's* injected chrome lives in.
+        //
+        // In isolated mode the chrome's globals are not reachable from the page
+        // world, and creating a world with the same name from outside yields a
+        // different, empty context — so the host, which owns the real one, has to
+        // resolve it here. In main mode this is a plain page-world evaluate.
+        const viewId = msg.viewId
+        if (viewId === undefined) throw new Error('chromeWorldEval missing viewId')
+        const entry = views.get(viewId)
+        if (entry === undefined) throw new Error(`chromeWorldEval: unknown view ${viewId}`)
+        if (typeof msg.expression !== 'string') throw new Error('chromeWorldEval missing expression')
+        const contextId = CHROME_WORLD === 'isolated' ? await ensureChromeContext(entry.webContentsView) : undefined
+        const result = await entry.webContentsView.webContents.debugger.sendCommand('Runtime.evaluate', {
+          expression: msg.expression,
+          returnByValue: true,
+          awaitPromise: true,
+          ...contextId === undefined ? {} : { contextId },
+        })
         reply(msg.id, { ok: true, result })
         return
       }

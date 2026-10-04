@@ -491,6 +491,17 @@ class RemoteView implements ElectronViewHandle {
     return this.client.call<{ base64: string }>('printToPdf', { viewId: this.id, options }, RPC_TRANSFER_TIMEOUT_MS)
   }
 
+  /**
+   * Run a snippet in the world the *page's* injected chrome lives in.
+   *
+   * In isolated mode (the default) the chrome's globals are not reachable from
+   * the page's own world, and creating a world with the same name from here
+   * yields a different, empty context — the host has to resolve its own.
+   */
+  chromeWorldEval(expression: string): Promise<{ result?: { value?: unknown } }> {
+    return this.client.call<{ result?: { value?: unknown } }>('chromeWorldEval', { viewId: this.id, expression }, RPC_QUERY_TIMEOUT_MS)
+  }
+
   /** Raise the child's window (show + restore + focus). */
   focusWindow(): Promise<void> {
     return this.client.call<Record<string, never>>('focusWindow', { viewId: this.id }, RPC_COMMAND_TIMEOUT_MS).then(() => undefined)
@@ -958,6 +969,11 @@ export class DeferredRemoteView implements ElectronViewHandle {
 
   async printToPdf(options: Record<string, unknown>): Promise<{ base64: string }> {
     return this.withView(view => view.printToPdf(options))
+  }
+
+  /** Evaluate in the injected chrome's own world (see the view-level method). */
+  async chromeWorldEval(expression: string): Promise<{ result?: { value?: unknown } }> {
+    return this.withView(view => view.chromeWorldEval(expression))
   }
 
   async focusWindow(): Promise<void> {
