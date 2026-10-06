@@ -11,7 +11,7 @@
 [![stars](https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?label=stars&logo=github)](https://github.com/ParticleLight/dsh-browser-plus/stargazers)
 [![license](https://img.shields.io/github/license/ParticleLight/dsh-browser-plus?label=license&color=green)](LICENSE)
 [![CI](https://github.com/ParticleLight/dsh-browser-plus/actions/workflows/ci.yml/badge.svg)](https://github.com/ParticleLight/dsh-browser-plus/actions/workflows/ci.yml)
-[![DSH](https://img.shields.io/badge/DSH-0.1.0--rc.1%20%7C%7C%200.2.0--rc.1-4D6BFE)](#安装)
+[![DSH](https://img.shields.io/badge/DSH-0.1.0--rc.1%20%7C%7C%200.2.x-4D6BFE)](#安装)
 [![status](https://img.shields.io/badge/status-stable-brightgreen)](https://github.com/ParticleLight/dsh-browser-plus/releases)
 
 ## 为何使用它
@@ -44,6 +44,8 @@ dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 ```
 
 已有浏览器 bundle 时，先阅读[迁移指南](docs/MIGRATION.md)，然后重启 DSH Web。
+
+需要 DSH `^0.1.0-rc.1` 或 `^0.2.0-rc.1`（0.1.0-rc.1 起、0.2.x 全线，含 `0.2.0-rc.2`；0.3.0 未支持）。
 
 ## 主要能力
 

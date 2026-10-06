@@ -11,7 +11,7 @@ dsh-browser-plus is developed on top of the MIT-licensed `dsh-browser` codebase 
 [![stars](https://img.shields.io/github/stars/ParticleLight/dsh-browser-plus?label=stars&logo=github)](https://github.com/ParticleLight/dsh-browser-plus/stargazers)
 [![license](https://img.shields.io/github/license/ParticleLight/dsh-browser-plus?label=license&color=green)](LICENSE)
 [![CI](https://github.com/ParticleLight/dsh-browser-plus/actions/workflows/ci.yml/badge.svg)](https://github.com/ParticleLight/dsh-browser-plus/actions/workflows/ci.yml)
-[![DSH](https://img.shields.io/badge/DSH-0.1.0--rc.1%20%7C%7C%200.2.0--rc.1-4D6BFE)](#install)
+[![DSH](https://img.shields.io/badge/DSH-0.1.0--rc.1%20%7C%7C%200.2.x-4D6BFE)](#install)
 [![status](https://img.shields.io/badge/status-stable-brightgreen)](https://github.com/ParticleLight/dsh-browser-plus/releases)
 
 ## Why it exists
@@ -44,6 +44,8 @@ dsh plugin --profile web add github:ParticleLight/dsh-browser-plus
 ```
 
 If another browser bundle is already installed, read the [migration guide](docs/MIGRATION.md), then restart DSH Web.
+
+Requires DSH `^0.1.0-rc.1` or `^0.2.0-rc.1` — 0.1.0-rc.1 and the whole 0.2.x line including `0.2.0-rc.2`; 0.3.0 is not supported.
 
 ## Main capabilities
 
