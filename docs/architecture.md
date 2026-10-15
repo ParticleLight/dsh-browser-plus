@@ -1,5 +1,7 @@
 # 架构说明
 
+> 图示版（draw.io）：[`architecture.drawio`](architecture.drawio) · 预览 [`architecture.png`](architecture.png) —— 四个容器（人的浏览器 / DSH 进程的 7 条插件行 / Electron 宿主子进程 / 被访问的网页）与它们之间的调用、事件回传、chrome 注入与 todo 推送。
+
 ## 三层结构
 
 ```
